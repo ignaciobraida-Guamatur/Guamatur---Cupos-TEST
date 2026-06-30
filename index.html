@@ -323,6 +323,26 @@
   </div>
 </div>
 
+<!-- MODAL CARGAR PASAJEROS DESDE FICHA (batch v2) -->
+<div id="modal-cargar-ficha" class="modal-overlay" style="display:none">
+  <div class="modal">
+    <div class="modal-title">📥 Cargar pasajeros desde ficha</div>
+    <div style="font-size:13px;color:var(--muted);margin-bottom:14px">Traé los pasajeros de una ficha de Atlas y asignalos a tus asientos <b>reservados (R)</b> de este cupo, todos de una. Revisás la asignación antes de confirmar; queda todo editable y, si algo falla, podés cargar a mano.</div>
+    <div class="form-grid">
+      <div class="form-group"><label class="form-label">Ficha</label><input class="form-input" id="cf-ficha" placeholder="N° de ficha de Atlas"/></div>
+      <div class="form-group"><label class="form-label">Factura <span style="color:var(--muted)">(con ficha → pasa a Vendido)</span></label><input class="form-input" id="cf-factura"/></div>
+    </div>
+    <div style="margin:10px 0"><button type="button" class="btn btn-primary" id="cf-traer" onclick="cargarFichaTraer()">📥 Traer de Atlas</button></div>
+    <div id="cf-status" style="display:none;font-size:12px;margin:6px 0"></div>
+    <div id="cf-mapa"></div>
+    <div id="modal-cf-alert"></div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" onclick="cerrarModal('modal-cargar-ficha')">Cancelar</button>
+      <button class="btn btn-primary" id="cf-confirmar" onclick="cargarFichaConfirmar()" style="display:none">Confirmar carga</button>
+    </div>
+  </div>
+</div>
+
 <!-- MODAL RESERVAR -->
 <div id="modal-reservar" class="modal-overlay" style="display:none">
   <div class="modal">
@@ -571,7 +591,7 @@ const sb=supabase.createClient('https://cxknhpxncusgtabkmywy.supabase.co','eyJhb
   }
 });
 
-const APP_VERSION='🧪 TESTING — datos NO reales · 2026-06-30 · Traer de Atlas';
+const APP_VERSION='🧪 TESTING — datos NO reales · 2026-06-30 · Traer de Atlas (v2 batch)';
 // Columnas de 'vuelos' legibles por cualquier usuario. EXCLUYE precio_neto: el admin lo lee por RPC admin_get_precio_neto (gateada por es_admin). No usar select('*') sobre vuelos: la columna precio_neto quedó revocada a authenticated.
 const VUELO_COLS='id,temporada_id,nombre,ciudad_codigo,ciudad_nombre,aerolinea,fecha,total_lugares,precio,condiciones_equipaje,creado_en,destino,localizador,itinerario,visible,itinerario_historial,cal_dias_pago_final,cal_dias_cancel_sin_gastos,cal_dias_cancel_con_gastos,cal_usuarios';
 // Calendarización: al crear un cupo, dispara (fire-and-forget) la creación de eventos en Google Calendar vía n8n.
@@ -1181,6 +1201,8 @@ async function cargarDetalle(vueloId){
   const numCols=14;
   const vendedorNombreActual=vendedores.find(v=>v.email===currentUser?.email)?.nombre||currentUser?.email||'';
   const misReservas=(!esAdmin)?lugaresActivos.concat(lugaresEspera).filter(l=>{const p=l.pasajeros?.[0];return p&&!p.cancelado&&p.status!=='L'&&p.vendedor===vendedorNombreActual;}):[];
+  // v2 "Cargar desde ficha": asientos RESERVADOS (R) a rellenar — admin: todos; vendedor: los propios
+  const misRParaCarga=esAdmin?rV:misReservas.filter(l=>l.pasajeros?.[0]?.status==='R').length;
 
   let html=`<div class="detalle-header">
     <div style="flex:1">
@@ -1198,6 +1220,7 @@ async function cargarDetalle(vueloId){
     <div class="detalle-actions">
       <button class="btn btn-outline" onclick="goTo('vuelos')">← Volver</button>
       <button class="btn btn-success" onclick="abrirModalReservar('${vueloId}',${lVReservable},'${idsLibres.join(',')}',${bloqLibres},${esVueloC})">+ Reservar lugares</button>
+      ${misRParaCarga>0?`<button class="btn btn-primary" onclick="abrirModalCargarFicha('${vueloId}')">📥 Cargar desde ficha (${misRParaCarga})</button>`:''}
       <button class="btn btn-excel" onclick="exportarExcel('${vueloId}')">⬇ Excel</button>
       ${(!esAdmin&&misReservas.length)?`<button class="btn btn-outline" onclick="abrirModalEliminar('${vueloId}')">🗑 Eliminar mis reservas (${misReservas.length})</button>`:''}
       ${esAdmin?`<button class="btn btn-warning" onclick="abrirModalCancelar('${vueloId}')">⚠ Cancelar reservas</button><button class="btn btn-outline" onclick="abrirModalEliminar('${vueloId}')">🗑 Eliminar reservas</button><button class="btn btn-outline" onclick="abrirModalReducir('${vueloId}')">▾ Reducir lugares</button><button class="btn btn-outline" onclick="cancelarCupo('${vueloId}')">✖ Cancelar cupo</button><button class="btn btn-outline" onclick="abrirEditarVuelo('${vueloId}')">✏ Editar cupo</button>`:''}
@@ -1437,6 +1460,103 @@ function aplicarPasajeroUno(p){
   document.getElementById('p-nombre1').value=p.primer_nombre||'';
   document.getElementById('p-nombre2').value=p.segundo_nombre||'';
   pasajeroDirty=true;
+}
+
+// --- v2: Cargar pasajeros desde ficha a TODOS los asientos reservados de una ---
+let _cfVueloId=null,_cfTargets=[],_cfPax=[];
+function cfStatus(msg,kind){const el=document.getElementById('cf-status');if(!el)return;const col={info:'var(--muted)',ok:'var(--green)',warn:'var(--yellow)',error:'var(--red)'}[kind]||'var(--muted)';el.style.display='block';el.style.color=col;el.textContent=msg;}
+async function abrirModalCargarFicha(vueloId){
+  _cfVueloId=vueloId;_cfTargets=[];_cfPax=[];
+  const esAdmin=rolEfectivo==='admin';
+  const vendNombre=vendedores.find(v=>v.email===currentUser?.email)?.nombre||currentUser?.email||'';
+  const [{data:lugares,error:e1},{data:infants}]=await Promise.all([
+    sb.from('lugares').select('*,pasajeros(*)').eq('vuelo_id',vueloId).order('numero_lugar'),
+    sb.from('infants').select('*').eq('vuelo_id',vueloId)
+  ]);
+  if(e1){alert('No se pudieron leer los asientos: '+e1.message);return;}
+  const infMap={};(infants||[]).forEach(i=>{if(i.pasajero_id)infMap[i.pasajero_id]=i;});
+  _cfTargets=(lugares||[]).filter(l=>!l.es_infant&&!l.es_espera&&!l.reducido)
+    .map(l=>({l,p:l.pasajeros?.[0]}))
+    .filter(x=>x.p&&!x.p.cancelado&&x.p.status==='R'&&(esAdmin||x.p.vendedor===vendNombre))
+    .map(x=>{const inf=infMap[x.p.id];return{
+      lugarId:x.l.id,pasajeroId:x.p.id,numero:x.l.numero_lugar,
+      ref:((x.p.primer_apellido||'')+' '+(x.p.primer_nombre||'')).trim(),
+      vendedor:x.p.vendedor||'',hotel:x.p.hotel||'',comentarios:x.p.comentarios||null,
+      tieneInfant:!!inf,inf:inf?{primer_apellido:inf.primer_apellido,segundo_apellido:inf.segundo_apellido,primer_nombre:inf.primer_nombre,segundo_nombre:inf.segundo_nombre,fecha_nacimiento:inf.fecha_nacimiento}:null
+    };})
+    .sort((a,b)=>a.numero-b.numero);
+  document.getElementById('cf-ficha').value='';
+  document.getElementById('cf-factura').value='';
+  document.getElementById('cf-mapa').innerHTML='';
+  document.getElementById('modal-cf-alert').innerHTML='';
+  document.getElementById('cf-confirmar').style.display='none';
+  document.getElementById('cf-traer').disabled=_cfTargets.length===0;
+  cfStatus(_cfTargets.length?`Tenés ${_cfTargets.length} asiento(s) reservado(s) (R) en este cupo. Escribí la ficha y traé los pasajeros.`:'No hay asientos reservados (R) para cargar en este cupo.',_cfTargets.length?'info':'warn');
+  document.getElementById('modal-cargar-ficha').style.display='flex';
+  document.getElementById('cf-ficha').focus();
+}
+async function cargarFichaTraer(){
+  const ficha=document.getElementById('cf-ficha').value.trim();
+  if(!ficha){cfStatus('Escribí el número de ficha.','warn');return;}
+  if(!_cfTargets.length){cfStatus('No hay asientos reservados para cargar.','warn');return;}
+  const btn=document.getElementById('cf-traer');const txt=btn.textContent;btn.disabled=true;btn.textContent='⏳ Buscando…';
+  cfStatus('Buscando pasajeros en Atlas…','info');
+  document.getElementById('cf-mapa').innerHTML='';document.getElementById('cf-confirmar').style.display='none';
+  try{
+    const {data,error}=await sb.functions.invoke('atlas-ficha',{body:{ficha}});
+    if(error)throw new Error(error.message||'No se pudo conectar');
+    if(data&&data.error)throw new Error(data.error);
+    const todos=(data&&data.pasajeros)||[];
+    _cfPax=todos.filter(p=>p.tipo!=='INF');
+    const infs=todos.filter(p=>p.tipo==='INF');
+    if(!_cfPax.length){cfStatus('La ficha '+ficha+' no tiene pasajeros con asiento cargados en Atlas.','warn');return;}
+    renderCfMapa(infs);
+    let msg=`${_cfPax.length} pasajero(s) en la ficha · ${_cfTargets.length} asiento(s) reservado(s).`;
+    if(_cfPax.length!==_cfTargets.length)msg+=' ⚠️ Las cantidades no coinciden: asigná lo que corresponda; lo que dejes "sin asignar" no se toca.';
+    cfStatus(msg,_cfPax.length!==_cfTargets.length?'warn':'ok');
+  }catch(e){cfStatus('No se pudo traer de Atlas ('+(e.message||e)+'). Probá de nuevo o cargá a mano.','error');}
+  finally{btn.disabled=false;btn.textContent=txt;}
+}
+function renderCfMapa(infs){
+  const opt=(sel)=>'<option value="">— sin asignar —</option>'+_cfPax.map((p,i)=>`<option value="${i}"${i===sel?' selected':''}>${esc(nombreAtlas(p))}</option>`).join('');
+  let h='<div style="border-top:1px solid var(--border);margin-top:8px;padding-top:10px"><div style="font-size:12px;color:var(--muted);margin-bottom:8px">Asigná un pasajero a cada asiento (por defecto, en orden). Editable.</div>';
+  _cfTargets.forEach((t,idx)=>{
+    h+=`<div style="display:flex;gap:8px;align-items:center;margin-bottom:6px"><span style="min-width:150px;font-size:12px;color:var(--muted)">Asiento #${t.numero}${t.ref?` · ${esc(t.ref)}`:''}</span><select class="form-select" id="cf-sel-${idx}" style="flex:1">${opt(idx<_cfPax.length?idx:-1)}</select></div>`;
+  });
+  if(infs&&infs.length)h+=`<div style="font-size:11px;color:var(--yellow);margin-top:8px">ℹ️ La ficha trae ${infs.length} infante(s): ${infs.map(p=>esc(nombreAtlas(p))).join(', ')}. No ocupan asiento; por ahora cargalos a mano en el adulto que viaja con cada uno.</div>`;
+  h+='</div>';
+  document.getElementById('cf-mapa').innerHTML=h;
+  document.getElementById('cf-confirmar').style.display='';
+}
+async function cargarFichaConfirmar(){
+  const ficha=document.getElementById('cf-ficha').value.trim();
+  const factura=document.getElementById('cf-factura').value.trim();
+  const asign=[];
+  _cfTargets.forEach((t,idx)=>{const v=document.getElementById('cf-sel-'+idx)?.value;if(v!==''&&v!=null)asign.push({t,pax:_cfPax[+v]});});
+  if(!asign.length){mostrarAlerta('modal-cf-alert','Asigná al menos un pasajero a un asiento.','error');return;}
+  const idxs=asign.map(a=>_cfPax.indexOf(a.pax));
+  if(idxs.length!==new Set(idxs).size){if(!confirm('Asignaste el mismo pasajero a más de un asiento. ¿Continuar igual?'))return;}
+  const status=(factura&&ficha)?'V':'R';
+  setBtnLoading('cf-confirmar',true);
+  await asegurarTokenFresco();
+  let ok=0,fail=0;const errs=[];
+  for(const a of asign){
+    try{
+      const {error}=await sb.rpc('guardar_pasajero',{
+        p_pasajero_id:a.t.pasajeroId,p_lugar_id:a.t.lugarId,p_vuelo_id:_cfVueloId,
+        p_primer_apellido:a.pax.primer_apellido||'',p_segundo_apellido:a.pax.segundo_apellido||'',
+        p_primer_nombre:a.pax.primer_nombre||'',p_segundo_nombre:a.pax.segundo_nombre||'',
+        p_hotel:a.t.hotel||'',p_vendedor:a.t.vendedor||'',p_ficha:ficha||null,
+        p_comentarios:a.t.comentarios||null,p_status:status,p_factura:factura||null,
+        p_fecha_reserva:null,p_tiene_infant:a.t.tieneInfant,p_inf:a.t.inf
+      });
+      if(error){fail++;errs.push('Asiento #'+a.t.numero+': '+error.message);}else ok++;
+    }catch(e){fail++;errs.push('Asiento #'+a.t.numero+': '+(e.message||e));}
+  }
+  setBtnLoading('cf-confirmar',false,'Confirmar carga');
+  await registrarLog('carga_ficha_lote','vuelo',_cfVueloId,{ficha,asignados:ok,fallidos:fail,status});
+  if(fail){mostrarAlerta('modal-cf-alert',`Cargados ${ok}, con ${fail} error(es): ${esc(errs.slice(0,3).join(' · '))}`,'error');if(ok)setTimeout(()=>cargarDetalle(_cfVueloId),500);}
+  else{mostrarAlerta('modal-cf-alert',`✓ ${ok} pasajero(s) cargado(s)${status==='V'?' y marcados VENDIDOS':' (reservados con su nombre)'}.`,'success');setTimeout(()=>{cerrarModal('modal-cargar-ficha');cargarDetalle(_cfVueloId);},900);}
 }
 
 function actualizarHintInfant(){
