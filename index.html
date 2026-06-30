@@ -350,6 +350,10 @@
     <div id="modal-r-alert"></div>
     <div style="font-size:13px;color:var(--muted);margin-bottom:16px">Los lugares se reservan provisoriamente a este apellido como <b>referencia del grupo/familia</b>. El nombre completo de cada pasajero se carga después, lugar por lugar, al cargar la ficha.</div>
     <div id="r-venc-info" style="display:none;font-size:13px;background:rgba(255,128,0,0.12);border:1px solid rgba(255,128,0,0.25);color:#ffb366;padding:8px 12px;border-radius:8px;margin-bottom:14px"></div>
+    <div class="form-group" id="r-vendedor-group" style="display:none">
+      <label class="form-label">Reservar a nombre del vendedor <span style="color:var(--muted)">(admin)</span></label>
+      <select class="form-select" id="r-vendedor"></select>
+    </div>
     <div class="form-group">
       <label class="form-label">Cantidad de lugares <span id="r-libres-label" style="color:var(--green)"></span></label>
       <input class="form-input" id="r-cantidad" type="number" min="1" placeholder="Ej: 4"/>
@@ -591,7 +595,7 @@ const sb=supabase.createClient('https://cxknhpxncusgtabkmywy.supabase.co','eyJhb
   }
 });
 
-const APP_VERSION='🧪 TESTING — datos NO reales · 2026-06-30 · Atlas v2.1 (lugares + fix INF)';
+const APP_VERSION='🧪 TESTING — datos NO reales · 2026-06-30 · Atlas v2.2 + reserva admin→vendedor';
 // Columnas de 'vuelos' legibles por cualquier usuario. EXCLUYE precio_neto: el admin lo lee por RPC admin_get_precio_neto (gateada por es_admin). No usar select('*') sobre vuelos: la columna precio_neto quedó revocada a authenticated.
 const VUELO_COLS='id,temporada_id,nombre,ciudad_codigo,ciudad_nombre,aerolinea,fecha,total_lugares,precio,condiciones_equipaje,creado_en,destino,localizador,itinerario,visible,itinerario_historial,cal_dias_pago_final,cal_dias_cancel_sin_gastos,cal_dias_cancel_con_gastos,cal_usuarios';
 // Calendarización: al crear un cupo, dispara (fire-and-forget) la creación de eventos en Google Calendar vía n8n.
@@ -1691,6 +1695,15 @@ function abrirModalReservar(vueloId,libres,idsStr,bloq,esC){
   document.getElementById('modal-r-alert').innerHTML='';
   document.getElementById('btn-confirmar-reserva').disabled=false;
   document.getElementById('btn-confirmar-reserva').textContent='Confirmar reserva';
+  // Selector de vendedor (solo admin): reservar a nombre propio o de otro vendedor
+  const rvGroup=document.getElementById('r-vendedor-group'),rvSel=document.getElementById('r-vendedor');
+  if(rolEfectivo==='admin'&&rvGroup&&rvSel){
+    const propio=vendedores.find(v=>v.email===currentUser?.email)?.nombre||currentUser?.email||'';
+    const lista=[...vendedores].filter(v=>v&&v.nombre&&v.activo!==false).sort((a,b)=>(a.nombre||'').localeCompare(b.nombre||''));
+    rvSel.innerHTML='<option value="">A nombre propio ('+esc(propio)+')</option>'+lista.map(v=>'<option value="'+esc(v.nombre)+'">'+esc(v.nombre)+'</option>').join('');
+    rvSel.value='';
+    rvGroup.style.display='';
+  } else if(rvGroup){ rvGroup.style.display='none'; }
   document.getElementById('modal-reservar').style.display='flex';
   document.getElementById('r-cantidad').focus(); // F9
 }
@@ -1708,7 +1721,9 @@ async function confirmarReserva(){
   }
   setBtnLoading('btn-confirmar-reserva',true,'Confirmar reserva');
   await asegurarTokenFresco();
-  const vendedorNombre=vendedores.find(v=>v.email===currentUser.email)?.nombre||currentUser.email;
+  let vendedorNombre=vendedores.find(v=>v.email===currentUser.email)?.nombre||currentUser.email;
+  // Admin puede reservar a nombre de otro vendedor (la RPC respeta p_vendedor solo para admin; el no-admin queda con su propio nombre)
+  if(rolEfectivo==='admin'){const sel=document.getElementById('r-vendedor')?.value;if(sel)vendedorNombre=sel;}
   // Reserva ATÓMICA en la base (FOR UPDATE SKIP LOCKED): evita que dos vendedores tomen el mismo lugar
   let res;
   if(reservarModoEspera){
@@ -1727,7 +1742,7 @@ async function confirmarReserva(){
     setTimeout(()=>{cerrarModal('modal-reservar');cargarDetalle(reservarVueloId)},1800);
     return;
   }
-  await registrarLog('reserva','vuelo',reservarVueloId,{cantidad:hechos,a_nombre:`${apellido} ${nombre}`.trim(),espera:reservarModoEspera});
+  await registrarLog('reserva','vuelo',reservarVueloId,{cantidad:hechos,a_nombre:`${apellido} ${nombre}`.trim(),vendedor:vendedorNombre,espera:reservarModoEspera});
   let msg=(!reservarModoEspera&&hechos<cantidad)
     ?`Se reservaron ${hechos} de ${cantidad} (el resto ya estaba tomado).`
     :`${hechos} lugar${hechos>1?'es':''} reservado${hechos>1?'s':''} correctamente`;
@@ -1752,6 +1767,15 @@ function reservarSlot(lugarId,vueloId){
   document.getElementById('modal-r-alert').innerHTML='';
   document.getElementById('btn-confirmar-reserva').disabled=false;
   document.getElementById('btn-confirmar-reserva').textContent='Confirmar reserva';
+  // Selector de vendedor (solo admin): reservar a nombre propio o de otro vendedor
+  const rvGroup=document.getElementById('r-vendedor-group'),rvSel=document.getElementById('r-vendedor');
+  if(rolEfectivo==='admin'&&rvGroup&&rvSel){
+    const propio=vendedores.find(v=>v.email===currentUser?.email)?.nombre||currentUser?.email||'';
+    const lista=[...vendedores].filter(v=>v&&v.nombre&&v.activo!==false).sort((a,b)=>(a.nombre||'').localeCompare(b.nombre||''));
+    rvSel.innerHTML='<option value="">A nombre propio ('+esc(propio)+')</option>'+lista.map(v=>'<option value="'+esc(v.nombre)+'">'+esc(v.nombre)+'</option>').join('');
+    rvSel.value='';
+    rvGroup.style.display='';
+  } else if(rvGroup){ rvGroup.style.display='none'; }
   document.getElementById('modal-reservar').style.display='flex';
   document.getElementById('r-apellido').focus(); // F9 (la cantidad está fija en 1 y deshabilitada)
 }
@@ -1771,6 +1795,15 @@ function abrirModalReservarEspera(vueloId,libresEspera){
   document.getElementById('modal-r-alert').innerHTML='';
   document.getElementById('btn-confirmar-reserva').disabled=false;
   document.getElementById('btn-confirmar-reserva').textContent='Confirmar reserva';
+  // Selector de vendedor (solo admin): reservar a nombre propio o de otro vendedor
+  const rvGroup=document.getElementById('r-vendedor-group'),rvSel=document.getElementById('r-vendedor');
+  if(rolEfectivo==='admin'&&rvGroup&&rvSel){
+    const propio=vendedores.find(v=>v.email===currentUser?.email)?.nombre||currentUser?.email||'';
+    const lista=[...vendedores].filter(v=>v&&v.nombre&&v.activo!==false).sort((a,b)=>(a.nombre||'').localeCompare(b.nombre||''));
+    rvSel.innerHTML='<option value="">A nombre propio ('+esc(propio)+')</option>'+lista.map(v=>'<option value="'+esc(v.nombre)+'">'+esc(v.nombre)+'</option>').join('');
+    rvSel.value='';
+    rvGroup.style.display='';
+  } else if(rvGroup){ rvGroup.style.display='none'; }
   document.getElementById('modal-reservar').style.display='flex';
   document.getElementById('r-cantidad').focus(); // F9
 }
