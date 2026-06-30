@@ -272,7 +272,18 @@
         <select class="form-select" id="p-vendedor"><option value="">Seleccionar...</option></select>
       </div>
       <div class="form-group full" id="p-venta-hint" style="display:none;background:rgba(124,111,253,0.12);border:1px solid rgba(124,111,253,0.3);border-radius:8px;padding:8px 12px;font-size:12px;color:var(--accent2)">💡 Para <b>cerrar la venta</b>: cargá <b>Ficha</b> + <b>Factura</b> y la reserva pasa automáticamente a <b>VENDIDA (V)</b>.</div>
-      <div class="form-group"><label class="form-label">Ficha <span style="color:var(--muted)">(+ Factura → Vendido)</span></label><input class="form-input" id="p-ficha"/></div>
+      <div class="form-group full" id="p-ficha-group">
+        <label class="form-label">Ficha <span style="color:var(--muted)">(+ Factura → Vendido)</span></label>
+        <div style="display:flex;gap:6px;align-items:stretch">
+          <input class="form-input" id="p-ficha" style="flex:1" placeholder="N° de ficha de Atlas"/>
+          <button type="button" class="btn-sm" id="p-traer-atlas" onclick="traerDeAtlas()" title="Traer los pasajeros de esta ficha desde Atlas (no los tipees a mano)" style="white-space:nowrap;flex:none">📥 Traer de Atlas</button>
+        </div>
+        <div id="p-atlas-status" style="display:none;font-size:11px;margin-top:5px"></div>
+        <div id="p-atlas-picker" style="display:none;margin-top:6px">
+          <label class="form-label" style="font-size:11px">Pasajero de la ficha — elegí cuál va en ESTE asiento</label>
+          <select class="form-select" id="p-atlas-select" onchange="aplicarPasajeroAtlas()"></select>
+        </div>
+      </div>
       <div class="form-group" id="p-status-group">
         <label class="form-label">Status</label>
         <select class="form-select" id="p-status" onchange="actualizarHintInfant()">
@@ -560,7 +571,7 @@ const sb=supabase.createClient('https://cxknhpxncusgtabkmywy.supabase.co','eyJhb
   }
 });
 
-const APP_VERSION='🧪 TESTING — datos NO reales · 2026-06-29';
+const APP_VERSION='🧪 TESTING — datos NO reales · 2026-06-30 · Traer de Atlas';
 // Columnas de 'vuelos' legibles por cualquier usuario. EXCLUYE precio_neto: el admin lo lee por RPC admin_get_precio_neto (gateada por es_admin). No usar select('*') sobre vuelos: la columna precio_neto quedó revocada a authenticated.
 const VUELO_COLS='id,temporada_id,nombre,ciudad_codigo,ciudad_nombre,aerolinea,fecha,total_lugares,precio,condiciones_equipaje,creado_en,destino,localizador,itinerario,visible,itinerario_historial,cal_dias_pago_final,cal_dias_cancel_sin_gastos,cal_dias_cancel_con_gastos,cal_usuarios';
 // Calendarización: al crear un cupo, dispara (fire-and-forget) la creación de eventos en Google Calendar vía n8n.
@@ -1363,8 +1374,69 @@ function abrirModalPasajero(lugarId,pasajero,vueloId,infant=null){
   document.getElementById('btn-guardar-pasajero').disabled=false;
   document.getElementById('btn-guardar-pasajero').textContent='Guardar';
   pasajeroDirty=false; // F6: arranca limpio; cualquier edición lo marca sucio
+  resetAtlasUI(); // limpia el estado del "Traer de Atlas" entre asientos
   document.getElementById('modal-pasajero').style.display='flex';
   document.getElementById('p-apellido1').focus(); // F9
+}
+
+// --- Traer pasajeros de Atlas por nº de ficha (Edge Function 'atlas-ficha', solo lectura) ---
+let _atlasPax=[];
+function resetAtlasUI(){
+  _atlasPax=[];
+  const st=document.getElementById('p-atlas-status'); if(st){st.style.display='none';st.textContent='';}
+  const pk=document.getElementById('p-atlas-picker'); if(pk) pk.style.display='none';
+}
+function atlasStatus(msg,kind){
+  const el=document.getElementById('p-atlas-status'); if(!el) return;
+  const col={info:'var(--muted)',ok:'var(--green)',warn:'var(--yellow)',error:'var(--red)'}[kind]||'var(--muted)';
+  el.style.display='block'; el.style.color=col; el.textContent=msg;
+}
+function nombreAtlas(p){
+  const ape=((p.primer_apellido||'')+' '+(p.segundo_apellido||'')).trim();
+  const nom=((p.primer_nombre||'')+' '+(p.segundo_nombre||'')).trim();
+  return ((ape?ape:'')+(ape&&nom?', ':'')+(nom?nom:'')).trim()||p.nombre_completo||'(sin nombre)';
+}
+async function traerDeAtlas(){
+  const ficha=document.getElementById('p-ficha').value.trim();
+  const btn=document.getElementById('p-traer-atlas');
+  if(!ficha){ atlasStatus('Escribí primero el número de ficha.','warn'); return; }
+  const txt=btn.textContent; btn.disabled=true; btn.textContent='⏳ Buscando…';
+  document.getElementById('p-atlas-picker').style.display='none';
+  atlasStatus('Buscando pasajeros en Atlas…','info');
+  try{
+    const {data,error}=await sb.functions.invoke('atlas-ficha',{body:{ficha}});
+    if(error) throw new Error(error.message||'No se pudo conectar');
+    if(data&&data.error) throw new Error(data.error);
+    const pax=(data&&data.pasajeros)||[];
+    if(!pax.length){ atlasStatus('La ficha '+ficha+' no tiene pasajeros cargados en Atlas. Podés cargarlos a mano.','warn'); return; }
+    elegirPasajeroAtlas(pax);
+  }catch(e){
+    atlasStatus('No se pudo traer de Atlas ('+(e.message||e)+'). Igual podés cargar los datos a mano.','error');
+  }finally{
+    btn.disabled=false; btn.textContent=txt;
+  }
+}
+function elegirPasajeroAtlas(pax){
+  _atlasPax=pax;
+  const pk=document.getElementById('p-atlas-picker'), sel=document.getElementById('p-atlas-select');
+  if(pax.length===1){ pk.style.display='none'; aplicarPasajeroUno(pax[0]); atlasStatus('Pasajero cargado desde Atlas ✓ — revisá y guardá.','ok'); return; }
+  sel.innerHTML='<option value="">Elegí un pasajero…</option>'+pax.map((p,i)=>'<option value="'+i+'">'+esc(nombreAtlas(p))+(p.tipo==='INF'?' · INFANT':'')+'</option>').join('');
+  pk.style.display='block';
+  atlasStatus(pax.length+' pasajeros en la ficha. Elegí cuál va en ESTE asiento (uno por asiento).','info');
+}
+function aplicarPasajeroAtlas(){
+  const v=document.getElementById('p-atlas-select').value;
+  if(v==='') return;
+  aplicarPasajeroUno(_atlasPax[+v]);
+  atlasStatus('Pasajero cargado desde Atlas ✓ — revisá y guardá.','ok');
+}
+function aplicarPasajeroUno(p){
+  if(!p) return;
+  document.getElementById('p-apellido1').value=p.primer_apellido||'';
+  document.getElementById('p-apellido2').value=p.segundo_apellido||'';
+  document.getElementById('p-nombre1').value=p.primer_nombre||'';
+  document.getElementById('p-nombre2').value=p.segundo_nombre||'';
+  pasajeroDirty=true;
 }
 
 function actualizarHintInfant(){
