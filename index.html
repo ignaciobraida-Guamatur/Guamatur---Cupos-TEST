@@ -597,7 +597,7 @@ const sb=supabase.createClient('https://cxknhpxncusgtabkmywy.supabase.co','eyJhb
   }
 });
 
-const APP_VERSION='🧪 TESTING — datos NO reales · 2026-07-03 · login Google (igual que prod) + b42/b43';
+const APP_VERSION='🧪 TESTING — datos NO reales · 2026-07-03 · login Google + b42/b43/b44';
 // Columnas de 'vuelos' legibles por cualquier usuario. EXCLUYE precio_neto: el admin lo lee por RPC admin_get_precio_neto (gateada por es_admin). No usar select('*') sobre vuelos: la columna precio_neto quedó revocada a authenticated.
 const VUELO_COLS='id,temporada_id,nombre,ciudad_codigo,ciudad_nombre,aerolinea,fecha,total_lugares,precio,condiciones_equipaje,creado_en,destino,localizador,itinerario,visible,itinerario_historial,cal_dias_pago_final,cal_dias_cancel_sin_gastos,cal_dias_cancel_con_gastos,cal_usuarios';
 // Calendarización: al crear un cupo, dispara (fire-and-forget) la creación de eventos en Google Calendar vía n8n.
@@ -1461,10 +1461,10 @@ function aplicarPasajeroUno(p){
 }
 
 // --- v2: Cargar pasajeros desde ficha a TODOS los lugares reservados de una ---
-let _cfVueloId=null,_cfTargets=[],_cfPax=[];
+let _cfVueloId=null,_cfTargets=[],_cfPax=[],_cfInf=[];
 function cfStatus(msg,kind){const el=document.getElementById('cf-status');if(!el)return;const col={info:'var(--muted)',ok:'var(--green)',warn:'var(--yellow)',error:'var(--red)'}[kind]||'var(--muted)';el.style.display='block';el.style.color=col;el.textContent=msg;}
 async function abrirModalCargarFicha(vueloId){
-  _cfVueloId=vueloId;_cfTargets=[];_cfPax=[];
+  _cfVueloId=vueloId;_cfTargets=[];_cfPax=[];_cfInf=[];
   const esAdmin=rolEfectivo==='admin';
   const vendNombre=vendedores.find(v=>v.email===currentUser?.email)?.nombre||currentUser?.email||'';
   const [{data:lugares,error:e1},{data:infants}]=await Promise.all([
@@ -1505,19 +1505,26 @@ async function cargarFichaTraer(){
     const {data,error}=await sb.functions.invoke('atlas-ficha',{body:{ficha}});
     if(error)throw new Error(error.message||'No se pudo conectar');
     if(data&&data.error)throw new Error(data.error);
-    // Incluir TODOS los pasajeros: el tipo INF de Atlas NO es confiable (las fichas viejas marcan
-    // todo como INF). El vendedor decide; si alguno es un bebé que no lleva lugar, lo deja "sin asignar".
-    _cfPax=(data&&data.pasajeros)||[];
-    if(!_cfPax.length){cfStatus('La ficha '+ficha+' no tiene pasajeros cargados en Atlas.','warn');return;}
-    const marcadosInf=_cfPax.filter(p=>p.tipo==='INF');
-    renderCfMapa(marcadosInf);
-    let msg=`${_cfPax.length} pasajero(s) en la ficha · ${_cfTargets.length} lugar(es) reservado(s).`;
-    if(_cfPax.length!==_cfTargets.length)msg+=' ⚠️ Las cantidades no coinciden: asigná lo que corresponda; lo que dejes "sin asignar" no se toca.';
-    cfStatus(msg,_cfPax.length!==_cfTargets.length?'warn':'ok');
+    const todos=(data&&data.pasajeros)||[];
+    if(!todos.length){cfStatus('La ficha '+ficha+' no tiene pasajeros cargados en Atlas.','warn');return;}
+    // Solo se cargan los que OCUPAN lugar (ADT/CHD). Los INF no ocupan asiento → se agregan a mano
+    // al adulto responsable. Fallback: si Atlas marcó a TODOS como INF (fichas viejas poco confiables),
+    // se usan todos igual para no quedarnos sin nada que cargar.
+    const conAsiento=todos.filter(p=>p.tipo!=='INF');
+    const infantes=todos.filter(p=>p.tipo==='INF');
+    const fallbackTodos=conAsiento.length===0;
+    _cfPax=fallbackTodos?todos:conAsiento;
+    _cfInf=fallbackTodos?[]:infantes;
+    renderCfMapa();
+    let msg;
+    if(fallbackTodos){msg=`⚠️ Atlas marcó a los ${todos.length} pasajeros como INFANT (ficha vieja, poco confiable): se cargan todos, revisá y dejá "sin asignar" los bebés que no lleven lugar.`;}
+    else{msg=`${_cfPax.length} pasajero(s) con lugar`+(infantes.length?` · ${infantes.length} infante(s) NO se cargan (se agregan a mano al adulto)`:'')+` · ${_cfTargets.length} lugar(es) reservado(s).`;}
+    if(_cfPax.length!==_cfTargets.length)msg+=' ⚠️ Las cantidades no coinciden con los lugares: asigná lo que corresponda; lo que dejes "sin asignar" no se toca.';
+    cfStatus(msg,(fallbackTodos||_cfPax.length!==_cfTargets.length)?'warn':'ok');
   }catch(e){cfStatus('No se pudo traer de Atlas ('+(e.message||e)+'). Probá de nuevo o cargá a mano.','error');}
   finally{btn.disabled=false;btn.textContent=txt;}
 }
-function renderCfMapa(marcadosInf){
+function renderCfMapa(){
   const opt=(sel)=>'<option value="">— sin asignar —</option>'+_cfPax.map((p,i)=>`<option value="${i}"${i===sel?' selected':''}>${esc(nombreAtlas(p))}${p.tipo==='INF'?' · (Atlas: INFANT)':''}</option>`).join('');
   const gHotel=(document.getElementById('cf-hotel')?.value||'').trim();
   let h='<div style="border-top:1px solid var(--border);margin-top:8px;padding-top:10px"><div style="font-size:12px;color:var(--muted);margin-bottom:8px">Asigná un pasajero a cada lugar (por defecto, en orden) y revisá el hotel. Todo editable.</div>';
@@ -1525,7 +1532,7 @@ function renderCfMapa(marcadosInf){
     const hv=esc(gHotel||t.hotel||'');
     h+=`<div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;flex-wrap:wrap"><span style="min-width:150px;font-size:12px;color:var(--muted)">Lugar #${t.numero}${t.ref?` · ${esc(t.ref)}`:''}</span><select class="form-select" id="cf-sel-${idx}" style="flex:1;min-width:140px">${opt(idx<_cfPax.length?idx:-1)}</select><input class="form-input" id="cf-hotel-${idx}" value="${hv}" placeholder="Hotel" style="flex:1;min-width:140px"/></div>`;
   });
-  if(marcadosInf&&marcadosInf.length)h+=`<div style="font-size:11px;color:var(--yellow);margin-top:8px">ℹ️ Atlas marca ${marcadosInf.length} pasajero(s) como INFANT (puede no ser confiable en fichas viejas). Si alguno es un bebé que no lleva lugar, dejalo "sin asignar".</div>`;
+  if(_cfInf&&_cfInf.length)h+=`<div style="font-size:11px;color:var(--yellow);margin-top:8px">🍼 ${_cfInf.length} infante(s) en la ficha (${esc(_cfInf.map(nombreAtlas).join(', '))}) NO se cargan acá porque no ocupan lugar. Agregalos a mano al adulto responsable (marcá "lleva INFANT" al editar su lugar).</div>`;
   h+='</div>';
   document.getElementById('cf-mapa').innerHTML=h;
   document.getElementById('cf-confirmar').style.display='';
