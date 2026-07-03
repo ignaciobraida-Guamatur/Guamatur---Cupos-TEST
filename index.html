@@ -332,6 +332,7 @@
       <div class="form-group"><label class="form-label">Ficha</label><input class="form-input" id="cf-ficha" placeholder="N° de ficha de Atlas"/></div>
       <div class="form-group"><label class="form-label">Factura <span style="color:var(--muted)">(con ficha → pasa a Vendido)</span></label><input class="form-input" id="cf-factura"/></div>
     </div>
+    <div class="form-group"><label class="form-label">Hotel <span style="color:var(--muted)">(se completa igual para todos; después podés cambiar alguno abajo)</span></label><input class="form-input" id="cf-hotel" placeholder="Ej: Hotel Atlântico" oninput="cfAplicarHotelATodos()"/></div>
     <div style="margin:10px 0"><button type="button" class="btn btn-primary" id="cf-traer" onclick="cargarFichaTraer()">📥 Traer de Atlas</button></div>
     <div id="cf-status" style="display:none;font-size:12px;margin:6px 0"></div>
     <div id="cf-mapa"></div>
@@ -595,7 +596,7 @@ const sb=supabase.createClient('https://cxknhpxncusgtabkmywy.supabase.co','eyJhb
   }
 });
 
-const APP_VERSION='🧪 TESTING — datos NO reales · 2026-06-30 · Atlas v2.2 + reserva admin→vendedor';
+const APP_VERSION='🧪 TESTING — datos NO reales · 2026-07-03 · b42 fecha vendidos + b43 hotel en carga desde ficha';
 // Columnas de 'vuelos' legibles por cualquier usuario. EXCLUYE precio_neto: el admin lo lee por RPC admin_get_precio_neto (gateada por es_admin). No usar select('*') sobre vuelos: la columna precio_neto quedó revocada a authenticated.
 const VUELO_COLS='id,temporada_id,nombre,ciudad_codigo,ciudad_nombre,aerolinea,fecha,total_lugares,precio,condiciones_equipaje,creado_en,destino,localizador,itinerario,visible,itinerario_historial,cal_dias_pago_final,cal_dias_cancel_sin_gastos,cal_dias_cancel_con_gastos,cal_usuarios';
 // Calendarización: al crear un cupo, dispara (fire-and-forget) la creación de eventos en Google Calendar vía n8n.
@@ -976,7 +977,7 @@ async function cargarMisReservas(){
   cont.innerHTML='<div class="loading"><div class="spinner"></div>Cargando...</div>';
   const nombre=vendedores.find(v=>v.email===currentUser?.email)?.nombre||currentUser?.email||'';
   const {data,error}=await sb.from('pasajeros')
-    .select('id,status,fecha_reserva,primer_apellido,primer_nombre,ficha,factura,vuelo_id,lugares(id,numero_lugar,es_espera,reducido),vuelos(nombre,destino,fecha)')
+    .select('id,status,fecha_reserva,creado_en,primer_apellido,primer_nombre,ficha,factura,vuelo_id,lugares(id,numero_lugar,es_espera,reducido),vuelos(nombre,destino,fecha)')
     .eq('vendedor',nombre).neq('status','L').eq('cancelado',false);
   if(error){console.error('[MisReservas]',error);cont.innerHTML='<div class="loading" style="color:var(--red)">Error al cargar</div>';return;}
   const norm=p=>{const l=Array.isArray(p.lugares)?p.lugares[0]:p.lugares;const v=Array.isArray(p.vuelos)?p.vuelos[0]:p.vuelos;return {...p,lug:l||{},vue:v||{}};};
@@ -1005,7 +1006,7 @@ async function cargarMisReservas(){
       const nom=f.primer_apellido?esc(`${f.primer_apellido} ${f.primer_nombre||''}`.trim()):'(sin nombre)';
       const stBadge=f.status==='V'?'<span class="badge badge-v">V</span>':'<span class="badge badge-r">R</span>';
       const esp=f.lug.es_espera?' <span class="badge badge-l">espera</span>':'';
-      let venceCell='—';
+      let venceCell=f.status==='V'?'<span style="color:var(--green)">Vendida</span>':'—';
       if(f.status==='R'){
         if(f.lug.es_espera) venceCell='<span style="color:var(--muted)">sin venc. (espera)</span>';
         else{const vd=vencDe(f);if(vd){const hR=(vd.ms-Date.now())/3600000;const cls=(vd.info.vencido||hR<12)?'vencimiento-warn':(hR<24?'vencimiento-soon':'');venceCell=`<span class="${cls}">${vd.info.texto}${vd.info.vencido?' (vencida)':''}</span>`;}else venceCell='<span style="color:var(--muted)">sin fecha</span>';}
@@ -1022,7 +1023,7 @@ async function cargarMisReservas(){
         <td>${stBadge}</td>
         <td style="font-size:12px">${faltaCell}</td>
         <td style="font-family:'DM Mono',monospace;font-size:12px">${venceCell}</td>
-        <td style="font-family:'DM Mono',monospace;font-size:12px">${formatFechaHora(f.fecha_reserva)}</td>
+        <td style="font-family:'DM Mono',monospace;font-size:12px">${formatFechaHora(f.fecha_reserva||f.creado_en)}</td>
         <td>${pdfBtn}</td>
       </tr>`;
     });
@@ -1309,8 +1310,8 @@ async function cargarDetalle(vueloId){
       <td>${esc(p?.vendedor)||'—'}</td>
       <td>${statusCell}</td>
       <td>${esc(p?.factura)||'—'}</td>
-      <td>${formatFechaHora(p?.fecha_reserva)}</td>
-      <td class="${vencCls}">${st==='R'?(l.es_espera?'<span style="color:var(--muted)">sin venc. (espera)</span>':vText):'—'}</td>
+      <td>${formatFechaHora(p?.fecha_reserva||p?.creado_en)}</td>
+      <td class="${vencCls}">${st==='R'?(l.es_espera?'<span style="color:var(--muted)">sin venc. (espera)</span>':vText):(st==='V'?'<span style="color:var(--green)">Vendida</span>':'—')}</td>
       <td>${esc(p?.ficha)||'—'}</td>
       <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(p?.comentarios)}">${esc(p?.comentarios)||'—'}</td>
       ${hasAccion?`<td><div style="display:flex;gap:6px;flex-wrap:wrap">${accionCell}</div></td>`:''}
@@ -1491,6 +1492,7 @@ async function abrirModalCargarFicha(vueloId){
     .sort((a,b)=>a.numero-b.numero);
   document.getElementById('cf-ficha').value='';
   document.getElementById('cf-factura').value='';
+  document.getElementById('cf-hotel').value='';
   document.getElementById('cf-mapa').innerHTML='';
   document.getElementById('modal-cf-alert').innerHTML='';
   document.getElementById('cf-confirmar').style.display='none';
@@ -1524,20 +1526,23 @@ async function cargarFichaTraer(){
 }
 function renderCfMapa(marcadosInf){
   const opt=(sel)=>'<option value="">— sin asignar —</option>'+_cfPax.map((p,i)=>`<option value="${i}"${i===sel?' selected':''}>${esc(nombreAtlas(p))}${p.tipo==='INF'?' · (Atlas: INFANT)':''}</option>`).join('');
-  let h='<div style="border-top:1px solid var(--border);margin-top:8px;padding-top:10px"><div style="font-size:12px;color:var(--muted);margin-bottom:8px">Asigná un pasajero a cada lugar (por defecto, en orden). Editable.</div>';
+  const gHotel=(document.getElementById('cf-hotel')?.value||'').trim();
+  let h='<div style="border-top:1px solid var(--border);margin-top:8px;padding-top:10px"><div style="font-size:12px;color:var(--muted);margin-bottom:8px">Asigná un pasajero a cada lugar (por defecto, en orden) y revisá el hotel. Todo editable.</div>';
   _cfTargets.forEach((t,idx)=>{
-    h+=`<div style="display:flex;gap:8px;align-items:center;margin-bottom:6px"><span style="min-width:150px;font-size:12px;color:var(--muted)">Lugar #${t.numero}${t.ref?` · ${esc(t.ref)}`:''}</span><select class="form-select" id="cf-sel-${idx}" style="flex:1">${opt(idx<_cfPax.length?idx:-1)}</select></div>`;
+    const hv=esc(gHotel||t.hotel||'');
+    h+=`<div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;flex-wrap:wrap"><span style="min-width:150px;font-size:12px;color:var(--muted)">Lugar #${t.numero}${t.ref?` · ${esc(t.ref)}`:''}</span><select class="form-select" id="cf-sel-${idx}" style="flex:1;min-width:140px">${opt(idx<_cfPax.length?idx:-1)}</select><input class="form-input" id="cf-hotel-${idx}" value="${hv}" placeholder="Hotel" style="flex:1;min-width:140px"/></div>`;
   });
   if(marcadosInf&&marcadosInf.length)h+=`<div style="font-size:11px;color:var(--yellow);margin-top:8px">ℹ️ Atlas marca ${marcadosInf.length} pasajero(s) como INFANT (puede no ser confiable en fichas viejas). Si alguno es un bebé que no lleva lugar, dejalo "sin asignar".</div>`;
   h+='</div>';
   document.getElementById('cf-mapa').innerHTML=h;
   document.getElementById('cf-confirmar').style.display='';
 }
+function cfAplicarHotelATodos(){const el=document.getElementById('cf-hotel');if(!el)return;const hv=el.value||'';_cfTargets.forEach((t,idx)=>{const ri=document.getElementById('cf-hotel-'+idx);if(ri)ri.value=hv;});}
 async function cargarFichaConfirmar(){
   const ficha=document.getElementById('cf-ficha').value.trim();
   const factura=document.getElementById('cf-factura').value.trim();
   const asign=[];
-  _cfTargets.forEach((t,idx)=>{const v=document.getElementById('cf-sel-'+idx)?.value;if(v!==''&&v!=null)asign.push({t,pax:_cfPax[+v]});});
+  _cfTargets.forEach((t,idx)=>{const v=document.getElementById('cf-sel-'+idx)?.value;if(v!==''&&v!=null){const h=(document.getElementById('cf-hotel-'+idx)?.value||'').trim();asign.push({t,pax:_cfPax[+v],hotel:h});}});
   if(!asign.length){mostrarAlerta('modal-cf-alert','Asigná al menos un pasajero a un lugar.','error');return;}
   const idxs=asign.map(a=>_cfPax.indexOf(a.pax));
   if(idxs.length!==new Set(idxs).size){if(!confirm('Asignaste el mismo pasajero a más de un lugar. ¿Continuar igual?'))return;}
@@ -1551,7 +1556,7 @@ async function cargarFichaConfirmar(){
         p_pasajero_id:a.t.pasajeroId,p_lugar_id:a.t.lugarId,p_vuelo_id:_cfVueloId,
         p_primer_apellido:a.pax.primer_apellido||'',p_segundo_apellido:a.pax.segundo_apellido||'',
         p_primer_nombre:a.pax.primer_nombre||'',p_segundo_nombre:a.pax.segundo_nombre||'',
-        p_hotel:a.t.hotel||'',p_vendedor:a.t.vendedor||'',p_ficha:ficha||null,
+        p_hotel:(a.hotel||a.t.hotel||''),p_vendedor:a.t.vendedor||'',p_ficha:ficha||null,
         p_comentarios:a.t.comentarios||null,p_status:status,p_factura:factura||null,
         p_fecha_reserva:null,p_tiene_infant:a.t.tieneInfant,p_inf:a.t.inf
       });
@@ -2052,7 +2057,7 @@ async function imprimirItinerario(vueloId,lugarId){
     const esC=libres<=3; // últimos lugares vendibles → vencimiento 24h; si no, 72h (excluye Operaciones)
     const lug=(lugs||[]).find(l=>l.id===lugarId);
     const p=lug?.pasajeros?.[0];
-    if(p&&p.status&&p.status!=='L'){const {texto:vTxt}=vencimientoReserva(p.fecha_reserva,esC);const vencTxt=p.status==='R'?(lug?.es_espera?'Lista de espera (sujeta a confirmación)':vTxt):'Confirmada (Vendido)';const nomb=x=>[x.primer_apellido,x.segundo_apellido,x.primer_nombre,x.segundo_nombre].filter(Boolean).join(' ').trim().toLowerCase();const clave=nomb(p);const cant=(lugs||[]).filter(l=>{const x=l.pasajeros?.[0];return x&&x.status&&x.status!=='L'&&!x.cancelado&&nomb(x)===clave;}).length;reserva={nombre:[p.primer_apellido,p.segundo_apellido,p.primer_nombre,p.segundo_nombre].filter(Boolean).join(' '),fecha:formatFechaHora(p.fecha_reserva),venc:vencTxt,cant};}
+    if(p&&p.status&&p.status!=='L'){const {texto:vTxt}=vencimientoReserva(p.fecha_reserva,esC);const vencTxt=p.status==='R'?(lug?.es_espera?'Lista de espera (sujeta a confirmación)':vTxt):'Confirmada (Vendido)';const nomb=x=>[x.primer_apellido,x.segundo_apellido,x.primer_nombre,x.segundo_nombre].filter(Boolean).join(' ').trim().toLowerCase();const clave=nomb(p);const cant=(lugs||[]).filter(l=>{const x=l.pasajeros?.[0];return x&&x.status&&x.status!=='L'&&!x.cancelado&&nomb(x)===clave;}).length;reserva={nombre:[p.primer_apellido,p.segundo_apellido,p.primer_nombre,p.segundo_nombre].filter(Boolean).join(' '),fecha:formatFechaHora(p.fecha_reserva||p.creado_en),venc:vencTxt,cant};}
   }
   const condItems=CONDICIONES_ITINERARIO.map((c,idx)=>`<div style="display:flex;gap:10px;padding:7px 0;border-bottom:1px dashed #eee"><span style="background:${GUA_PRIMARY};color:#fff;font-size:10px;font-weight:700;border-radius:4px;padding:2px 7px;height:fit-content">${String(idx+1).padStart(2,'0')}</span><span style="font-size:12px;color:#333">${esc(c)}</span></div>`).join('');
   // El PDF se abre en ventana nueva (sin base URL): convertir el logo a URL absoluta
