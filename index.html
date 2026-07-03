@@ -597,7 +597,7 @@ const sb=supabase.createClient('https://cxknhpxncusgtabkmywy.supabase.co','eyJhb
   }
 });
 
-const APP_VERSION='🧪 TESTING — datos NO reales · 2026-07-03 · login Google + b42/b43/b44/b45 (destinos)';
+const APP_VERSION='🧪 TESTING — datos NO reales · 2026-07-03 · login Google + b42-b46 (infant por edad + fecha reserva libre)';
 // Columnas de 'vuelos' legibles por cualquier usuario. EXCLUYE precio_neto: el admin lo lee por RPC admin_get_precio_neto (gateada por es_admin). No usar select('*') sobre vuelos: la columna precio_neto quedó revocada a authenticated.
 const VUELO_COLS='id,temporada_id,nombre,ciudad_codigo,ciudad_nombre,aerolinea,fecha,total_lugares,precio,condiciones_equipaje,creado_en,destino,localizador,itinerario,visible,itinerario_historial,cal_dias_pago_final,cal_dias_cancel_sin_gastos,cal_dias_cancel_con_gastos,cal_usuarios';
 // Calendarización: al crear un cupo, dispara (fire-and-forget) la creación de eventos en Google Calendar vía n8n.
@@ -1303,7 +1303,7 @@ async function cargarDetalle(vueloId){
       <td>${esc(p?.vendedor)||'—'}</td>
       <td>${statusCell}</td>
       <td>${esc(p?.factura)||'—'}</td>
-      <td>${formatFechaHora(p?.fecha_reserva||p?.creado_en)}</td>
+      <td>${libreSeat?'—':formatFechaHora(p?.fecha_reserva||p?.creado_en)}</td>
       <td class="${vencCls}">${st==='R'?(l.es_espera?'<span style="color:var(--muted)">sin venc. (espera)</span>':vText):(st==='V'?'<span style="color:var(--green)">Vendida</span>':'—')}</td>
       <td>${esc(p?.ficha)||'—'}</td>
       <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(p?.comentarios)}">${esc(p?.comentarios)||'—'}</td>
@@ -1494,6 +1494,20 @@ async function abrirModalCargarFicha(vueloId){
   document.getElementById('modal-cargar-ficha').style.display='flex';
   document.getElementById('cf-ficha').focus();
 }
+// ¿El pasajero de Atlas es INFANT (no ocupa asiento)? Regla: menor de 24 meses a la fecha del cupo
+// (misma validación que al editar). Se decide por EDAD (fecha de nacimiento), NO por la etiqueta de
+// Atlas que es poco confiable. Sin fecha de nacimiento válida, cae a la etiqueta tipo==='INF'.
+function esInfanteAtlas(p){
+  const fn=(p&&p.fecha_nac)?String(p.fecha_nac).slice(0,10):'';
+  const fv=currentVueloFecha?String(currentVueloFecha).slice(0,10):'';
+  if(/^\d{4}-\d{2}-\d{2}$/.test(fn)&&/^\d{4}-\d{2}-\d{2}$/.test(fv)){
+    const [ny,nm,nd]=fn.split('-').map(Number);
+    const [dy,dm,dd]=fv.split('-').map(Number);
+    let meses=(dy-ny)*12+(dm-nm);if(dd<nd)meses--;
+    return meses<24;
+  }
+  return !!(p&&p.tipo==='INF');
+}
 async function cargarFichaTraer(){
   const ficha=document.getElementById('cf-ficha').value.trim();
   if(!ficha){cfStatus('Escribí el número de ficha.','warn');return;}
@@ -1507,17 +1521,17 @@ async function cargarFichaTraer(){
     if(data&&data.error)throw new Error(data.error);
     const todos=(data&&data.pasajeros)||[];
     if(!todos.length){cfStatus('La ficha '+ficha+' no tiene pasajeros cargados en Atlas.','warn');return;}
-    // Solo se cargan los que OCUPAN lugar (ADT/CHD). Los INF no ocupan asiento → se agregan a mano
-    // al adulto responsable. Fallback: si Atlas marcó a TODOS como INF (fichas viejas poco confiables),
-    // se usan todos igual para no quedarnos sin nada que cargar.
-    const conAsiento=todos.filter(p=>p.tipo!=='INF');
-    const infantes=todos.filter(p=>p.tipo==='INF');
+    // Se cargan los que OCUPAN lugar (adultos y CHD/niños). Es INFANT (no ocupa asiento → se agrega
+    // a mano al adulto) quien tiene < 24 meses a la fecha del cupo, decidido por EDAD (fecha de
+    // nacimiento), no por la etiqueta de Atlas. Fallback: si NADIE queda con lugar, se cargan todos.
+    const conAsiento=todos.filter(p=>!esInfanteAtlas(p));
+    const infantes=todos.filter(p=>esInfanteAtlas(p));
     const fallbackTodos=conAsiento.length===0;
     _cfPax=fallbackTodos?todos:conAsiento;
     _cfInf=fallbackTodos?[]:infantes;
     renderCfMapa();
     let msg;
-    if(fallbackTodos){msg=`⚠️ Atlas marcó a los ${todos.length} pasajeros como INFANT (ficha vieja, poco confiable): se cargan todos, revisá y dejá "sin asignar" los bebés que no lleven lugar.`;}
+    if(fallbackTodos){msg=`⚠️ No pude distinguir quién ocupa lugar (todos figuran como infantes o sin fecha de nacimiento): se cargan los ${todos.length}, revisá y dejá "sin asignar" los bebés que no lleven lugar.`;}
     else{msg=`${_cfPax.length} pasajero(s) con lugar`+(infantes.length?` · ${infantes.length} infante(s) NO se cargan (se agregan a mano al adulto)`:'')+` · ${_cfTargets.length} lugar(es) reservado(s).`;}
     if(_cfPax.length!==_cfTargets.length)msg+=' ⚠️ Las cantidades no coinciden con los lugares: asigná lo que corresponda; lo que dejes "sin asignar" no se toca.';
     cfStatus(msg,(fallbackTodos||_cfPax.length!==_cfTargets.length)?'warn':'ok');
