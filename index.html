@@ -597,7 +597,7 @@ const sb=supabase.createClient('https://cxknhpxncusgtabkmywy.supabase.co','eyJhb
   }
 });
 
-const APP_VERSION='🧪 TESTING — datos NO reales · 2026-07-03 · login Google + b42/b43/b44';
+const APP_VERSION='🧪 TESTING — datos NO reales · 2026-07-03 · login Google + b42/b43/b44/b45 (destinos)';
 // Columnas de 'vuelos' legibles por cualquier usuario. EXCLUYE precio_neto: el admin lo lee por RPC admin_get_precio_neto (gateada por es_admin). No usar select('*') sobre vuelos: la columna precio_neto quedó revocada a authenticated.
 const VUELO_COLS='id,temporada_id,nombre,ciudad_codigo,ciudad_nombre,aerolinea,fecha,total_lugares,precio,condiciones_equipaje,creado_en,destino,localizador,itinerario,visible,itinerario_historial,cal_dias_pago_final,cal_dias_cancel_sin_gastos,cal_dias_cancel_con_gastos,cal_usuarios';
 // Calendarización: al crear un cupo, dispara (fire-and-forget) la creación de eventos en Google Calendar vía n8n.
@@ -636,8 +636,8 @@ const AEROLINEAS=Object.keys(AEROLINEA_COLOR);
 // Ciudades con su región (para filtrar el selector Ciudad al elegir Región)
 const CIUDADES=[
   {cod:'GRU',nom:'SÃO PAULO',reg:'Brasil'},{cod:'GIG',nom:'RÍO DE JANEIRO',reg:'Brasil'},
-  {cod:'REC',nom:'RECIFE',reg:'Brasil'},{cod:'SSA',nom:'SALVADOR',reg:'Brasil'},
-  {cod:'PUJ',nom:'PUNTA CANA',reg:'Caribe'},{cod:'AUA',nom:'ARUBA',reg:'Caribe'},{cod:'CUN',nom:'CANCÚN',reg:'Caribe'},
+  {cod:'REC',nom:'RECIFE',reg:'Brasil'},{cod:'SSA',nom:'SALVADOR',reg:'Brasil'},{cod:'FOR',nom:'FORTALEZA',reg:'Brasil'},
+  {cod:'PUJ',nom:'PUNTA CANA',reg:'Caribe'},{cod:'AUA',nom:'ARUBA',reg:'Caribe'},{cod:'CUN',nom:'CANCÚN',reg:'Caribe'},{cod:'CTG',nom:'CARTAGENA Y SAN ANDRÉS',reg:'Caribe'},
   {cod:'SCL',nom:'SANTIAGO DE CHILE',reg:'Chile'},{cod:'PMC',nom:'PUERTO MONTT',reg:'Chile'},
   {cod:'LIM',nom:'LIMA',reg:'Otros'},{cod:'BOG',nom:'BOGOTÁ',reg:'Otros'},{cod:'MIA',nom:'MIAMI',reg:'Otros'}
 ];
