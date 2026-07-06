@@ -502,7 +502,8 @@
         </select>
       </div>
       <div class="form-group"><label class="form-label">Localizador</label><input class="form-input" id="v-localizador" placeholder="Ej: ABC123"/></div>
-      <div class="form-group"><label class="form-label">Fecha</label><input class="form-input" id="v-fecha" type="date" onchange="sugerirNombreCupo()"/></div>
+      <div class="form-group"><label class="form-label">Fecha de salida</label><input class="form-input" id="v-fecha" type="date" onchange="sugerirNombreCupo()"/></div>
+      <div class="form-group"><label class="form-label">Fecha de regreso <span style="color:var(--muted);font-size:10px">para clasificar infantes</span></label><input class="form-input" id="v-fecha-regreso" type="date"/></div>
       <div class="form-group"><label class="form-label">Total lugares</label><input class="form-input" id="v-lugares" type="number" min="1" placeholder="Ej: 16"/></div>
       <div class="form-group"><label class="form-label">Precio de Venta (USD)</label><input class="form-input" id="v-precio" type="number" min="0" step="0.01" placeholder="Ej: 990"/></div>
       <div class="form-group"><label class="form-label">Valor Neto (USD) <span style="color:var(--accent2);font-size:10px">solo admins</span></label><input class="form-input" id="v-precio-neto" type="number" min="0" step="0.01" placeholder="Ej: 750"/></div>
@@ -597,9 +598,9 @@ const sb=supabase.createClient('https://cxknhpxncusgtabkmywy.supabase.co','eyJhb
   }
 });
 
-const APP_VERSION='🧪 TESTING — datos NO reales · 2026-07-03 · login Google + b42-b46 (infant por edad + fecha reserva libre)';
+const APP_VERSION='🧪 TESTING — datos NO reales · 2026-07-05 · login Google + b47 (infant por edad a la fecha de REGRESO)';
 // Columnas de 'vuelos' legibles por cualquier usuario. EXCLUYE precio_neto: el admin lo lee por RPC admin_get_precio_neto (gateada por es_admin). No usar select('*') sobre vuelos: la columna precio_neto quedó revocada a authenticated.
-const VUELO_COLS='id,temporada_id,nombre,ciudad_codigo,ciudad_nombre,aerolinea,fecha,total_lugares,precio,condiciones_equipaje,creado_en,destino,localizador,itinerario,visible,itinerario_historial,cal_dias_pago_final,cal_dias_cancel_sin_gastos,cal_dias_cancel_con_gastos,cal_usuarios';
+const VUELO_COLS='id,temporada_id,nombre,ciudad_codigo,ciudad_nombre,aerolinea,fecha,fecha_regreso,total_lugares,precio,condiciones_equipaje,creado_en,destino,localizador,itinerario,visible,itinerario_historial,cal_dias_pago_final,cal_dias_cancel_sin_gastos,cal_dias_cancel_con_gastos,cal_usuarios';
 // Calendarización: al crear un cupo, dispara (fire-and-forget) la creación de eventos en Google Calendar vía n8n.
 const N8N_WEBHOOK_AGENDA=''; // TEST: agenda desactivada (no dispara eventos reales)
 async function agendarEventosCupo(v){
@@ -646,7 +647,7 @@ const CONDICIONES_ITINERARIO=['Se requiere documentación escaneada de todos los
 const CONDICIONES_NOTA='Esta reserva queda confirmada hasta su fecha de vencimiento establecida en este documento. Para confirmar la reserva se requiere del pago total. En caso de no recibir el pago se cancela automáticamente.';
 // Escape de HTML para todo dato de usuario interpolado en innerHTML/document.write (anti-XSS)
 function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
-let currentUser=null,currentRol=null,currentVueloId=null,currentPasajeroId=null,currentLugarId=null,currentVueloFecha=null,sesionIniciada=false,rolEfectivo=null;
+let currentUser=null,currentRol=null,currentVueloId=null,currentPasajeroId=null,currentLugarId=null,currentVueloFecha=null,currentVueloFechaRegreso=null,sesionIniciada=false,rolEfectivo=null;
 let temporadas=[],temporadaActiva=null,vuelosData=[],tramosCount=0,dashFiltro='todos';
 let reservarVueloId=null,reservarLugaresLibres=0,reservarLugaresIds=[];
 let cancelarLugarId=null,cancelarPasajeroId=null,cancelarVueloId=null;
@@ -1122,6 +1123,7 @@ async function cargarDetalleTP(vueloId){
   const {data:vuelo,error}=await sb.from('vuelos').select(VUELO_COLS).eq('id',vueloId).single();
   if(error||!vuelo){cont.innerHTML='<div class="loading" style="color:var(--red)">Error</div>';return;}
   currentVueloFecha=vuelo.fecha||null;
+  currentVueloFechaRegreso=vuelo.fecha_regreso||vuelo.fecha||null;
   // Contadores: del listado ya cargado; si no está (nav directa), se traen por RPC.
   let c=(vuelosData||[]).find(v=>v.id===vueloId);
   if(!c){const {data:rpc}=await sb.rpc('tp_listar_cupos',{p_temporada_id:vuelo.temporada_id});c=(rpc||[]).find(v=>v.id===vueloId);}
@@ -1175,6 +1177,7 @@ async function cargarDetalle(vueloId){
   if(rolEfectivo==='admin'&&vuelo){const {data:pn}=await sb.rpc('admin_get_precio_neto',{p_vuelo_id:vueloId});precioNetoAdmin=pn;}
   if(!vuelo||!lugares){cont.innerHTML='<div class="loading" style="color:var(--red)">Error</div>';return;}
   currentVueloFecha=vuelo.fecha||null;
+  currentVueloFechaRegreso=vuelo.fecha_regreso||vuelo.fecha||null;
   const lugaresAdultos=lugares.filter(l=>!l.es_infant&&!l.es_espera);
   // Orden visual: Vendidos arriba, luego Reservados, luego cancelados, luego libres vendibles, luego Operaciones; numeración corrida (sin huecos)
   const grupoLugar=l=>{const pp=l.pasajeros?.[0];if(!pp||pp.status==='L')return l.bloqueado_operaciones?4:3;if(pp.cancelado)return 2;return pp.status==='V'?0:1;};
@@ -1494,12 +1497,13 @@ async function abrirModalCargarFicha(vueloId){
   document.getElementById('modal-cargar-ficha').style.display='flex';
   document.getElementById('cf-ficha').focus();
 }
-// ¿El pasajero de Atlas es INFANT (no ocupa asiento)? Regla: menor de 24 meses a la fecha del cupo
-// (misma validación que al editar). Se decide por EDAD (fecha de nacimiento), NO por la etiqueta de
-// Atlas que es poco confiable. Sin fecha de nacimiento válida, cae a la etiqueta tipo==='INF'.
+// ¿El pasajero de Atlas es INFANT (no ocupa asiento)? Regla: menor de 24 meses a la fecha de REGRESO
+// del cupo (si no hay regreso cargado, cae a la de salida). Se decide por EDAD (fecha de nacimiento),
+// NO por la etiqueta de Atlas que es poco confiable. Sin fecha de nacimiento válida, cae a tipo==='INF'.
 function esInfanteAtlas(p){
   const fn=(p&&p.fecha_nac)?String(p.fecha_nac).slice(0,10):'';
-  const fv=currentVueloFecha?String(currentVueloFecha).slice(0,10):'';
+  const ref=currentVueloFechaRegreso||currentVueloFecha;
+  const fv=ref?String(ref).slice(0,10):'';
   if(/^\d{4}-\d{2}-\d{2}$/.test(fn)&&/^\d{4}-\d{2}-\d{2}$/.test(fv)){
     const [ny,nm,nd]=fn.split('-').map(Number);
     const [dy,dm,dd]=fv.split('-').map(Number);
@@ -1636,15 +1640,18 @@ async function guardarPasajero(){
     const nombre1Inf=document.getElementById('pi-nombre1').value.trim();
     const nombre2Inf=document.getElementById('pi-nombre2').value.trim();
     const fechaNacInf=document.getElementById('pi-fecha-nac').value||null;
-    // Validación INFANT: debe tener menos de 24 meses a la fecha del cupo (si no, es CHILD)
-    if(fechaNacInf&&currentVueloFecha){
+    // Validación INFANT: debe tener menos de 24 meses a la fecha de REGRESO del cupo (si no hay regreso
+    // cargado, cae a la de salida). Si no, es CHILD y ocupa lugar.
+    const refInf=currentVueloFechaRegreso||currentVueloFecha;
+    const refEsRegreso=!!currentVueloFechaRegreso;
+    if(fechaNacInf&&refInf){
       // Parsear como números (no Date) para evitar el corrimiento UTC→local de "YYYY-MM-DD"
       const [ny,nm,nd]=fechaNacInf.slice(0,10).split('-').map(Number);
-      const [dy,dm,dd]=String(currentVueloFecha).slice(0,10).split('-').map(Number);
+      const [dy,dm,dd]=String(refInf).slice(0,10).split('-').map(Number);
       let meses=(dy-ny)*12+(dm-nm);
       if(dd<nd) meses--;
-      if(meses>=24){mostrarAlerta('modal-p-alert',`A la fecha del cupo tendría ${Math.floor(meses/12)} año(s) y ${meses%12} mes(es): ya NO califica como INFANT y ocupa un lugar. Revisá la fecha de nacimiento.`,'error');return;}
-      else if(meses>=22){if(!confirm(`El infant tendría ${meses} meses a la SALIDA y cumple 2 años cerca del viaje: al REGRESO podría ya ocupar un lugar. Verificá la fecha de regreso. ¿Guardar igual?`))return;}
+      if(meses>=24){mostrarAlerta('modal-p-alert',`A la fecha de ${refEsRegreso?'regreso':'salida'} tendría ${Math.floor(meses/12)} año(s) y ${meses%12} mes(es): ya NO califica como INFANT y ocupa un lugar. Revisá la fecha de nacimiento${refEsRegreso?'':' o cargá la fecha de regreso del cupo'}.`,'error');return;}
+      else if(meses>=22&&!refEsRegreso){if(!confirm(`El infant tendría ${meses} meses a la SALIDA y cumple 2 años cerca del viaje: al REGRESO podría ya ocupar un lugar. Cargá la fecha de regreso del cupo para validarlo bien. ¿Guardar igual?`))return;}
     }
     // Validación según status: V exige los 4 campos; R/L alcanza con primer apellido o nombre
     if(status==='V'){
@@ -2302,6 +2309,7 @@ async function abrirEditarVuelo(vueloId){
       document.getElementById('v-aerolinea').value=v.aerolinea||'';
       document.getElementById('v-localizador').value=v.localizador||'';
       document.getElementById('v-fecha').value=v.fecha?v.fecha.substring(0,10):'';
+      document.getElementById('v-fecha-regreso').value=v.fecha_regreso?v.fecha_regreso.substring(0,10):'';
       // Precargar "Total lugares" con el conteo REAL de lugares activos (no el total_lugares almacenado,
       // que queda desfasado tras una reducción/cancelación y reviviría stock devuelto a la aerolínea al guardar).
       const {data:lugsAct}=await sb.from('lugares').select('reducido').eq('vuelo_id',vueloId).eq('es_infant',false).eq('es_espera',false);
@@ -2373,6 +2381,7 @@ async function guardarVuelo(){
       aerolinea:document.getElementById('v-aerolinea').value||null,
       localizador:document.getElementById('v-localizador').value.trim()||null,
       fecha:document.getElementById('v-fecha').value||null,
+      fecha_regreso:document.getElementById('v-fecha-regreso').value||null,
       precio:parseFloat(document.getElementById('v-precio').value)||null,
       precio_neto:parseFloat(document.getElementById('v-precio-neto').value)||null,
       condiciones_equipaje:document.getElementById('v-equipaje').value.trim()||null,
@@ -2438,7 +2447,7 @@ async function guardarVuelo(){
         p_condiciones_equipaje:datos.condiciones_equipaje,p_visible:datos.visible,p_itinerario:datos.itinerario,
         p_total_lugares:total_lugares,p_cal_dias_pago_final:datos.cal_dias_pago_final,
         p_cal_dias_cancel_sin_gastos:datos.cal_dias_cancel_sin_gastos,p_cal_dias_cancel_con_gastos:datos.cal_dias_cancel_con_gastos,
-        p_cal_usuarios:datos.cal_usuarios});
+        p_cal_usuarios:datos.cal_usuarios,p_fecha_regreso:datos.fecha_regreso});
       if(error){setBtnLoading('btn-crear-vuelo',false,'Crear cupo');mostrarAlerta('modal-v-alert',error.message,'error');return;}
       await registrarLog('crear_cupo','vuelo',nuevoId,{nombre:datos.nombre,total:total_lugares});
       agendarEventosCupo(datos); // fire-and-forget: agenda eventos en Google Calendar vía n8n
@@ -2668,7 +2677,7 @@ async function crearCuposMasivos(){
         p_localizador:f.localizador,p_fecha:f.fecha,p_precio:f.precio,p_precio_neto:f.precio_neto,
         p_condiciones_equipaje:null,p_visible:true,p_itinerario:f.itinerario.length?f.itinerario:null,
         p_total_lugares:f.total_lugares,p_cal_dias_pago_final:null,p_cal_dias_cancel_sin_gastos:null,
-        p_cal_dias_cancel_con_gastos:null,p_cal_usuarios:null}),'RPC crear_cupo masivo');
+        p_cal_dias_cancel_con_gastos:null,p_cal_usuarios:null,p_fecha_regreso:null}),'RPC crear_cupo masivo');
       if(error){errores.push(`${f.nombre}: ${error.message}`);continue;}
       await registrarLog('crear_cupo','vuelo',nuevoId,{nombre:f.nombre,total:f.total_lugares,via:'masivo'});
       ok++;
