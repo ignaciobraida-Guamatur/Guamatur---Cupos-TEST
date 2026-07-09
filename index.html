@@ -600,7 +600,7 @@ const sb=supabase.createClient('https://cxknhpxncusgtabkmywy.supabase.co','eyJhb
   }
 });
 
-const APP_VERSION='🧪 TESTING — datos NO reales · 2026-07-09 · login Google + b51 (rol Operaciones)';
+const APP_VERSION='🧪 TESTING — datos NO reales · 2026-07-09 · login Google + b52 (doble confirmación)';
 // Columnas de 'vuelos' legibles por cualquier usuario. EXCLUYE precio_neto: el admin lo lee por RPC admin_get_precio_neto (gateada por es_admin). No usar select('*') sobre vuelos: la columna precio_neto quedó revocada a authenticated.
 const VUELO_COLS='id,temporada_id,nombre,ciudad_codigo,ciudad_nombre,aerolinea,fecha,fecha_regreso,total_lugares,precio,condiciones_equipaje,creado_en,destino,localizador,itinerario,visible,itinerario_historial,cal_dias_pago_final,cal_dias_cancel_sin_gastos,cal_dias_cancel_con_gastos,cal_usuarios';
 // Calendarización: al crear un cupo, dispara (fire-and-forget) la creación de eventos en Google Calendar vía n8n.
@@ -1920,6 +1920,7 @@ async function confirmarReduccion(){
   const n=parseInt(document.getElementById('red-cantidad').value);
   if(!n||n<1){mostrarAlerta('modal-red-alert','Ingresá una cantidad válida','error');return;}
   if(n>reducirMaxLibres){mostrarAlerta('modal-red-alert',`Solo hay ${reducirMaxLibres} lugares libres para reducir`,'error');return;}
+  if(!confirm(`¿Reducir ${n} lugar(es)? Quedan marcados como REDUCIDO al final de la planilla (solo afecta lugares libres; se pueden restaurar).`)) return;
   setBtnLoading('btn-confirmar-reducir',true,'Confirmar reducción');
   await asegurarTokenFresco();
   // Reducción ATÓMICA en la base (FOR UPDATE SKIP LOCKED): evita marcar como reducido un lugar que un vendedor reservó en el ínterin (el SELECT→UPDATE client-side reintroducía el race que CLAUDE.md prohíbe)
@@ -1975,6 +1976,7 @@ async function abrirModalEliminar(vueloId){
 async function confirmarEliminarReserva(){
   const sel=eliminarList.filter(l=>{const c=document.getElementById(`elc-${l.id}`);return c&&c.checked;});
   if(!sel.length){mostrarAlerta('modal-elim-alert','Seleccioná al menos una reserva','error');return;}
+  if(!confirm(`¿Eliminar ${sel.length} reserva(s) (lugar ${sel.map(l=>l.numero_lugar).join(', ')})? Se liberan los lugares y se borran los datos del pasajero. No se puede deshacer.`)) return;
   setBtnLoading('btn-confirmar-elim',true,'Eliminar seleccionadas');
   await asegurarTokenFresco();
   const ids=sel.map(l=>l.pasajeros[0].id);
@@ -2033,10 +2035,11 @@ async function confirmarCancelacion(){
     return chk&&chk.checked&&!chk.disabled&&p&&p.status!=='L';
   });
   if(!seleccionados.length){mostrarAlerta('modal-c-alert','Seleccioná al menos un lugar','error');return;}
-  setBtnLoading('btn-confirmar-cancelar',true,'Confirmar cancelación');
-  await asegurarTokenFresco();
   const penalidad=parseFloat(document.getElementById('c-penalidad').value)||0;
   const recupero=parseFloat(document.getElementById('c-recupero').value)||0;
+  if(!confirm(`⚠️ CANCELAR ${seleccionados.length} lugar(es) (${seleccionados.map(l=>l.numero_lugar).join(', ')}).\n\nSe borran los datos del pasajero y queda registrada la cancelación${(penalidad||recupero)?` (penalidad USD ${penalidad} / recupero USD ${recupero})`:''}. Esta acción NO se puede deshacer.\n\n¿Confirmás?`)) return;
+  setBtnLoading('btn-confirmar-cancelar',true,'Confirmar cancelación');
+  await asegurarTokenFresco();
   const errors=[];
   const exitososLugares=[];
   for(const l of seleccionados){
@@ -2453,6 +2456,7 @@ async function guardarVuelo(){
         const aBorrar=[...activos].sort((a,b)=>b.numero_lugar-a.numero_lugar).slice(0,cantidadActual-total_lugares);
         const ocupado=aBorrar.find(l=>(l.pasajeros&&l.pasajeros.length>0)||(l.cancelaciones&&l.cancelaciones.length>0));
         if(ocupado){setBtnLoading('btn-crear-vuelo',false,'Guardar cambios');mostrarAlerta('modal-v-alert',`No se puede reducir: el lugar #${ocupado.numero_lugar} tiene pasajero o cancelación. Liberalo primero (o usá "Reducción de lugares").`,'error');return;}
+        if(!confirm(`⚠️ Vas a BAJAR el total de lugares de ${cantidadActual} a ${total_lugares}: se ELIMINAN definitivamente ${cantidadActual-total_lugares} lugar(es) vacíos (#${[...aBorrar].map(l=>l.numero_lugar).sort((a,b)=>a-b).join(', #')}). No se puede deshacer. ¿Confirmás?`)){setBtnLoading('btn-crear-vuelo',false,'Guardar cambios');return;}
         const idsBorrar=aBorrar.map(l=>l.id);
         const {error:errDel}=await sb.from('lugares').delete().in('id',idsBorrar);
         if(errDel){setBtnLoading('btn-crear-vuelo',false,'Guardar cambios');mostrarAlerta('modal-v-alert','Error al reducir lugares: '+errDel.message,'error');return;}
