@@ -484,7 +484,7 @@
       <div class="form-group full"><label class="form-label">Temporada</label><select class="form-select" id="v-temporada"></select></div>
       <div class="form-group">
         <label class="form-label">Región</label>
-        <select class="form-select" id="v-destino" onchange="onRegionChange()"><option value="">Seleccionar...</option><option value="Brasil">Brasil</option><option value="Caribe">Caribe</option><option value="Chile">Chile</option><option value="Otros">Otros</option></select>
+        <select class="form-select" id="v-destino" onchange="onRegionChange()"><option value="">Seleccionar...</option><option value="Argentina">Argentina</option><option value="Brasil">Brasil</option><option value="Caribe">Caribe</option><option value="Chile">Chile</option><option value="Otros">Otros</option></select>
       </div>
       <div class="form-group">
         <label class="form-label">Ciudad <span style="color:var(--muted);font-size:10px">elegí la región primero</span></label>
@@ -600,7 +600,7 @@ const sb=supabase.createClient('https://cxknhpxncusgtabkmywy.supabase.co','eyJhb
   }
 });
 
-const APP_VERSION='🧪 TESTING — datos NO reales · 2026-07-09 · login Google + b52 (doble confirmación)';
+const APP_VERSION='🧪 TESTING — datos NO reales · 2026-07-10 · b54 (mejoras PDF pasajero + destinos + región Argentina)';
 // Columnas de 'vuelos' legibles por cualquier usuario. EXCLUYE precio_neto: el admin lo lee por RPC admin_get_precio_neto (gateada por es_admin). No usar select('*') sobre vuelos: la columna precio_neto quedó revocada a authenticated.
 const VUELO_COLS='id,temporada_id,nombre,ciudad_codigo,ciudad_nombre,aerolinea,fecha,fecha_regreso,total_lugares,precio,condiciones_equipaje,creado_en,destino,localizador,itinerario,visible,itinerario_historial,cal_dias_pago_final,cal_dias_cancel_sin_gastos,cal_dias_cancel_con_gastos,cal_usuarios';
 // Calendarización: al crear un cupo, dispara (fire-and-forget) la creación de eventos en Google Calendar vía n8n.
@@ -628,6 +628,29 @@ async function agendarEventosCupo(v){
     await fetch(N8N_WEBHOOK_AGENDA,{method:'POST',mode:'no-cors',body:JSON.stringify(payload)});
   }catch(e){console.warn('[Agenda] no se pudo agendar:',e);}
 }
+// Aviso de cambio de itinerario: al editar un cupo a la venta y cambiar el itinerario, avisa por mail (n8n -> Gmail) a todo el equipo interno. Fire-and-forget.
+const N8N_WEBHOOK_ITINERARIO=''; // TEST: aviso de itinerario DESACTIVADO (no manda mails reales al equipo)
+async function avisarCambioItinerario(v,itiViejo,itiNuevo){
+  try{
+    if(!N8N_WEBHOOK_ITINERARIO) return;
+    const destinatarios=(Array.isArray(vendedores)?vendedores:[]).filter(u=>u&&u.rol!=='travel_partner'&&u.email).map(u=>u.email);
+    if(!destinatarios.length) return;
+    const payload={
+      cupo:v.nombre||'',
+      destino:v.ciudad_nombre||v.destino||'',
+      aerolinea:v.aerolinea||'',
+      fecha_salida:v.fecha?String(v.fecha).slice(0,10):'',
+      localizador:v.localizador||'',
+      url:location.origin+location.pathname,
+      editor:(vendedores.find(x=>x.email===currentUser?.email)?.nombre||currentUser?.email||'?'),
+      editor_email:currentUser?.email||'',
+      itinerario_anterior:Array.isArray(itiViejo)?itiViejo:[],
+      itinerario_nuevo:Array.isArray(itiNuevo)?itiNuevo:[],
+      destinatarios
+    };
+    await fetch(N8N_WEBHOOK_ITINERARIO,{method:'POST',mode:'no-cors',body:JSON.stringify(payload)});
+  }catch(e){console.warn('[AvisoItinerario] no se pudo avisar:',e);}
+}
 document.querySelectorAll('.app-version').forEach(e=>{e.textContent=APP_VERSION;});
 {const _cr=document.getElementById('login-copyright'); if(_cr) _cr.textContent='© Guamatur Viajes '+new Date().getFullYear();}
 // Identidad de marca Guamatur (manual oficial — ver 00 - Sistema/referencias/marca-guamatur/)
@@ -639,11 +662,15 @@ const AEROLINEAS=Object.keys(AEROLINEA_COLOR);
 // Ciudades con su región (para filtrar el selector Ciudad al elegir Región)
 const CIUDADES=[
   {cod:'GRU',nom:'SÃO PAULO',reg:'Brasil'},{cod:'GIG',nom:'RÍO DE JANEIRO',reg:'Brasil'},
-  {cod:'REC',nom:'RECIFE',reg:'Brasil'},{cod:'SSA',nom:'SALVADOR',reg:'Brasil'},{cod:'FOR',nom:'FORTALEZA',reg:'Brasil'},
-  {cod:'PUJ',nom:'PUNTA CANA',reg:'Caribe'},{cod:'AUA',nom:'ARUBA',reg:'Caribe'},{cod:'CUN',nom:'CANCÚN',reg:'Caribe'},{cod:'CTG',nom:'CARTAGENA Y SAN ANDRÉS',reg:'Caribe'},
+  {cod:'REC',nom:'RECIFE',reg:'Brasil'},{cod:'SSA',nom:'SALVADOR',reg:'Brasil'},{cod:'FOR',nom:'FORTALEZA',reg:'Brasil'},{cod:'FLN',nom:'FLORIANÓPOLIS',reg:'Brasil'},{cod:'MCZ',nom:'MACEIÓ',reg:'Brasil'},{cod:'MCZREC',nom:'MACEIÓ Y RECIFE',reg:'Brasil'},
+  {cod:'PUJ',nom:'PUNTA CANA',reg:'Caribe'},{cod:'AUA',nom:'ARUBA',reg:'Caribe'},{cod:'CUN',nom:'CANCÚN',reg:'Caribe'},{cod:'CTG',nom:'CARTAGENA Y SAN ANDRÉS',reg:'Caribe'},{cod:'ADZ',nom:'SAN ANDRÉS',reg:'Caribe'},
   {cod:'SCL',nom:'SANTIAGO DE CHILE',reg:'Chile'},{cod:'PMC',nom:'PUERTO MONTT',reg:'Chile'},
-  {cod:'LIM',nom:'LIMA',reg:'Otros'},{cod:'BOG',nom:'BOGOTÁ',reg:'Otros'},{cod:'MIA',nom:'MIAMI',reg:'Otros'}
+  {cod:'BRC',nom:'BARILOCHE',reg:'Argentina'},{cod:'USHFTE',nom:'USHUAIA Y EL CALAFATE',reg:'Argentina'},{cod:'SLA',nom:'SALTA',reg:'Argentina'},
+  {cod:'LIM',nom:'LIMA',reg:'Otros'},{cod:'LIMCUZ',nom:'LIMA Y CUSCO',reg:'Otros'},{cod:'BOG',nom:'BOGOTÁ',reg:'Otros'},{cod:'MCO',nom:'ORLANDO',reg:'Otros'},{cod:'MIA',nom:'MIAMI',reg:'Otros'}
 ];
+// Nombre de ciudad por código de aeropuerto — para el PDF del pasajero (muchas veces no conoce el código IATA).
+const AEROPUERTOS={MVD:'Montevideo',PDP:'Punta del Este',GRU:'São Paulo',CGH:'São Paulo',VCP:'São Paulo',GIG:'Río de Janeiro',SDU:'Río de Janeiro',REC:'Recife',SSA:'Salvador de Bahía',FOR:'Fortaleza',FLN:'Florianópolis',MCZ:'Maceió',POA:'Porto Alegre',BSB:'Brasilia',IGU:'Foz de Iguazú',PUJ:'Punta Cana',AUA:'Aruba',CUN:'Cancún',CTG:'Cartagena',ADZ:'San Andrés',SCL:'Santiago de Chile',PMC:'Puerto Montt',LIM:'Lima',CUZ:'Cusco',CUS:'Cusco',BOG:'Bogotá',MIA:'Miami',MCO:'Orlando',EZE:'Buenos Aires',AEP:'Buenos Aires',COR:'Córdoba',MDZ:'Mendoza',BRC:'Bariloche',USH:'Ushuaia',FTE:'El Calafate',SLA:'Salta',ASU:'Asunción',MAD:'Madrid',BCN:'Barcelona'};
+function nombreAeropuerto(cod){if(!cod)return '';return AEROPUERTOS[String(cod).trim().toUpperCase()]||'';}
 // Condiciones generales del PDF del itinerario (texto definido con Operaciones)
 const CONDICIONES_ITINERARIO=['Se requiere documentación escaneada de todos los pasajeros.','Presentarse en el aeropuerto al menos 3 horas antes del horario de partida.','Guamatur no es responsable de cualquier cambio de las aerolíneas respecto a horarios, escalas, cancelaciones, cambios.','Guamatur no responde por deterioro, pérdida, extravío, hurto o robo del equipaje y efectos personales.','En caso de vuelos charter siempre estarán sujetos a aprobación gubernamental.','Los pasajes aéreos emitidos en este período de alta demanda no son reembolsables y no admiten cambios de fecha ni están sujetos a penalidades por modificación. Recomendamos contratar un seguro de cancelación para contar con mayor flexibilidad ante imprevistos. Consultanos para más información.'];
 const CONDICIONES_NOTA='Esta reserva queda confirmada hasta su fecha de vencimiento establecida en este documento. Para confirmar la reserva se requiere del pago total. En caso de no recibir el pago se cancela automáticamente.';
@@ -855,7 +882,7 @@ function calcularAlerta(l){return l===0?'COMPLETO':l<=3?'ULTIMOS':l<=5?'POCOS':'
 function estadoCupo(tot,libres){return tot===0?'CANCELADO':calcularAlerta(libres);}
 const alertaMap={CANCELADO:['badge-cancelado','Cancelado'],COMPLETO:['badge-red','Completo'],ULTIMOS:['badge-orange','Últimos cupos'],POCOS:['badge-yellow','Pocos cupos'],DISPONIBLE:['badge-green','Disponible']};
 // Color de badge por región de marca interna
-function regionBadge(d){return d==='Brasil'?'badge-green':d==='Caribe'?'badge-orange':d==='Chile'?'badge-blue':'badge-l';}
+function regionBadge(d){return d==='Brasil'?'badge-green':d==='Caribe'?'badge-orange':d==='Chile'?'badge-blue':d==='Argentina'?'badge-yellow':'badge-l';}
 function setBtnLoading(id,loading,texto='Guardar'){
   const btn=document.getElementById(id);if(!btn)return;
   btn.disabled=loading;
@@ -2112,18 +2139,17 @@ async function imprimirItinerario(vueloId,lugarId){
   let reserva=null;
   if(lugarId){
     const {data:lugs}=await sb.from('lugares').select('id,reducido,es_espera,bloqueado_operaciones,pasajeros(*)').eq('vuelo_id',vueloId).eq('es_infant',false);
-    const activos=(lugs||[]).filter(l=>!l.es_espera&&!l.reducido&&!l.bloqueado_operaciones);
-    const libres=activos.filter(l=>{const p=l.pasajeros?.[0];return !p||p.status==='L';}).length;
-    const esC=libres<=3; // últimos lugares vendibles → vencimiento 24h; si no, 72h (excluye Operaciones)
     const lug=(lugs||[]).find(l=>l.id===lugarId);
     const p=lug?.pasajeros?.[0];
-    if(p&&p.status&&p.status!=='L'){const {texto:vTxt}=vencimientoReserva(p.fecha_reserva,esC);const vencTxt=p.status==='R'?(lug?.es_espera?'Lista de espera (sujeta a confirmación)':vTxt):'Confirmada (Vendido)';const nomb=x=>[x.primer_apellido,x.segundo_apellido,x.primer_nombre,x.segundo_nombre].filter(Boolean).join(' ').trim().toLowerCase();const clave=nomb(p);const cant=(lugs||[]).filter(l=>{const x=l.pasajeros?.[0];return x&&x.status&&x.status!=='L'&&!x.cancelado&&nomb(x)===clave;}).length;reserva={nombre:[p.primer_apellido,p.segundo_apellido,p.primer_nombre,p.segundo_nombre].filter(Boolean).join(' '),fecha:formatFechaHora(p.fecha_reserva||p.creado_en),venc:vencTxt,cant};}
+    // El PDF que se entrega al PASAJERO muestra SIEMPRE el vencimiento a 24h (decisión comercial). Es solo visual: NO cambia la reserva real del vendedor ni el cron de vencimiento (que sigue 24/72h según lugares vendibles).
+    if(p&&p.status&&p.status!=='L'){const {texto:vTxt}=vencimientoReserva(p.fecha_reserva,true);const vencTxt=p.status==='R'?(lug?.es_espera?'Lista de espera (sujeta a confirmación)':vTxt):'Confirmada (Vendido)';const nomb=x=>[x.primer_apellido,x.segundo_apellido,x.primer_nombre,x.segundo_nombre].filter(Boolean).join(' ').trim().toLowerCase();const clave=nomb(p);const cant=(lugs||[]).filter(l=>{const x=l.pasajeros?.[0];return x&&x.status&&x.status!=='L'&&!x.cancelado&&nomb(x)===clave;}).length;reserva={nombre:[p.primer_apellido,p.segundo_apellido,p.primer_nombre,p.segundo_nombre].filter(Boolean).join(' '),fecha:formatFechaHora(p.fecha_reserva||p.creado_en),venc:vencTxt,cant};}
   }
   const condItems=CONDICIONES_ITINERARIO.map((c,idx)=>`<div style="display:flex;gap:10px;padding:7px 0;border-bottom:1px dashed #eee"><span style="background:${GUA_PRIMARY};color:#fff;font-size:10px;font-weight:700;border-radius:4px;padding:2px 7px;height:fit-content">${String(idx+1).padStart(2,'0')}</span><span style="font-size:12px;color:#333">${esc(c)}</span></div>`).join('');
   // El PDF se abre en ventana nueva (sin base URL): convertir el logo a URL absoluta
   const logoPdf=new URL(GUA_LOGO,location.href).href;
   const pillAir=(name)=>{const c=AEROLINEA_COLOR[name];const n=esc(name||'');return n?`<span style="display:inline-block;background:${c||'#555'};color:#fff;padding:2px 9px;border-radius:11px;font-size:11px;font-weight:600">${n}</span>`:'—';};
-  const filas=it.map(t=>{const tipo=esc(t.tipo||'Ida');const tipoCol=tipo==='Vuelta'?GUA_SECONDARY:GUA_PRIMARY;return `<tr><td><span style="color:${tipoCol};font-weight:600">${tipo}</span></td><td>${esc(formatTramoFecha(t.fecha))}</td><td>${pillAir(t.aerolinea||v.aerolinea)}</td><td>${esc(t.vuelo)||'—'}</td><td>${esc(t.origen)||'—'}</td><td>${esc(t.destino)||'—'}</td><td>${esc(t.salida)||'—'}</td><td>${esc(t.llegada)||'—'}</td></tr>`;}).join('');
+  const aer=(cod)=>{const c=esc(cod||'');if(!c)return '—';const nom=nombreAeropuerto(cod);return nom?`${esc(nom)} <span style="color:#999;font-size:11px">(${c})</span>`:c;};
+  const filas=it.map(t=>{const tipo=esc(t.tipo||'Ida');const tipoCol=tipo==='Vuelta'?GUA_SECONDARY:GUA_PRIMARY;return `<tr><td><span style="color:${tipoCol};font-weight:600">${tipo}</span></td><td>${esc(formatTramoFecha(t.fecha))}</td><td>${pillAir(t.aerolinea||v.aerolinea)}</td><td>${esc(t.vuelo)||'—'}</td><td>${aer(t.origen)}</td><td>${aer(t.destino)}</td><td>${esc(t.salida)||'—'}</td><td>${esc(t.llegada)||'—'}</td></tr>`;}).join('');
   const w=window.open('','_blank');
   if(!w){alert('Permití las ventanas emergentes para imprimir');return;}
   w.document.write(`<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><title>Itinerario ${esc(v.nombre)}</title>
@@ -2148,7 +2174,7 @@ async function imprimirItinerario(vueloId,lugarId){
   .cond h3 span{font-size:10px;color:#999;font-weight:500}
   .cond-nota{margin-top:12px;border:1px solid ${GUA_PRIMARY};border-radius:8px;padding:10px 13px;font-size:11.5px;color:#555;line-height:1.5}
   @media print{.noprint{display:none}}</style></head><body>
-  <div class="head"><img src="${logoPdf}" alt="Guamatur Viajes"/><div style="text-align:right"><h1>${esc(v.nombre)}</h1><div class="meta">${esc(v.ciudad_nombre)}${v.fecha?' · '+formatFecha(v.fecha):''}${v.aerolinea?' · '+esc(v.aerolinea):''}${v.localizador?'<br>Localizador: '+esc(v.localizador):''}</div></div></div>
+  <div class="head"><img src="${logoPdf}" alt="Guamatur Viajes"/><div style="text-align:right"><h1>${esc(v.nombre)}</h1><div class="meta">${esc(v.ciudad_nombre)}${v.fecha?' · '+formatFecha(v.fecha):''}${v.aerolinea?' · '+esc(v.aerolinea):''}</div></div></div>
   ${reserva?`<div class="reserva-box"><span class="rb-label">Pasajero:</span> ${esc(reserva.nombre)||'—'}<br><span class="rb-label">Pasajeros reservados a este nombre:</span> <span class="rb-res">${reserva.cant}</span><br><span class="rb-label">Fecha reserva:</span> <span class="rb-res">${esc(reserva.fecha)}</span><br><span class="rb-label">Fecha Vto reserva:</span> <span class="rb-venc">${esc(reserva.venc)}</span></div>`:''}
   <h2>Itinerario de vuelo</h2>
   ${it.length?`<table><thead><tr><th>Tipo</th><th>Fecha</th><th>Aerolínea</th><th>Vuelo</th><th>Origen</th><th>Destino</th><th>Salida</th><th>Llegada</th></tr></thead><tbody>${filas}</tbody></table>`:'<p>Sin itinerario cargado.</p>'}
@@ -2478,7 +2504,15 @@ async function guardarVuelo(){
       await recalcularBloqueoOperaciones(editarVueloId);
       await registrarLog('editar_cupo','vuelo',editarVueloId,{itinerario_cambio:itinerarioCambio});
       setBtnLoading('btn-crear-vuelo',false,'Guardar cambios');
-      mostrarAlerta('modal-v-alert','Vuelo actualizado','success');
+      // Aviso al equipo si cambió el itinerario de un cupo a la venta. Sólo si hay webhook (en TEST está vacío -> no aparece).
+      let avisoItinerario=false;
+      if(itinerarioCambio&&datos.visible&&N8N_WEBHOOK_ITINERARIO){
+        if(confirm('Cambió el itinerario de un cupo que está a la venta.\n\n¿Enviar un aviso por mail a todo el equipo (vendedores + Operaciones)?')){
+          avisarCambioItinerario(datos,itiViejo,datos.itinerario);
+          avisoItinerario=true;
+        }
+      }
+      mostrarAlerta('modal-v-alert',avisoItinerario?'Vuelo actualizado — aviso de cambio enviado al equipo':'Vuelo actualizado','success');
       setTimeout(()=>{cerrarModal('modal-vuelo');if(currentVueloId===editarVueloId)cargarDetalle(editarVueloId)},1000);
     } else {
       if(!total_lugares){mostrarAlerta('modal-v-alert','Total de lugares es obligatorio','error');setBtnLoading('btn-crear-vuelo',false,'Crear cupo');return;}
@@ -2664,7 +2698,7 @@ function interpretarPNRs(){
 }
 
 function renderPreviewMasivo(){
-  const regiones=['Brasil','Caribe','Chile','Otros'];
+  const regiones=['Argentina','Brasil','Caribe','Chile','Otros'];
   let html='<div class="table-wrap" style="margin-bottom:14px"><table><thead><tr><th>✓</th><th>Nombre</th><th>Región</th><th>Ciudad</th><th>Aerolínea</th><th>Fecha</th><th>Localiz.</th><th>Lugares</th><th>Precio</th><th>Neto</th><th>Tramos</th></tr></thead><tbody>';
   cuposMasivosDraft.forEach((d,i)=>{
     const lugDetectado=d.total_lugares>0;const lug=lugDetectado?d.total_lugares:'';
