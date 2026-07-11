@@ -600,9 +600,9 @@ const sb=supabase.createClient('https://cxknhpxncusgtabkmywy.supabase.co','eyJhb
   }
 });
 
-const APP_VERSION='🧪 TESTING — datos NO reales · 2026-07-10 · b54 (mejoras PDF pasajero + destinos + región Argentina)';
+const APP_VERSION='🧪 TESTING — datos NO reales · 2026-07-11 · b57 (sync PROD: login hd + localizador por RPC + delete lugares por RPC · Ola 1)';
 // Columnas de 'vuelos' legibles por cualquier usuario. EXCLUYE precio_neto: el admin lo lee por RPC admin_get_precio_neto (gateada por es_admin). No usar select('*') sobre vuelos: la columna precio_neto quedó revocada a authenticated.
-const VUELO_COLS='id,temporada_id,nombre,ciudad_codigo,ciudad_nombre,aerolinea,fecha,fecha_regreso,total_lugares,precio,condiciones_equipaje,creado_en,destino,localizador,itinerario,visible,itinerario_historial,cal_dias_pago_final,cal_dias_cancel_sin_gastos,cal_dias_cancel_con_gastos,cal_usuarios';
+const VUELO_COLS='id,temporada_id,nombre,ciudad_codigo,ciudad_nombre,aerolinea,fecha,fecha_regreso,total_lugares,precio,condiciones_equipaje,creado_en,destino,itinerario,visible,itinerario_historial,cal_dias_pago_final,cal_dias_cancel_sin_gastos,cal_dias_cancel_con_gastos,cal_usuarios';
 // Calendarización: al crear un cupo, dispara (fire-and-forget) la creación de eventos en Google Calendar vía n8n.
 const N8N_WEBHOOK_AGENDA=''; // TEST: agenda desactivada (no dispara eventos reales)
 async function agendarEventosCupo(v){
@@ -682,7 +682,7 @@ let reservarVueloId=null,reservarLugaresLibres=0,reservarLugaresIds=[];
 let cancelarLugarId=null,cancelarPasajeroId=null,cancelarVueloId=null;
 let editarVueloId=null,vendedores=[],guardandoVuelo=false,nombreCupoManual=false;
 
-async function loginGoogle(){await sb.auth.signInWithOAuth({provider:'google',options:{redirectTo:'https://ignaciobraida-guamatur.github.io/Guamatur---Cupos-TEST/'}})}
+async function loginGoogle(){await sb.auth.signInWithOAuth({provider:'google',options:{redirectTo:'https://ignaciobraida-guamatur.github.io/Guamatur---Cupos-TEST/',queryParams:{hd:'guamatur.com'}}})}
 async function cerrarSesion(){try{await sb.auth.signOut({scope:'local'});}catch(e){console.warn('signOut:',e);}window.location.reload()}
 
 // ── AUTH HELPERS: refresh token y retry para proteger contra desfasajes de reloj ──
@@ -1166,7 +1166,6 @@ async function cargarDetalleTP(vueloId){
         ${vuelo.destino?`<span class="badge ${regionBadge(vuelo.destino)}">${esc(vuelo.destino)}</span>`:''}
         ${vuelo.fecha?`<span>📅 ${formatFecha(vuelo.fecha)}</span>`:''}
         ${vuelo.aerolinea?`<span>✈ ${esc(vuelo.aerolinea)}</span>`:''}
-        ${vuelo.localizador?`<span style="color:var(--accent2)">🔑 ${esc(vuelo.localizador)}</span>`:''}
         ${vuelo.precio?`<span style="color:var(--green);font-weight:500">Precio de Venta: USD ${Number(vuelo.precio).toLocaleString('es-UY')}</span>`:''}
       </div>
     </div>
@@ -1205,6 +1204,9 @@ async function cargarDetalle(vueloId){
   // El precio neto no viaja en el select (revocado a authenticated); el admin lo trae por RPC gateada
   let precioNetoAdmin=null;
   if(rolEfectivo==='admin'&&vuelo){const {data:pn}=await sb.rpc('admin_get_precio_neto',{p_vuelo_id:vueloId});precioNetoAdmin=pn;}
+  // El localizador (PNR del operador) tampoco viaja en el select (revocado a authenticated); se trae por RPC gateada (excluye Travel Partner).
+  let localizadorCupo=null;
+  if(vuelo){const {data:loc}=await sb.rpc('get_localizador',{p_vuelo_id:vueloId});localizadorCupo=loc;}
   if(!vuelo||!lugares){cont.innerHTML='<div class="loading" style="color:var(--red)">Error</div>';return;}
   currentVueloFecha=vuelo.fecha||null;
   currentVueloFechaRegreso=vuelo.fecha_regreso||vuelo.fecha||null;
@@ -1244,7 +1246,7 @@ async function cargarDetalle(vueloId){
         ${vuelo.destino?`<span class="badge ${regionBadge(vuelo.destino)}">${esc(vuelo.destino)}</span>`:''}
         ${vuelo.fecha?`<span>📅 ${formatFecha(vuelo.fecha)}</span>`:''}
         ${vuelo.aerolinea?`<span>✈ ${esc(vuelo.aerolinea)}</span>`:''}
-        ${vuelo.localizador?`<span style="color:var(--accent2)">🔑 ${esc(vuelo.localizador)}</span>`:''}
+        ${localizadorCupo?`<span style="color:var(--accent2)">🔑 ${esc(localizadorCupo)}</span>`:''}
         ${vuelo.precio?`<span style="color:var(--green);font-weight:500">Precio de Venta: USD ${Number(vuelo.precio).toLocaleString('es-UY')}</span>`:''}
         ${esAdmin&&precioNetoAdmin?`<span style="color:var(--yellow);font-weight:500">Neto: USD ${Number(precioNetoAdmin).toLocaleString('es-UY')}</span>`:''}
       </div>
@@ -2376,7 +2378,7 @@ async function abrirEditarVuelo(vueloId){
       renderCiudadesOpciones(v.destino||'',`${v.ciudad_codigo}|${v.ciudad_nombre}`);
       document.getElementById('v-nombre').value=v.nombre||'';
       document.getElementById('v-aerolinea').value=v.aerolinea||'';
-      document.getElementById('v-localizador').value=v.localizador||'';
+      {const {data:locEd}=await sb.rpc('get_localizador',{p_vuelo_id:vueloId});document.getElementById('v-localizador').value=locEd||'';}
       document.getElementById('v-fecha').value=v.fecha?v.fecha.substring(0,10):'';
       document.getElementById('v-fecha-regreso').value=v.fecha_regreso?v.fecha_regreso.substring(0,10):'';
       // Precargar "Total lugares" con el conteo REAL de lugares activos (no el total_lugares almacenado,
@@ -2484,7 +2486,7 @@ async function guardarVuelo(){
         if(ocupado){setBtnLoading('btn-crear-vuelo',false,'Guardar cambios');mostrarAlerta('modal-v-alert',`No se puede reducir: el lugar #${ocupado.numero_lugar} tiene pasajero o cancelación. Liberalo primero (o usá "Reducción de lugares").`,'error');return;}
         if(!confirm(`⚠️ Vas a BAJAR el total de lugares de ${cantidadActual} a ${total_lugares}: se ELIMINAN definitivamente ${cantidadActual-total_lugares} lugar(es) vacíos (#${[...aBorrar].map(l=>l.numero_lugar).sort((a,b)=>a-b).join(', #')}). No se puede deshacer. ¿Confirmás?`)){setBtnLoading('btn-crear-vuelo',false,'Guardar cambios');return;}
         const idsBorrar=aBorrar.map(l=>l.id);
-        const {error:errDel}=await sb.from('lugares').delete().in('id',idsBorrar);
+        const {error:errDel}=await sb.rpc('borrar_lugares_vacios',{p_vuelo_id:editarVueloId,p_ids:idsBorrar});
         if(errDel){setBtnLoading('btn-crear-vuelo',false,'Guardar cambios');mostrarAlerta('modal-v-alert','Error al reducir lugares: '+errDel.message,'error');return;}
       }
       datos.total_lugares=total_lugares;
