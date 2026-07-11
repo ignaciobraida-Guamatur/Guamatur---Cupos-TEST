@@ -91,9 +91,30 @@
   .btn-outline{background:transparent;color:var(--text);border:1px solid var(--border2)}.btn-outline:hover{background:var(--surface2)}
   .btn-success{background:rgba(74,222,128,0.15);color:var(--green);border:1px solid rgba(74,222,128,0.3)}.btn-success:hover{background:rgba(74,222,128,0.25)}
   .btn-warning{background:rgba(251,191,36,0.15);color:var(--yellow);border:1px solid rgba(251,191,36,0.3)}.btn-warning:hover{background:rgba(251,191,36,0.25)}
-  .btn-excel{background:rgba(74,222,128,0.1);color:var(--green);border:1px solid rgba(74,222,128,0.2);font-size:12px;padding:5px 12px}.btn-excel:hover{background:rgba(74,222,128,0.2)}
+  /* Convención de color de botones (Ola 2 #48):
+     verde = SOLO creación/venta (Reservar) · accent (.btn-primary) = acción primaria
+     gris (.btn-outline / .btn-excel / .btn-sm) = secundaria inocua (Excel, Imprimir, Editar)
+     amarillo (.btn-warning) = precaución reversible (Reducir) · rojo (.btn-danger) = destructiva */
+  .btn-danger{background:rgba(255,59,59,0.15);color:var(--red);border:1px solid rgba(255,59,59,0.35)}.btn-danger:hover{background:rgba(255,59,59,0.25)}
+  .btn-excel{background:transparent;color:var(--text);border:1px solid var(--border2);font-size:12px;padding:5px 12px}.btn-excel:hover{background:var(--surface2)}
   .btn-sm{padding:3px 8px;font-size:11px;border-radius:6px;border:1px solid var(--border2);background:transparent;color:var(--text);cursor:pointer;font-family:'DM Sans',sans-serif}
   .btn-sm:hover{background:var(--surface2)}
+  /* Toggles sensibles (Ola 2 #51): azul = bloqueo Operaciones por fila · ámbar = visibilidad/estado global */
+  .btn-sm-oper{border-color:rgba(96,165,250,0.45);color:var(--blue);background:rgba(96,165,250,0.08)}.btn-sm-oper:hover{background:rgba(96,165,250,0.18)}
+  .btn-sm-toggle{border-color:rgba(251,191,36,0.4);color:var(--yellow);background:rgba(251,191,36,0.06)}.btn-sm-toggle:hover{background:rgba(251,191,36,0.16)}
+  /* Menú "Gestionar cupo" (Ola 2 #44): acciones excepcionales del admin plegadas, zona Gestión y zona Peligro */
+  .menu-gestionar{position:relative}
+  .menu-gestionar>summary{list-style:none;cursor:pointer;padding:7px 14px;border-radius:8px;font-size:13px;font-weight:500;border:1px solid var(--border2);color:var(--text);background:transparent;user-select:none}
+  .menu-gestionar>summary::-webkit-details-marker{display:none}
+  .menu-gestionar[open]>summary{background:var(--surface2)}
+  .menu-gestionar .menu-panel{position:absolute;right:0;top:calc(100% + 6px);background:var(--surface);border:1px solid var(--border2);border-radius:10px;padding:6px;min-width:250px;z-index:50;box-shadow:0 8px 24px rgba(0,0,0,0.45);display:flex;flex-direction:column;gap:2px}
+  .menu-gestionar .menu-item{display:block;width:100%;text-align:left;background:transparent;border:none;color:var(--text);font-size:13px;padding:8px 10px;border-radius:6px;cursor:pointer;font-family:'DM Sans',sans-serif}
+  .menu-gestionar .menu-item:hover{background:var(--surface2)}
+  .menu-gestionar .menu-item.danger{color:var(--red)}
+  .menu-gestionar .menu-item.danger:hover{background:rgba(255,59,59,0.12)}
+  .menu-gestionar .menu-divider{height:1px;background:var(--border2);margin:4px 6px}
+  .menu-gestionar .menu-label{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;padding:4px 10px 2px}
+  .link-volver{align-self:center;color:var(--muted);font-size:13px;text-decoration:none;padding:7px 6px;white-space:nowrap}.link-volver:hover{color:var(--text)}
   .loading{text-align:center;padding:60px;color:var(--muted);font-size:14px}
   .spinner{width:24px;height:24px;border:2px solid var(--border2);border-top-color:var(--accent);border-radius:50%;animation:spin 0.8s linear infinite;margin:0 auto 12px}
   .spinner-sm{width:13px;height:13px;border:2px solid rgba(255,255,255,0.3);border-top-color:white;border-radius:50%;animation:spin 0.8s linear infinite;display:inline-block;margin-right:6px;vertical-align:middle}
@@ -111,6 +132,7 @@
   .alert{border-radius:8px;padding:10px 14px;font-size:13px;margin-bottom:14px}
   .alert-error{background:rgba(255,59,59,0.1);border:1px solid rgba(255,59,59,0.3);color:#ff6b6b}
   .alert-success{background:rgba(74,222,128,0.1);border:1px solid rgba(74,222,128,0.3);color:var(--green)}
+  .alert-warning{background:rgba(251,191,36,0.1);border:1px solid rgba(251,191,36,0.3);color:var(--yellow)}
   .search-input{padding:8px 14px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;font-family:'DM Sans',sans-serif;width:240px}
   .search-input:focus{outline:none;border-color:var(--accent)}
   .temp-selector{display:flex;gap:8px;flex-wrap:wrap}
@@ -224,6 +246,7 @@
     <div style="display:flex;gap:12px;flex-wrap:wrap">
       <div style="display:flex;flex-direction:column;gap:3px"><label class="form-label" style="font-size:10px;margin:0">Filtrar cupos</label><input class="search-input" type="text" placeholder="Por nombre o ciudad" oninput="filtrarVuelos(this.value)"/></div>
       <div id="tp-buscar-pax" style="display:flex;flex-direction:column;gap:3px"><label class="form-label" style="font-size:10px;margin:0">Buscar pasajero</label><input class="search-input" type="text" placeholder="🔎 En todos los cupos" oninput="buscarPasajeros(this.value)"/></div>
+      <div id="btn-export-temp-wrap" style="display:none;align-items:flex-end"><button class="btn btn-excel" onclick="exportarTemporada()" title="Una fila por lugar de todos los cupos de la temporada, para conciliar con la planilla">⬇ Exportar temporada</button></div>
     </div>
   </div>
   <div id="vuelos-content"><div class="loading"><div class="spinner"></div>Cargando...</div></div>
@@ -254,8 +277,20 @@
     </div>
   </div>
   <div class="admin-card" style="margin-top:16px">
-    <div class="admin-card-title">Actividad reciente <span style="color:var(--muted);font-size:11px;font-weight:400">(quién hizo qué)</span></div>
+    <div class="admin-card-title" style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
+      <span>Actividad reciente <span style="color:var(--muted);font-size:11px;font-weight:400">(quién hizo qué)</span></span>
+      <button class="btn btn-excel" onclick="exportarLog()" title="Exporta a Excel toda la actividad que matchea el filtro actual">⬇ Exportar log</button>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+      <input class="form-input" id="log-f-usuario" placeholder="Usuario contiene…" style="max-width:170px;padding:6px 10px;font-size:12px" oninput="filtrarLogDebounce()"/>
+      <select class="form-select" id="log-f-entidad" style="max-width:150px;padding:6px 10px;font-size:12px" onchange="cargarLog(true)">
+        <option value="">Toda entidad</option><option value="vuelo">Cupo</option><option value="pasajero">Pasajero</option><option value="lugar">Lugar</option><option value="temporada">Temporada</option><option value="usuario">Usuario</option>
+      </select>
+      <input class="form-input" id="log-f-desde" type="date" style="max-width:150px;padding:6px 10px;font-size:12px" onchange="cargarLog(true)" title="Desde"/>
+      <input class="form-input" id="log-f-hasta" type="date" style="max-width:150px;padding:6px 10px;font-size:12px" onchange="cargarLog(true)" title="Hasta"/>
+    </div>
     <div id="admin-log" style="max-height:340px;overflow-y:auto"></div>
+    <div style="margin-top:8px;text-align:center"><button class="btn-sm" id="log-mas" style="display:none" onclick="cargarLog(false)">Cargar más ↓</button></div>
   </div>
 </div>
 
@@ -279,7 +314,7 @@
         <label class="form-label">Ficha <span style="color:var(--muted)">(+ Factura → Vendido)</span></label>
         <div style="display:flex;gap:6px;align-items:stretch">
           <input class="form-input" id="p-ficha" style="flex:1" placeholder="N° de ficha de Atlas"/>
-          <button type="button" class="btn-sm" id="p-traer-atlas" onclick="traerDeAtlas()" title="Traer los pasajeros de esta ficha desde Atlas (no los tipees a mano)" style="white-space:nowrap;flex:none">📥 Traer de Atlas</button>
+          <button type="button" class="btn-sm" id="p-traer-atlas" onclick="traerDeAtlas()" title="Trae desde Atlas SOLO el pasajero de este lugar (no los tipees a mano)" style="white-space:nowrap;flex:none">📥 Traer este pasajero de Atlas</button>
         </div>
         <div id="p-atlas-status" style="display:none;font-size:11px;margin-top:5px"></div>
         <div id="p-atlas-picker" style="display:none;margin-top:6px">
@@ -320,7 +355,7 @@
     </div>
     <div id="modal-p-alert"></div>
     <div class="modal-actions">
-      <button class="btn btn-outline" onclick="cerrarModalPasajero()">Cancelar</button>
+      <button class="btn btn-outline" onclick="cerrarModalPasajero()">Cerrar</button>
       <button class="btn btn-primary" id="btn-guardar-pasajero" onclick="guardarPasajero()">Guardar</button>
     </div>
   </div>
@@ -336,12 +371,12 @@
       <div class="form-group"><label class="form-label">Factura <span style="color:var(--muted)">(con ficha → pasa a Vendido)</span></label><input class="form-input" id="cf-factura"/></div>
     </div>
     <div class="form-group"><label class="form-label">Hotel <span style="color:var(--muted)">(se completa igual para todos; después podés cambiar alguno abajo)</span></label><input class="form-input" id="cf-hotel" placeholder="Ej: Hotel Atlântico" oninput="cfAplicarHotelATodos()"/></div>
-    <div style="margin:10px 0"><button type="button" class="btn btn-primary" id="cf-traer" onclick="cargarFichaTraer()">📥 Traer de Atlas</button></div>
+    <div style="margin:10px 0"><button type="button" class="btn btn-primary" id="cf-traer" onclick="cargarFichaTraer()" title="Trae TODOS los pasajeros de la ficha para repartirlos en los lugares reservados">📥 Buscar la ficha en Atlas</button></div>
     <div id="cf-status" style="display:none;font-size:12px;margin:6px 0"></div>
     <div id="cf-mapa"></div>
     <div id="modal-cf-alert"></div>
     <div class="modal-actions">
-      <button class="btn btn-outline" onclick="cerrarModal('modal-cargar-ficha')">Cancelar</button>
+      <button class="btn btn-outline" onclick="cerrarModal('modal-cargar-ficha')">Cerrar</button>
       <button class="btn btn-primary" id="cf-confirmar" onclick="cargarFichaConfirmar()" style="display:none">Confirmar carga</button>
     </div>
   </div>
@@ -370,7 +405,7 @@
       </div>
     </div>
     <div class="modal-actions">
-      <button class="btn btn-outline" onclick="cerrarModal('modal-reservar')">Cancelar</button>
+      <button class="btn btn-outline" onclick="cerrarModal('modal-reservar')">Cerrar</button>
       <button class="btn btn-primary" id="btn-confirmar-reserva" onclick="confirmarReserva()">Confirmar reserva</button>
     </div>
   </div>
@@ -379,14 +414,14 @@
 <!-- MODAL CANCELAR -->
 <div id="modal-cancelar" class="modal-overlay" style="display:none">
   <div class="modal" style="max-width:560px">
-    <div class="modal-title">Cancelar lugares</div>
+    <div class="modal-title">Cancelar con penalidad</div>
     <div id="modal-c-alert"></div>
     <div style="background:rgba(251,191,36,0.08);border:1px solid rgba(251,191,36,0.2);border-radius:8px;padding:10px;font-size:13px;color:var(--yellow);margin-bottom:16px">
       Los lugares seleccionados quedarán <b>libres</b> (se borran los datos del pasajero). La cancelación queda registrada (quién/cuándo) en el log y en el dashboard de Cancelaciones.
     </div>
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
       <span style="font-size:12px;color:var(--muted)">Seleccioná los lugares a cancelar</span>
-      <button class="btn-sm" onclick="seleccionarTodosLugares()">Cancelar cupo completo</button>
+      <button class="btn-sm" onclick="seleccionarTodosLugares()">Seleccionar todos los ocupados</button>
     </div>
     <div id="c-lugares-lista" style="max-height:240px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;margin-bottom:14px"></div>
     <div class="form-grid">
@@ -401,7 +436,7 @@
     </div>
     <div class="modal-actions">
       <button class="btn btn-outline" onclick="cerrarModal('modal-cancelar')">Cerrar</button>
-      <button class="btn btn-warning" id="btn-confirmar-cancelar" onclick="confirmarCancelacion()">Confirmar cancelación</button>
+      <button class="btn btn-danger" id="btn-confirmar-cancelar" onclick="confirmarCancelacion()">Confirmar cancelación</button>
     </div>
   </div>
 </div>
@@ -419,7 +454,7 @@
       <input class="form-input" id="red-cantidad" type="number" min="1" placeholder="Ej: 6"/>
     </div>
     <div class="modal-actions">
-      <button class="btn btn-outline" onclick="cerrarModal('modal-reducir')">Cancelar</button>
+      <button class="btn btn-outline" onclick="cerrarModal('modal-reducir')">Cerrar</button>
       <button class="btn btn-warning" id="btn-confirmar-reducir" onclick="confirmarReduccion()">Confirmar reducción</button>
     </div>
   </div>
@@ -428,13 +463,13 @@
 <!-- MODAL ELIMINAR MIS RESERVAS (vendedor) -->
 <div id="modal-eliminar" class="modal-overlay" style="display:none">
   <div class="modal" style="max-width:520px">
-    <div class="modal-title" id="modal-elim-title">Eliminar reservas</div>
+    <div class="modal-title" id="modal-elim-title">Liberar lugares (borrar)</div>
     <div id="modal-elim-alert"></div>
     <div id="modal-elim-info" style="background:rgba(255,59,59,0.08);border:1px solid rgba(255,59,59,0.2);border-radius:8px;padding:10px;font-size:13px;color:#ff6b6b;margin-bottom:14px"></div>
     <div id="elim-lista" style="max-height:280px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;margin-bottom:14px"></div>
     <div class="modal-actions">
       <button class="btn btn-outline" onclick="cerrarModal('modal-eliminar')">Cerrar</button>
-      <button class="btn btn-warning" id="btn-confirmar-elim" onclick="confirmarEliminarReserva()">Eliminar seleccionadas</button>
+      <button class="btn btn-danger" id="btn-confirmar-elim" onclick="confirmarEliminarReserva()">Liberar seleccionadas</button>
     </div>
   </div>
 </div>
@@ -450,7 +485,7 @@
       <select class="form-select" id="temp-activa"><option value="true">Activa</option><option value="false">Inactiva</option></select>
     </div>
     <div class="modal-actions">
-      <button class="btn btn-outline" onclick="cerrarModal('modal-temporada')">Cancelar</button>
+      <button class="btn btn-outline" onclick="cerrarModal('modal-temporada')">Cerrar</button>
       <button class="btn btn-primary" id="btn-guardar-temp" onclick="guardarTemporada()">Guardar</button>
     </div>
   </div>
@@ -465,11 +500,21 @@
     <div class="form-group"><label class="form-label">Nombre</label><input class="form-input" id="u-nombre" placeholder="Nombre y apellido"/></div>
     <div class="form-group">
       <label class="form-label">Rol</label>
-      <select class="form-select" id="u-rol"><option value="vendedor">Vendedor</option><option value="operaciones">Operaciones</option><option value="admin">Admin</option><option value="super_admin">Super Administrador</option><option value="travel_partner">Travel Partner (solo lectura)</option></select>
+      <select class="form-select" id="u-rol">
+        <optgroup label="Roles operativos">
+          <option value="vendedor">Vendedor</option>
+          <option value="operaciones">Operaciones</option>
+          <option value="travel_partner">Travel Partner (solo lectura)</option>
+        </optgroup>
+        <optgroup label="⚠ Roles de poder (control total)">
+          <option value="admin">Admin</option>
+          <option value="super_admin">Super Administrador</option>
+        </optgroup>
+      </select>
     </div>
     <div class="modal-actions">
       <button class="btn btn-outline" id="btn-eliminar-usuario" style="display:none;color:#dc2626;border-color:#dc2626" onclick="eliminarUsuario()">Eliminar acceso</button>
-      <button class="btn btn-outline" onclick="cerrarModal('modal-usuario')">Cancelar</button>
+      <button class="btn btn-outline" onclick="cerrarModal('modal-usuario')">Cerrar</button>
       <button class="btn btn-primary" id="btn-guardar-usuario" onclick="guardarUsuario()">Guardar</button>
     </div>
   </div>
@@ -506,7 +551,7 @@
       <div class="form-group"><label class="form-label">Localizador</label><input class="form-input" id="v-localizador" placeholder="Ej: ABC123"/></div>
       <div class="form-group"><label class="form-label">Fecha de salida</label><input class="form-input" id="v-fecha" type="date" onchange="sugerirNombreCupo()"/></div>
       <div class="form-group"><label class="form-label">Fecha de regreso <span style="color:var(--muted);font-size:10px">para clasificar infantes</span></label><input class="form-input" id="v-fecha-regreso" type="date"/></div>
-      <div class="form-group"><label class="form-label">Total lugares</label><input class="form-input" id="v-lugares" type="number" min="1" placeholder="Ej: 16"/></div>
+      <div class="form-group"><label class="form-label">Total lugares</label><input class="form-input" id="v-lugares" type="number" min="1" placeholder="Ej: 16"/><div id="v-lugares-hint" style="display:none;font-size:11px;color:var(--yellow);margin-top:4px"></div></div>
       <div class="form-group"><label class="form-label">Precio de Venta (USD)</label><input class="form-input" id="v-precio" type="number" min="0" step="0.01" placeholder="Ej: 990"/></div>
       <div class="form-group"><label class="form-label">Valor Neto (USD) <span style="color:var(--accent2);font-size:10px">solo admins</span></label><input class="form-input" id="v-precio-neto" type="number" min="0" step="0.01" placeholder="Ej: 750"/></div>
       <div class="form-group">
@@ -559,7 +604,7 @@
       <div id="tramos-wrap"></div>
     </div>
     <div class="modal-actions">
-      <button class="btn btn-outline" onclick="cerrarModal('modal-vuelo')">Cancelar</button>
+      <button class="btn btn-outline" onclick="cerrarModal('modal-vuelo')">Cerrar</button>
       <button class="btn btn-primary" id="btn-crear-vuelo" onclick="guardarVuelo()">Crear cupo</button>
     </div>
   </div>
@@ -583,7 +628,7 @@
     </div>
     <div id="m-preview"></div>
     <div class="modal-actions">
-      <button class="btn btn-outline" onclick="cerrarModal('modal-masivo')">Cancelar</button>
+      <button class="btn btn-outline" onclick="cerrarModal('modal-masivo')">Cerrar</button>
       <button class="btn btn-primary" id="btn-crear-masivo" onclick="crearCuposMasivos()" style="display:none">Crear cupos</button>
     </div>
   </div>
@@ -600,7 +645,7 @@ const sb=supabase.createClient('https://cxknhpxncusgtabkmywy.supabase.co','eyJhb
   }
 });
 
-const APP_VERSION='🧪 TESTING — datos NO reales · 2026-07-11 · b57 (sync PROD: login hd + localizador por RPC + delete lugares por RPC · Ola 1)';
+const APP_VERSION='🧪 TESTING — datos NO reales · 2026-07-11 · b58 (sync PROD: Ola 2 — búsqueda ficha/factura + Exportar temporada + Operaciones a nombre del vendedor + menú Gestionar cupo + aviso candado + visor log)';
 // Columnas de 'vuelos' legibles por cualquier usuario. EXCLUYE precio_neto: el admin lo lee por RPC admin_get_precio_neto (gateada por es_admin). No usar select('*') sobre vuelos: la columna precio_neto quedó revocada a authenticated.
 const VUELO_COLS='id,temporada_id,nombre,ciudad_codigo,ciudad_nombre,aerolinea,fecha,fecha_regreso,total_lugares,precio,condiciones_equipaje,creado_en,destino,itinerario,visible,itinerario_historial,cal_dias_pago_final,cal_dias_cancel_sin_gastos,cal_dias_cancel_con_gastos,cal_usuarios';
 // Calendarización: al crear un cupo, dispara (fire-and-forget) la creación de eventos en Google Calendar vía n8n.
@@ -784,7 +829,9 @@ function aplicarRolEfectivoUI(){
   const na=document.getElementById('nav-admin'); if(na) na.style.display=adminUI?'block':'none';
   const ma=document.getElementById('mobile-admin'); if(ma) ma.style.display=adminUI?'block':'none';
   // Travel Partner: solo "Cupos" (oculta Dashboard, Mis reservas y el buscador de pasajeros).
-  ['nav-dashboard','nav-misreservas','mobile-dashboard','mobile-misreservas'].forEach(id=>{const e=document.getElementById(id);if(e)e.style.display=tp?'none':'';});
+  // Operaciones (Ola 2 #42): también sin Dashboard ni Mis reservas — le quedarían siempre vacíos (sus reservas van a nombre del vendedor).
+  const sinDashMis=tp||rolEfectivo==='operaciones';
+  ['nav-dashboard','nav-misreservas','mobile-dashboard','mobile-misreservas'].forEach(id=>{const e=document.getElementById(id);if(e)e.style.display=sinDashMis?'none':'';});
   const bp=document.getElementById('tp-buscar-pax'); if(bp) bp.style.display=tp?'none':'';
   const rb=document.getElementById('rol-badge'); if(rb) rb.textContent=rolLabel(rolEfectivo);
   const vc=document.getElementById('ver-como'); if(vc&&(currentRol==='admin'||currentRol==='super_admin')){vc.style.display='inline-block';vc.value=rolEfectivo;}
@@ -798,6 +845,7 @@ function cambiarVista(rol){
   const act=document.querySelector('.screen.active');
   const id=act?act.id:'';
   if(id==='screen-admin'&&rolEfectivo!=='admin'){goTo('vuelos');return;}
+  if(rolEfectivo==='operaciones'&&(id==='screen-dashboard'||id==='screen-misreservas')){goTo('vuelos');return;}
   if(id==='screen-dashboard') cargarDashboard();
   else if(id==='screen-vuelos') cargarVuelos();
   else if(id==='screen-misreservas') cargarMisReservas();
@@ -811,6 +859,8 @@ let dashCargado=false,vuelosCargado=false,adminCargado=false;
 function goTo(s){
   // Travel Partner: solo puede ver "Cupos" (y el detalle, vía goToDetalle).
   if(rolEfectivo==='travel_partner' && s!=='vuelos') s='vuelos';
+  // Operaciones (Ola 2 #42): Dashboard y Mis reservas no aplican a la mesa.
+  if(rolEfectivo==='operaciones' && (s==='dashboard'||s==='misreservas')) s='vuelos';
   document.querySelectorAll('.screen').forEach(x=>x.classList.remove('active'));
   document.querySelectorAll('.nav-link').forEach(x=>x.classList.remove('active'));
   document.getElementById('screen-'+s).classList.add('active');
@@ -844,10 +894,12 @@ function formatTramoFecha(s){
   if(m=t.match(/^(\d{1,2})\s*([A-Za-zÁÉÍÓÚáéíóú]{3,})$/)) return m[1].padStart(2,'0')+' '+m[2].charAt(0).toUpperCase()+m[2].slice(1,3).toLowerCase();
   return t;
 }
+// Ola 2 #59: hora SIEMPRE de Montevideo vía Intl (independiente de la zona/clock skew de la PC del usuario)
+const _fmtFechaHoraUY=new Intl.DateTimeFormat('es-UY',{timeZone:'America/Montevideo',day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'});
 function formatFechaHora(s){
   if(!s)return '—';const d=new Date(s);if(isNaN(d))return '—';
-  const u=new Date(d.getTime()+(d.getTimezoneOffset()+(-3*60))*60000);
-  return u.toLocaleDateString('es-UY',{day:'2-digit',month:'2-digit'})+' '+String(u.getHours()).padStart(2,'0')+':'+String(u.getMinutes()).padStart(2,'0');
+  const p={};_fmtFechaHoraUY.formatToParts(d).forEach(x=>{p[x.type]=x.value;});
+  return `${p.day}/${p.month} ${p.hour}:${p.minute}`;
 }
 function vencimientoReserva(s,esC){
   if(!s)return{texto:'—',vencido:false};
@@ -1068,6 +1120,8 @@ async function cargarVuelos(){
   if(temporadaActiva&&!tempsVisibles.some(t=>t.id===temporadaActiva)) temporadaActiva=null;
   if(!temporadaActiva&&tempsVisibles.length>0) temporadaActiva=tempsVisibles.find(t=>t.activa)?.id||tempsVisibles[0].id;
   document.getElementById('temp-selector-wrap').innerHTML=tempsVisibles.map(t=>`<button class="temp-btn ${t.id===temporadaActiva?'active':''}" onclick="seleccionarTemporada('${t.id}')">${esc(t.nombre)}${(rolEfectivo==='admin'&&!t.activa)?' <span class="badge badge-l" style="font-size:9px">inactiva</span>':''}</button>`).join('');
+  const wExp=document.getElementById('btn-export-temp-wrap');
+  if(wExp)wExp.style.display=(temporadaActiva&&(rolEfectivo==='admin'||rolEfectivo==='operaciones'))?'flex':'none';
   if(!temporadaActiva){cont.innerHTML=`<div class="loading">No hay temporadas ${rolEfectivo==='admin'?'creadas':'activas'}</div>`;return;}
   let vuelos;
   if(rolEfectivo==='travel_partner'){
@@ -1130,17 +1184,17 @@ async function ejecutarBusquedaPasajeros(q){
   const term=q.replace(/[(),]/g,' ').trim();
   const like=`%${term}%`;
   const {data,error}=await sb.from('pasajeros')
-    .select('vuelo_id,primer_apellido,segundo_apellido,primer_nombre,segundo_nombre,status,vendedor,cancelado,lugares(numero_lugar),vuelos(nombre)')
-    .or(`primer_apellido.ilike.${like},segundo_apellido.ilike.${like},primer_nombre.ilike.${like},segundo_nombre.ilike.${like}`)
+    .select('vuelo_id,primer_apellido,segundo_apellido,primer_nombre,segundo_nombre,status,vendedor,cancelado,ficha,factura,lugares(numero_lugar),vuelos(nombre)')
+    .or(`primer_apellido.ilike.${like},segundo_apellido.ilike.${like},primer_nombre.ilike.${like},segundo_nombre.ilike.${like},ficha.ilike.${like},factura.ilike.${like}`)
     .limit(50);
   if(error){console.error('[BuscarPasajero]',error);cont.innerHTML='<div class="loading" style="color:var(--red)">Error en la búsqueda</div>';return;}
   const rows=(data||[]).filter(p=>p.primer_apellido||p.primer_nombre);
   if(!rows.length){cont.innerHTML=`<div class="loading">Sin resultados para "${esc(q)}"</div>`;return;}
-  let html=`<div class="section-title" style="margin-bottom:12px">Pasajeros encontrados (${rows.length})</div><div class="table-wrap"><table><thead><tr><th>Pasajero</th><th>Cupo</th><th>Lugar</th><th>Status</th><th>Vendedor</th></tr></thead><tbody>`;
+  let html=`<div class="section-title" style="margin-bottom:12px">Pasajeros encontrados (${rows.length})</div><div class="table-wrap"><table><thead><tr><th>Pasajero</th><th>Cupo</th><th>Lugar</th><th>Status</th><th>Vendedor</th><th>Ficha</th><th>Factura</th></tr></thead><tbody>`;
   rows.forEach(p=>{
     const nombre=esc([p.primer_apellido,p.segundo_apellido,p.primer_nombre,p.segundo_nombre].filter(Boolean).join(' '));
     const st=p.cancelado?'<span class="badge badge-yellow">CANCEL</span>':`<span class="badge badge-${p.status==='V'?'v':p.status==='R'?'r':'l'}">${esc(p.status)||'L'}</span>`;
-    html+=`<tr style="cursor:pointer" onclick="goToDetalle('${p.vuelo_id}')"><td>${nombre}</td><td style="color:var(--accent2)">${esc(p.vuelos?.nombre)||'—'}</td><td style="font-family:'DM Mono',monospace">${p.lugares?.numero_lugar??'—'}</td><td>${st}</td><td>${esc(p.vendedor)||'—'}</td></tr>`;
+    html+=`<tr style="cursor:pointer" onclick="goToDetalle('${p.vuelo_id}')"><td>${nombre}</td><td style="color:var(--accent2)">${esc(p.vuelos?.nombre)||'—'}</td><td style="font-family:'DM Mono',monospace">${p.lugares?.numero_lugar??'—'}</td><td>${st}</td><td>${esc(p.vendedor)||'—'}</td><td style="font-family:'DM Mono',monospace">${esc(p.ficha)||'—'}</td><td style="font-family:'DM Mono',monospace">${esc(p.factura)||'—'}</td></tr>`;
   });
   html+='</tbody></table></div>';
   cont.innerHTML=html;
@@ -1170,7 +1224,7 @@ async function cargarDetalleTP(vueloId){
       </div>
     </div>
     <div class="detalle-actions">
-      <button class="btn btn-outline" onclick="goTo('vuelos')">← Volver</button>
+      <a href="#" class="link-volver" onclick="event.preventDefault();goTo('vuelos')">← Volver</a>
       <button class="btn btn-outline" onclick="imprimirItinerario('${vueloId}')">🖨 Imprimir / PDF</button>
     </div>
   </div>`;
@@ -1252,12 +1306,22 @@ async function cargarDetalle(vueloId){
       </div>
     </div>
     <div class="detalle-actions">
-      <button class="btn btn-outline" onclick="goTo('vuelos')">← Volver</button>
+      <a href="#" class="link-volver" onclick="event.preventDefault();goTo('vuelos')">← Volver</a>
       <button class="btn btn-success" onclick="abrirModalReservar('${vueloId}',${lVReservable},'${idsLibres.join(',')}',${bloqLibres},${esVueloC})">+ Reservar lugares</button>
-      ${misRParaCarga>0?`<button class="btn btn-primary" onclick="abrirModalCargarFicha('${vueloId}')">📥 Cargar desde ficha (${misRParaCarga})</button>`:''}
+      ${misRParaCarga>0?`<button class="btn btn-primary" title="Trae los pasajeros de una ficha de Atlas y los reparte en los lugares Reservados" onclick="abrirModalCargarFicha('${vueloId}')">📥 Cargar ficha en lugares R (${misRParaCarga})</button>`:''}
       <button class="btn btn-excel" onclick="exportarExcel('${vueloId}')">⬇ Excel</button>
-      ${(!esAdmin&&misReservas.length)?`<button class="btn btn-outline" onclick="abrirModalEliminar('${vueloId}')">🗑 Eliminar mis reservas (${misReservas.length})</button>`:''}
-      ${esAdmin?`<button class="btn btn-warning" onclick="abrirModalCancelar('${vueloId}')">⚠ Cancelar reservas</button><button class="btn btn-outline" onclick="abrirModalEliminar('${vueloId}')">🗑 Eliminar reservas</button><button class="btn btn-outline" onclick="abrirModalReducir('${vueloId}')">▾ Reducir lugares</button><button class="btn btn-outline" onclick="cancelarCupo('${vueloId}')">✖ Cancelar cupo</button><button class="btn btn-outline" onclick="abrirEditarVuelo('${vueloId}')">✏ Editar cupo</button>`:''}
+      ${(!esAdmin&&misReservas.length)?`<button class="btn btn-danger" onclick="abrirModalEliminar('${vueloId}')">🗑 Liberar mis reservas (${misReservas.length})</button>`:''}
+      ${esAdmin?`<details class="menu-gestionar"><summary>⚙ Gestionar cupo ▾</summary><div class="menu-panel">
+        <div class="menu-label">Gestión</div>
+        <button class="menu-item" onclick="this.closest('details').removeAttribute('open');abrirEditarVuelo('${vueloId}')">✏ Editar cupo</button>
+        <button class="menu-item" onclick="this.closest('details').removeAttribute('open');imprimirItinerario('${vueloId}')">🖨 Imprimir / PDF</button>
+        <button class="menu-item" onclick="this.closest('details').removeAttribute('open');abrirModalReducir('${vueloId}')">▾ Reducir lugares</button>
+        <div class="menu-divider"></div>
+        <div class="menu-label">Peligro</div>
+        <button class="menu-item danger" onclick="this.closest('details').removeAttribute('open');abrirModalCancelar('${vueloId}')">⚠ Cancelar con penalidad…</button>
+        <button class="menu-item danger" onclick="this.closest('details').removeAttribute('open');abrirModalEliminar('${vueloId}')">🗑 Liberar lugares (borrar)</button>
+        <button class="menu-item danger" onclick="this.closest('details').removeAttribute('open');cancelarCupo('${vueloId}')">✖ Dar de baja cupo (reducir todo)</button>
+      </div></details>`:''}
     </div>
   </div>`;
 
@@ -1321,16 +1385,16 @@ async function cargarDetalle(vueloId){
     else{rowCls=st==='V'?'row-v':st==='R'?'row-r':'';statusCell=`<span class="badge badge-${st==='V'?'v':st==='R'?'r':'l'}">${st}</span>`;}
     const esPropia=!esAdmin&&p&&!cancelado&&st!=='L'&&p.vendedor===vendedorNombreActual;
     let accion='';
-    if(modo==='reducido'){accion=esAdmin?`<button class="btn-sm" onclick="restaurarLugar('${l.id}','${vuelo.id}')">Restaurar</button>`:'—';}
+    if(modo==='reducido'){accion=esAdmin?`<button class="btn-sm btn-sm-toggle" onclick="restaurarLugar('${l.id}','${vuelo.id}')">Restaurar</button>`:'—';}
     else if(esAdmin){accion=`<button class="btn-sm" onclick="abrirModalPasajero('${l.id}',${pJson},'${vuelo.id}',${inf?esc(JSON.stringify(inf)):'null'})">Editar</button>`;}
-    else if(esOper&&p&&!cancelado&&st!=='L'){accion=`<button class="btn-sm" onclick="abrirModalPasajero('${l.id}',${pJson},'${vuelo.id}',${inf?esc(JSON.stringify(inf)):'null'})">Editar</button>`;}
+    else if(esOper&&!cancelado&&(st!=='L'||modo==='activo')){accion=`<button class="btn-sm" onclick="abrirModalPasajero('${l.id}',${pJson},'${vuelo.id}',${inf?esc(JSON.stringify(inf)):'null'})">Editar</button>`;} // Ola 2 #40: operaciones también edita Libres activos (carga el pasajero en un paso); en espera conserva "Anotar en espera"
     else if(esPropia){accion=`<button class="btn-sm" onclick="abrirModalPasajero('${l.id}',${pJson},'${vuelo.id}',${inf?esc(JSON.stringify(inf)):'null'})">Editar</button>`;}
     else if(modo==='espera'&&libreSeat){accion=`<button class="btn-sm" onclick="reservarSlot('${l.id}','${vuelo.id}')">Anotar en espera</button>`;}
     else if(modo==='espera'){accion='—';}
     // Botón visible "PDF de esta reserva" — solo en lugares con reserva (no en libres ni reducidos)
     const btnPdf=(p&&st!=='L'&&!cancelado&&modo!=='reducido')?`<button class="btn-sm" title="Itinerario PDF de esta reserva (con fecha y vencimiento)" onclick="event.stopPropagation();imprimirItinerario('${vuelo.id}','${l.id}')">🖨 PDF</button>`:'';
     // Ola 3: admin/operaciones (des)bloquean un lugar para Operaciones (solo lugares activos libres)
-    const btnBloqueo=((esAdmin||esOper)&&modo==='activo'&&libreSeat&&!l.reducido)?`<button class="btn-sm" title="${l.bloqueado_operaciones?'Liberar este lugar para que lo puedan reservar los vendedores':'Reservar este lugar para Operaciones (los vendedores no lo pueden tomar)'}" onclick="toggleBloqueoOper('${l.id}','${vuelo.id}',${l.bloqueado_operaciones?'false':'true'})">${l.bloqueado_operaciones?'🔓 Desbloquear':'🔒 Bloquear Oper'}</button>`:'';
+    const btnBloqueo=((esAdmin||esOper)&&modo==='activo'&&libreSeat&&!l.reducido)?`<button class="btn-sm btn-sm-oper" title="${l.bloqueado_operaciones?'Liberar este lugar para que lo puedan reservar los vendedores':'Reservar este lugar para Operaciones (los vendedores no lo pueden tomar)'}" onclick="toggleBloqueoOper('${l.id}','${vuelo.id}',${l.bloqueado_operaciones?'false':'true'})">${l.bloqueado_operaciones?'🔓 Desbloquear':'🔒 Bloquear Oper'}</button>`:'';
     const accionCell=[(accion&&accion!=='—')?accion:'',btnPdf,btnBloqueo].filter(Boolean).join(' ')||accion;
     let h=`<tr class="${rowCls}">
       <td style="font-family:'DM Mono',monospace;font-weight:500"${numVisible!=null&&numVisible!==l.numero_lugar?` title="Lugar interno ${l.numero_lugar} — es el que figura en el historial de actividad"`:''}>${numVisible!=null?numVisible:l.numero_lugar}</td>
@@ -1731,7 +1795,7 @@ async function guardarPasajero(){
   try{
     // Write por RPC SECURITY DEFINER: fuerza ownership (vendedor solo lugar libre/propio) y
     // atribución del vendedor por JWT; el infant se upserta/borra en la misma transacción.
-    const {data:pid,error}=await sb.rpc('guardar_pasajero',{
+    const {data:resGuardar,error}=await sb.rpc('guardar_pasajero',{
       p_pasajero_id:currentPasajeroId,
       p_lugar_id:currentLugarId,
       p_vuelo_id:currentVueloId,
@@ -1750,10 +1814,18 @@ async function guardarPasajero(){
       p_inf:infObj
     });
     if(error){console.error('[Pasajero] Error guardar:',error);setBtnLoading('btn-guardar-pasajero',false,'Guardar');mostrarAlerta('modal-p-alert','Error al guardar pasajero: '+error.message,'error');return;}
+    // Ola 2 #53: la RPC devuelve jsonb {id, descartados[], candado}; fallback al uuid viejo por si la base aún no migró
+    const pid=(resGuardar&&typeof resGuardar==='object')?resGuardar.id:resGuardar;
+    const descartados=(resGuardar&&typeof resGuardar==='object'&&Array.isArray(resGuardar.descartados))?resGuardar.descartados:[];
     await registrarLog(currentPasajeroId?'editar_pasajero':'alta_pasajero','pasajero',pid,{status,vuelo_id:currentVueloId});
     setBtnLoading('btn-guardar-pasajero',false,'Guardar');
-    mostrarAlerta('modal-p-alert','Guardado correctamente','success');
-    setTimeout(()=>{cerrarModal('modal-pasajero');cargarDetalle(currentVueloId)},500);
+    if(descartados.length){
+      mostrarAlerta('modal-p-alert',`Se guardaron tus comentarios y los campos que estaban vacíos, pero NO se modificó: ${descartados.join(', ')}. Los datos ya cargados no se tocan porque la ficha está vendida o la cargó Operaciones/Admin — pedí ese cambio a Operaciones.`,'warning');
+      setTimeout(()=>{cerrarModal('modal-pasajero');cargarDetalle(currentVueloId)},4500);
+    } else {
+      mostrarAlerta('modal-p-alert','Guardado correctamente','success');
+      setTimeout(()=>{cerrarModal('modal-pasajero');cargarDetalle(currentVueloId)},500);
+    }
   } catch(err){
     console.error('[Pasajero] Excepción:',err);
     setBtnLoading('btn-guardar-pasajero',false,'Guardar');
@@ -1763,6 +1835,19 @@ async function guardarPasajero(){
 
 // ── MODAL RESERVAR ───────────────────────────────
 let reservarModoEspera=false,reservarModoEsperaBulk=false,reservarBloqLibres=0,reservarEsC=false;
+// Selector de vendedor (admin y operaciones): reservar a nombre propio o de otro vendedor.
+// Rama A (Ola 2 #35/#36): la mesa de Operaciones carga reservas a nombre del vendedor real para no romper la atribución comercial.
+function prepararSelectorVendedor(){
+  const rvGroup=document.getElementById('r-vendedor-group'),rvSel=document.getElementById('r-vendedor');
+  if(!rvGroup||!rvSel)return;
+  if(rolEfectivo==='admin'||rolEfectivo==='operaciones'){
+    const propio=vendedores.find(v=>v.email===currentUser?.email)?.nombre||currentUser?.email||'';
+    const lista=[...vendedores].filter(v=>v&&v.nombre&&v.activo!==false&&v.rol!=='travel_partner').sort((a,b)=>(a.nombre||'').localeCompare(b.nombre||''));
+    rvSel.innerHTML='<option value="">A nombre propio ('+esc(propio)+')</option>'+lista.map(v=>'<option value="'+esc(v.nombre)+'">'+esc(v.nombre)+'</option>').join('');
+    rvSel.value='';
+    rvGroup.style.display='';
+  } else { rvGroup.style.display='none'; }
+}
 function abrirModalReservar(vueloId,libres,idsStr,bloq,esC){
   reservarModoEspera=false;reservarModoEsperaBulk=false;reservarBloqLibres=parseInt(bloq)||0;reservarEsC=!!esC;
   reservarVueloId=vueloId;reservarLugaresLibres=parseInt(libres);
@@ -1778,15 +1863,7 @@ function abrirModalReservar(vueloId,libres,idsStr,bloq,esC){
   document.getElementById('modal-r-alert').innerHTML='';
   document.getElementById('btn-confirmar-reserva').disabled=false;
   document.getElementById('btn-confirmar-reserva').textContent='Confirmar reserva';
-  // Selector de vendedor (solo admin): reservar a nombre propio o de otro vendedor
-  const rvGroup=document.getElementById('r-vendedor-group'),rvSel=document.getElementById('r-vendedor');
-  if(rolEfectivo==='admin'&&rvGroup&&rvSel){
-    const propio=vendedores.find(v=>v.email===currentUser?.email)?.nombre||currentUser?.email||'';
-    const lista=[...vendedores].filter(v=>v&&v.nombre&&v.activo!==false).sort((a,b)=>(a.nombre||'').localeCompare(b.nombre||''));
-    rvSel.innerHTML='<option value="">A nombre propio ('+esc(propio)+')</option>'+lista.map(v=>'<option value="'+esc(v.nombre)+'">'+esc(v.nombre)+'</option>').join('');
-    rvSel.value='';
-    rvGroup.style.display='';
-  } else if(rvGroup){ rvGroup.style.display='none'; }
+  prepararSelectorVendedor();
   document.getElementById('modal-reservar').style.display='flex';
   document.getElementById('r-cantidad').focus(); // F9
 }
@@ -1799,14 +1876,14 @@ async function confirmarReserva(){
   if(!apellido&&!nombre){mostrarAlerta('modal-r-alert','Ingresá al menos apellido o nombre','error');return;}
   if(!reservarModoEspera&&cantidad>reservarLugaresLibres){
     let m=`Solo hay ${reservarLugaresLibres} lugar${reservarLugaresLibres===1?'':'es'} disponible${reservarLugaresLibres===1?'':'s'} para reservar`;
-    if(!reservarModoEsperaBulk&&reservarBloqLibres>0) m+=`. Hay ${reservarBloqLibres} lugar${reservarBloqLibres===1?'':'es'} más reservado${reservarBloqLibres===1?'':'s'} para Operaciones — solicitalos a un administrador.`;
+    if(!reservarModoEsperaBulk&&reservarBloqLibres>0) m+=`. Hay ${reservarBloqLibres} lugar${reservarBloqLibres===1?'':'es'} más reservado${reservarBloqLibres===1?'':'s'} para Operaciones — ${rolEfectivo==='operaciones'?'desbloquealos desde el detalle del cupo para poder tomarlos':'solicitalos a un administrador'}.`;
     mostrarAlerta('modal-r-alert',m,'error');return;
   }
   setBtnLoading('btn-confirmar-reserva',true,'Confirmar reserva');
   await asegurarTokenFresco();
   let vendedorNombre=vendedores.find(v=>v.email===currentUser.email)?.nombre||currentUser.email;
-  // Admin puede reservar a nombre de otro vendedor (la RPC respeta p_vendedor solo para admin; el no-admin queda con su propio nombre)
-  if(rolEfectivo==='admin'){const sel=document.getElementById('r-vendedor')?.value;if(sel)vendedorNombre=sel;}
+  // Admin y Operaciones pueden reservar a nombre de otro vendedor (la RPC respeta p_vendedor para admin/operaciones; el vendedor queda con su propio nombre)
+  if(rolEfectivo==='admin'||rolEfectivo==='operaciones'){const sel=document.getElementById('r-vendedor')?.value;if(sel)vendedorNombre=sel;}
   // Reserva ATÓMICA en la base (FOR UPDATE SKIP LOCKED): evita que dos vendedores tomen el mismo lugar
   let res;
   if(reservarModoEspera){
@@ -1850,15 +1927,7 @@ function reservarSlot(lugarId,vueloId){
   document.getElementById('modal-r-alert').innerHTML='';
   document.getElementById('btn-confirmar-reserva').disabled=false;
   document.getElementById('btn-confirmar-reserva').textContent='Confirmar reserva';
-  // Selector de vendedor (solo admin): reservar a nombre propio o de otro vendedor
-  const rvGroup=document.getElementById('r-vendedor-group'),rvSel=document.getElementById('r-vendedor');
-  if(rolEfectivo==='admin'&&rvGroup&&rvSel){
-    const propio=vendedores.find(v=>v.email===currentUser?.email)?.nombre||currentUser?.email||'';
-    const lista=[...vendedores].filter(v=>v&&v.nombre&&v.activo!==false).sort((a,b)=>(a.nombre||'').localeCompare(b.nombre||''));
-    rvSel.innerHTML='<option value="">A nombre propio ('+esc(propio)+')</option>'+lista.map(v=>'<option value="'+esc(v.nombre)+'">'+esc(v.nombre)+'</option>').join('');
-    rvSel.value='';
-    rvGroup.style.display='';
-  } else if(rvGroup){ rvGroup.style.display='none'; }
+  prepararSelectorVendedor();
   document.getElementById('modal-reservar').style.display='flex';
   document.getElementById('r-apellido').focus(); // F9 (la cantidad está fija en 1 y deshabilitada)
 }
@@ -1878,15 +1947,7 @@ function abrirModalReservarEspera(vueloId,libresEspera){
   document.getElementById('modal-r-alert').innerHTML='';
   document.getElementById('btn-confirmar-reserva').disabled=false;
   document.getElementById('btn-confirmar-reserva').textContent='Confirmar reserva';
-  // Selector de vendedor (solo admin): reservar a nombre propio o de otro vendedor
-  const rvGroup=document.getElementById('r-vendedor-group'),rvSel=document.getElementById('r-vendedor');
-  if(rolEfectivo==='admin'&&rvGroup&&rvSel){
-    const propio=vendedores.find(v=>v.email===currentUser?.email)?.nombre||currentUser?.email||'';
-    const lista=[...vendedores].filter(v=>v&&v.nombre&&v.activo!==false).sort((a,b)=>(a.nombre||'').localeCompare(b.nombre||''));
-    rvSel.innerHTML='<option value="">A nombre propio ('+esc(propio)+')</option>'+lista.map(v=>'<option value="'+esc(v.nombre)+'">'+esc(v.nombre)+'</option>').join('');
-    rvSel.value='';
-    rvGroup.style.display='';
-  } else if(rvGroup){ rvGroup.style.display='none'; }
+  prepararSelectorVendedor();
   document.getElementById('modal-reservar').style.display='flex';
   document.getElementById('r-cantidad').focus(); // F9
 }
@@ -1901,16 +1962,9 @@ async function crearListaEspera(vueloId){
   cargarDetalle(vueloId);
 }
 
-// Marca los 3 últimos lugares activos como reservados para Operaciones (no auto-reservables por vendedor)
-async function recalcularBloqueoOperaciones(vueloId){
-  const {data:lugs}=await sb.from('lugares').select('id,numero_lugar').eq('vuelo_id',vueloId).eq('es_infant',false).eq('es_espera',false).eq('reducido',false).order('numero_lugar',{ascending:false});
-  if(!lugs)return;
-  await sb.from('lugares').update({bloqueado_operaciones:false}).eq('vuelo_id',vueloId).eq('es_espera',false);
-  if(lugs.length>3){
-    const ids=lugs.slice(0,3).map(l=>l.id);
-    await sb.from('lugares').update({bloqueado_operaciones:true}).in('id',ids);
-  }
-}
+// Ola 2 #52: se eliminó recalcularBloqueoOperaciones() (heurística client-side que re-bloqueaba "los 3 últimos").
+// Pisaba los (des)bloqueos manuales de set_bloqueo_operaciones al reducir/restaurar/editar. La heurística
+// corre SOLO al crear el cupo (crear_cupo, server-side); después el bloqueo es estado persistente manual.
 
 // Ola 3: (des)bloquear un lugar para Operaciones (admin + operaciones) vía RPC gateada.
 async function toggleBloqueoOper(lugarId,vueloId,bloquear){
@@ -1926,7 +1980,6 @@ async function restaurarLugar(lugarId,vueloId){
   const {error}=await sb.from('lugares').update({reducido:false}).eq('id',lugarId);
   if(error){alert('Error al restaurar: '+error.message);return;}
   await registrarLog('restaurar_lugar','lugar',lugarId,{});
-  await recalcularBloqueoOperaciones(vueloId);
   cargarDetalle(vueloId);
 }
 
@@ -1959,16 +2012,20 @@ async function confirmarReduccion(){
   const hechos=res?.data||0;
   if(hechos===0){mostrarAlerta('modal-red-alert','No se pudo reducir: esos lugares ya no estaban libres. Refrescá y reintentá.','error');setTimeout(()=>{cerrarModal('modal-reducir');cargarDetalle(reducirVueloId)},1500);return;}
   await registrarLog('reduccion_lugares','vuelo',reducirVueloId,{cantidad:hechos});
-  await recalcularBloqueoOperaciones(reducirVueloId);
   mostrarAlerta('modal-red-alert',`${hechos} lugar${hechos>1?'es':''} reducido${hechos>1?'s':''}`+(hechos<n?` (de ${n} pedidos; el resto ya no estaba libre)`:''),'success');
   setTimeout(()=>{cerrarModal('modal-reducir');cargarDetalle(reducirVueloId)},1000);
 }
 async function cancelarCupo(vueloId){
-  if(!confirm('¿Cancelar el CUPO COMPLETO? Todos los lugares quedarán como REDUCIDOS (los pasajeros cargados se conservan en la sección de reducidos).'))return;
+  if(!confirm('¿Dar de baja el CUPO COMPLETO (reducir todos los lugares)? Todos quedarán como REDUCIDOS (los pasajeros cargados se conservan en la sección de reducidos). No registra cancelación contable.'))return;
   await asegurarTokenFresco();
+  // Ola 2 #60 (parcial): capturar el desglose ANTES de reducir para que el log no quede vacío ({}).
+  // El sellado server-side (RPC borrar_cupo) quedó diferido con #19.
+  const {data:lugsPre}=await sb.from('lugares').select('reducido,pasajeros(status)').eq('vuelo_id',vueloId).eq('es_espera',false).eq('es_infant',false);
+  const activosPre=(lugsPre||[]).filter(l=>!l.reducido);
+  const st=s=>activosPre.filter(l=>{const p=l.pasajeros?.[0];return s==='L'?(!p||p.status==='L'):(p&&p.status===s);}).length;
   const {error}=await sb.from('lugares').update({reducido:true,bloqueado_operaciones:false}).eq('vuelo_id',vueloId).eq('es_espera',false);
-  if(error){alert('Error al cancelar cupo: '+error.message);return;}
-  await registrarLog('cancelacion_cupo','vuelo',vueloId,{});
+  if(error){alert('Error al dar de baja el cupo: '+error.message);return;}
+  await registrarLog('cancelacion_cupo','vuelo',vueloId,{vuelo_id:vueloId,cantidad:activosPre.length,vendidos:st('V'),reservados:st('R'),libres:st('L')});
   cargarDetalle(vueloId);
 }
 
@@ -1985,37 +2042,43 @@ let eliminarVueloId=null,eliminarList=[];
 async function abrirModalEliminar(vueloId){
   eliminarVueloId=vueloId;
   document.getElementById('modal-elim-alert').innerHTML='';
-  document.getElementById('btn-confirmar-elim').disabled=false;
-  document.getElementById('btn-confirmar-elim').textContent='Eliminar seleccionadas';
+  document.getElementById('btn-confirmar-elim').textContent='Liberar seleccionadas';
   const soloPropias=rolEfectivo!=='admin';
-  document.getElementById('modal-elim-title').textContent=soloPropias?'Eliminar mis reservas':'Eliminar reservas';
+  document.getElementById('modal-elim-title').textContent=soloPropias?'Liberar mis reservas (borrar)':'Liberar lugares (borrar)';
   document.getElementById('modal-elim-info').textContent=soloPropias
-    ?'Se liberarán los lugares seleccionados (se borran los datos del pasajero de una sola vez). Solo se listan tus Reservados: un Vendido no se puede eliminar acá — pedilo a Operaciones o un administrador.'
-    :'Se liberarán los lugares seleccionados (se borran los datos del pasajero). Esto NO registra una cancelación con penalidad/recupero — para eso usá "Cancelar reservas".';
+    ?'Se liberarán los lugares seleccionados (se borran los datos del pasajero de una sola vez). Solo se listan tus Reservados: un Vendido no se puede liberar acá — pedilo a Operaciones o un administrador.'
+    :'Se liberarán los lugares seleccionados (se borran los datos del pasajero). Esto NO registra una cancelación con penalidad/recupero — para eso usá "Cancelar con penalidad".';
   const mi=vendedores.find(v=>v.email===currentUser?.email)?.nombre||currentUser?.email;
-  const {data:lugs}=await sb.from('lugares').select('id,numero_lugar,es_espera,pasajeros(id,status,cancelado,vendedor,primer_apellido,primer_nombre)').eq('vuelo_id',vueloId).order('numero_lugar');
+  const {data:lugs}=await sb.from('lugares').select('id,numero_lugar,es_espera,pasajeros(id,status,cancelado,vendedor,primer_apellido,primer_nombre,ficha)').eq('vuelo_id',vueloId).order('numero_lugar');
   eliminarList=(lugs||[]).filter(l=>{const p=l.pasajeros?.[0];return p&&!p.cancelado&&(soloPropias?p.status==='R':p.status!=='L')&&(!soloPropias||p.vendedor===mi);});
   const lista=document.getElementById('elim-lista');
-  if(!eliminarList.length){lista.innerHTML=`<div style="padding:12px;font-size:13px;color:var(--muted)">${soloPropias?'No tenés Reservados propios para eliminar en este cupo (los Vendidos no se eliminan acá).':'No hay reservas en este cupo.'}</div>`;}
+  if(!eliminarList.length){lista.innerHTML=`<div style="padding:12px;font-size:13px;color:var(--muted)">${soloPropias?'No tenés Reservados propios para liberar en este cupo (los Vendidos no se liberan acá).':'No hay reservas en este cupo.'}</div>`;}
   else{
-    lista.innerHTML=eliminarList.map(l=>{const p=l.pasajeros[0];const nombre=p.primer_apellido?esc(`${p.primer_apellido} ${p.primer_nombre||''}`.trim()):'(sin nombre)';const et=l.es_espera?' <span class="badge badge-l">espera</span>':'';return `<div style="display:flex;align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid var(--border)"><input type="checkbox" id="elc-${l.id}" checked style="width:16px;height:16px;cursor:pointer"/><span style="font-family:'DM Mono',monospace;min-width:24px">${l.numero_lugar}</span><span class="badge badge-${p.status==='V'?'v':'r'}">${esc(p.status)}</span>${et}<span style="font-size:13px">${nombre}</span></div>`;}).join('');
+    // Ola 2 #47: sin pre-tildar — el botón queda deshabilitado hasta seleccionar al menos uno
+    lista.innerHTML=eliminarList.map(l=>{const p=l.pasajeros[0];const nombre=p.primer_apellido?esc(`${p.primer_apellido} ${p.primer_nombre||''}`.trim()):'(sin nombre)';const et=l.es_espera?' <span class="badge badge-l">espera</span>':'';return `<div style="display:flex;align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid var(--border)"><input type="checkbox" id="elc-${l.id}" onchange="actualizarBtnElim()" style="width:16px;height:16px;cursor:pointer"/><span style="font-family:'DM Mono',monospace;min-width:24px">${l.numero_lugar}</span><span class="badge badge-${p.status==='V'?'v':'r'}">${esc(p.status)}</span>${et}<span style="font-size:13px">${nombre}</span></div>`;}).join('');
   }
+  actualizarBtnElim();
   document.getElementById('modal-eliminar').style.display='flex';
+}
+function actualizarBtnElim(){
+  const btn=document.getElementById('btn-confirmar-elim');if(!btn)return;
+  btn.disabled=!eliminarList.some(l=>{const c=document.getElementById(`elc-${l.id}`);return c&&c.checked;});
 }
 async function confirmarEliminarReserva(){
   const sel=eliminarList.filter(l=>{const c=document.getElementById(`elc-${l.id}`);return c&&c.checked;});
   if(!sel.length){mostrarAlerta('modal-elim-alert','Seleccioná al menos una reserva','error');return;}
-  if(!confirm(`¿Eliminar ${sel.length} reserva(s) (lugar ${sel.map(l=>l.numero_lugar).join(', ')})? Se liberan los lugares y se borran los datos del pasajero. No se puede deshacer.`)) return;
-  setBtnLoading('btn-confirmar-elim',true,'Eliminar seleccionadas');
+  if(!confirm(`¿Liberar ${sel.length} reserva(s) (lugar ${sel.map(l=>l.numero_lugar).join(', ')})? Se liberan los lugares y se borran los datos del pasajero. No se puede deshacer.`)) return;
+  setBtnLoading('btn-confirmar-elim',true,'Liberar seleccionadas');
   await asegurarTokenFresco();
   const ids=sel.map(l=>l.pasajeros[0].id);
   // Write por RPC SECURITY DEFINER: respeta ownership (vendedor solo libera las suyas).
   const {data:liberadas,error}=await sb.rpc('liberar_lugares',{p_ids:ids});
-  setBtnLoading('btn-confirmar-elim',false,'Eliminar seleccionadas');
-  if(error){mostrarAlerta('modal-elim-alert','Error al eliminar: '+error.message,'error');return;}
-  await registrarLog('eliminar_reserva','vuelo',eliminarVueloId,{lugares:sel.map(l=>l.numero_lugar)});
+  setBtnLoading('btn-confirmar-elim',false,'Liberar seleccionadas');
+  if(error){mostrarAlerta('modal-elim-alert','Error al liberar: '+error.message,'error');return;}
+  // Ola 2 #61: dejar en el log QUIÉNES se liberaron (nombre/ficha/vendedor), no solo los números de lugar
+  await registrarLog('eliminar_reserva','vuelo',eliminarVueloId,{lugares:sel.map(l=>l.numero_lugar),pasajeros:sel.map(l=>{const p=l.pasajeros[0];return {lugar:l.numero_lugar,nombre:`${p.primer_apellido||''} ${p.primer_nombre||''}`.trim()||null,ficha:p.ficha||null,vendedor:p.vendedor||null};})});
   const nLib=(liberadas==null?sel.length:liberadas);
-  mostrarAlerta('modal-elim-alert',`${nLib} reserva(s) eliminada(s)`,'success');
+  mostrarAlerta('modal-elim-alert',`${nLib} reserva(s) liberada(s)`,'success');
   setTimeout(()=>{cerrarModal('modal-eliminar');cargarDetalle(eliminarVueloId)},900);
 }
 
@@ -2132,6 +2195,46 @@ async function exportarExcel(vueloId,nombreVuelo){
   }catch(e){alert('Error al exportar: '+e.message);}
 }
 
+// ── EXPORTAR TEMPORADA (una fila por lugar, para conciliar con la planilla) ──
+async function exportarTemporada(){
+  try{
+    const temp=temporadas.find(t=>t.id===temporadaActiva);
+    const nombreTemp=temp?.nombre||'Temporada';
+    const ids=(vuelosData||[]).map(v=>v.id);
+    if(!ids.length){alert('No hay cupos en esta temporada');return;}
+    const [{data:lugares,error:e1},{data:infants}]=await Promise.all([
+      sb.from('lugares').select('*,pasajeros(*)').in('vuelo_id',ids),
+      sb.from('infants').select('*').in('vuelo_id',ids)
+    ]);
+    if(e1){alert('Error al exportar: '+e1.message);return;}
+    const infantMap={};
+    (infants||[]).forEach(inf=>{if(inf.pasajero_id)infantMap[inf.pasajero_id]=inf});
+    const vueloInfo={};(vuelosData||[]).forEach(v=>{vueloInfo[v.id]=v;});
+    const rows=[['Cupo','Fecha salida','#','Tipo','Primer Apellido','Segundo Apellido','Primer Nombre','Segundo Nombre','Hotel','Vendedor','Status','Factura','Fecha Reserva','Ficha','Comentarios']];
+    const pushFila=(vid,num,tipo,p,st)=>{
+      const v=vueloInfo[vid]||{};
+      rows.push([v.nombre||'',v.fecha?formatFecha(v.fecha):'',num,tipo,p.primer_apellido||'',p.segundo_apellido||'',p.primer_nombre||'',p.segundo_nombre||'',p.hotel||'',p.vendedor||'',st,p.factura||'',formatFechaHora(p.fecha_reserva),p.ficha||'',p.comentarios||'']);
+      const inf=p.id?infantMap[p.id]:null;
+      if(inf)rows.push([v.nombre||'',v.fecha?formatFecha(v.fecha):'',`${num}.inf`,'Infant',inf.primer_apellido||'',inf.segundo_apellido||'',inf.primer_nombre||'',inf.segundo_nombre||'',p.hotel||'',p.vendedor||'',st,p.factura||'',formatFechaHora(p.fecha_reserva),p.ficha||'','']);
+    };
+    const ordenCupos=[...(vuelosData||[])].sort((a,b)=>(a.nombre||'').localeCompare(b.nombre||''));
+    ordenCupos.forEach(v=>{
+      const ls=(lugares||[]).filter(l=>l.vuelo_id===v.id);
+      const adultos=ls.filter(l=>!l.es_infant&&!l.es_espera&&!l.reducido).sort((a,b)=>a.numero_lugar-b.numero_lugar);
+      const reducidos=ls.filter(l=>!l.es_infant&&!l.es_espera&&l.reducido).sort((a,b)=>a.numero_lugar-b.numero_lugar);
+      const espera=ls.filter(l=>l.es_espera).sort((a,b)=>a.numero_lugar-b.numero_lugar);
+      adultos.forEach(l=>{const p=l.pasajeros?.[0];const st=p?.cancelado?'CANCEL':(l.bloqueado_operaciones&&(!p||p.status==='L'))?'OPER':(p?.status||'L');pushFila(v.id,l.numero_lugar,'Adulto',p||{},st);});
+      reducidos.forEach(l=>pushFila(v.id,l.numero_lugar,'Reducido',l.pasajeros?.[0]||{},'REDUCIDO'));
+      espera.forEach(l=>pushFila(v.id,`E${l.numero_lugar}`,'Espera',l.pasajeros?.[0]||{},(l.pasajeros?.[0]?.status||'L')));
+    });
+    const ws=XLSX.utils.aoa_to_sheet(rows);
+    const wb=XLSX.utils.book_new();
+    const sheetName=(nombreTemp.replace(/[\\\/\?\*\[\]:]/g,'').substring(0,31))||'Temporada';
+    XLSX.utils.book_append_sheet(wb,ws,sheetName);
+    XLSX.writeFile(wb,`Temporada - ${nombreTemp.replace(/[\\\/\?\*\[\]:]/g,'-')}.xlsx`);
+  }catch(e){alert('Error al exportar: '+e.message);}
+}
+
 // ── IMPRIMIR / PDF ITINERARIO (con logo) ─────────
 async function imprimirItinerario(vueloId,lugarId){
   const {data:v}=await sb.from('vuelos').select(VUELO_COLS).eq('id',vueloId).single();
@@ -2191,27 +2294,63 @@ async function imprimirItinerario(vueloId,lugarId){
 // ── ADMIN ────────────────────────────────────────
 let usuariosAdmin=[],usuarioEditando=null;
 async function cargarAdmin(){
-  const [{data:temps},{data:vuelos},{data:usrs},{data:logs}]=await Promise.all([
+  const [{data:temps},{data:vuelos},{data:usrs}]=await Promise.all([
     sb.from('temporadas').select('*').order('creado_en',{ascending:false}),
     sb.from('vuelos').select('id,nombre,temporada_id,visible').order('nombre'),
-    sb.from('usuarios').select('email,nombre,rol').order('nombre'),
-    sb.from('log_actividad').select('*').order('creado_en',{ascending:false}).limit(80)
+    sb.from('usuarios').select('email,nombre,rol').order('nombre')
   ]);
-  renderLog(logs||[]);
+  cargarLog(true);
   temporadas=temps||[];
-  document.getElementById('admin-temporadas').innerHTML=temporadas.map(t=>`<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border);gap:8px"><div style="font-size:13px;font-weight:500;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(t.nombre)}</div><span class="badge ${t.activa?'badge-green':'badge-l'}">${t.activa?'Activa':'Inactiva'}</span><button class="btn-sm" onclick="abrirEditarTemporada('${t.id}')">Editar</button><button class="btn-sm" onclick="toggleActivaTemporada('${t.id}',${!!t.activa})">${t.activa?'Desactivar':'Activar'}</button></div>`).join('');
+  document.getElementById('admin-temporadas').innerHTML=temporadas.map(t=>`<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border);gap:8px"><div style="font-size:13px;font-weight:500;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(t.nombre)}</div><span class="badge ${t.activa?'badge-green':'badge-l'}">${t.activa?'Activa':'Inactiva'}</span><button class="btn-sm" onclick="abrirEditarTemporada('${t.id}')">Editar</button><button class="btn-sm btn-sm-toggle" onclick="toggleActivaTemporada('${t.id}',${!!t.activa})">${t.activa?'Desactivar':'Activar'}</button></div>`).join('');
   document.getElementById('admin-vuelos').innerHTML=(vuelos||[]).map(v=>{
     const vis=v.visible!==false;
-    return `<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);gap:8px"><span style="font-size:13px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(v.nombre)}</span><button class="btn-sm" onclick="toggleVisibilidadVuelo('${v.id}',${vis})" title="${vis?'Ocultar a vendedores':'Mostrar a vendedores'}">${vis?'👁 Visible':'🚫 Oculto'}</button><button class="btn-sm" onclick="abrirEditarVuelo('${v.id}')">Editar</button></div>`;
+    return `<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);gap:8px"><span style="font-size:13px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(v.nombre)}</span><button class="btn-sm btn-sm-toggle" onclick="toggleVisibilidadVuelo('${v.id}',${vis})" title="${vis?'Ocultar a vendedores':'Mostrar a vendedores'}">${vis?'👁 Visible':'🚫 Oculto'}</button><button class="btn-sm" onclick="abrirEditarVuelo('${v.id}')">Editar</button></div>`;
   }).join('');
   usuariosAdmin=usrs||[];
   renderUsuarios();
 }
 
-const accionLabel={crear_cupo:'Creó cupo',editar_cupo:'Editó cupo',reserva:'Reservó',alta_pasajero:'Cargó pasajero',editar_pasajero:'Editó pasajero',cancelar_reserva:'Canceló reserva(s)',reduccion_lugares:'Redujo lugares',cancelacion_cupo:'Canceló cupo',restaurar_lugar:'Restauró lugar',visibilidad:'Cambió visibilidad',eliminar_reserva:'Eliminó reserva',temporada_activa:'Activó/desactivó temporada',temporada_editar:'Editó temporada',vencimiento_auto:'Vencimiento automático'};
+const accionLabel={crear_cupo:'Creó cupo',editar_cupo:'Editó cupo',reserva:'Reservó',alta_pasajero:'Cargó pasajero',editar_pasajero:'Editó pasajero',cancelar_reserva:'Canceló reserva(s)',reduccion_lugares:'Redujo lugares',cancelacion_cupo:'Dio de baja cupo',restaurar_lugar:'Restauró lugar',visibilidad:'Cambió visibilidad',eliminar_reserva:'Liberó reserva(s)',temporada_activa:'Activó/desactivó temporada',temporada_editar:'Editó temporada',vencimiento_auto:'Vencimiento automático',bloquear_operaciones:'Bloqueó lugar (Oper)',desbloquear_operaciones:'Desbloqueó lugar (Oper)',carga_ficha_lote:'Cargó ficha en lote',agregar_lugares:'Agregó lugares',venta:'Venta',usuario_guardar:'Guardó usuario/rol',usuario_eliminar:'Eliminó usuario'};
+// ── Visor de log (Ola 2 #57/#62): filtros usuario/entidad/fecha + paginación + export ──
+const LOG_PAGE=80;
+let logsCargados=[],logPagina=0,logFiltroTimer=null;
+function filtrarLogDebounce(){clearTimeout(logFiltroTimer);logFiltroTimer=setTimeout(()=>cargarLog(true),350);}
+function _logQueryFiltrada(){
+  const usuario=document.getElementById('log-f-usuario')?.value.trim()||'';
+  const entidad=document.getElementById('log-f-entidad')?.value||'';
+  const desde=document.getElementById('log-f-desde')?.value||'';
+  const hasta=document.getElementById('log-f-hasta')?.value||'';
+  let q=sb.from('log_actividad').select('*').order('creado_en',{ascending:false});
+  if(usuario)q=q.ilike('usuario',`%${usuario}%`);
+  if(entidad)q=q.eq('entidad',entidad);
+  if(desde)q=q.gte('creado_en',`${desde}T00:00:00-03:00`);
+  if(hasta)q=q.lte('creado_en',`${hasta}T23:59:59-03:00`);
+  return q;
+}
+async function cargarLog(reset){
+  if(reset){logPagina=0;logsCargados=[];}
+  const {data,error}=await _logQueryFiltrada().range(logPagina*LOG_PAGE,(logPagina+1)*LOG_PAGE-1);
+  if(error){console.error('[Log]',error);return;}
+  logsCargados=logsCargados.concat(data||[]);
+  logPagina++;
+  renderLog(logsCargados);
+  const bm=document.getElementById('log-mas');if(bm)bm.style.display=((data||[]).length===LOG_PAGE)?'inline-block':'none';
+}
+async function exportarLog(){
+  try{
+    const {data,error}=await _logQueryFiltrada().limit(5000);
+    if(error){alert('Error al exportar el log: '+error.message);return;}
+    if(!data||!data.length){alert('No hay actividad para exportar con el filtro actual');return;}
+    const rows=[['Fecha','Usuario','Acción','Entidad','Detalle']];
+    data.forEach(l=>rows.push([formatFechaHora(l.creado_en),l.usuario||'',accionLabel[l.accion]||l.accion||'',l.entidad||'',l.detalle?JSON.stringify(l.detalle):'']));
+    const ws=XLSX.utils.aoa_to_sheet(rows);const wb=XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb,ws,'Log');
+    XLSX.writeFile(wb,'Log de actividad - Cupos.xlsx');
+  }catch(e){alert('Error al exportar: '+e.message);}
+}
 function renderLog(logs){
   const el=document.getElementById('admin-log');if(!el)return;
-  if(!logs.length){el.innerHTML='<div style="font-size:13px;color:var(--muted)">Sin actividad registrada todavía.</div>';return;}
+  if(!logs.length){el.innerHTML='<div style="font-size:13px;color:var(--muted)">Sin actividad registrada todavía (o nada matchea el filtro).</div>';return;}
   el.innerHTML=logs.map(l=>{
     const acc=esc(accionLabel[l.accion]||l.accion);
     const det=esc(l.detalle?Object.entries(l.detalle).map(([k,v])=>`${k}: ${typeof v==='object'?JSON.stringify(v):v}`).join(', '):'');
@@ -2267,6 +2406,11 @@ async function guardarUsuario(){
   const rol=document.getElementById('u-rol').value;
   if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)){mostrarAlerta('modal-u-alert','Ingresá un email válido','error');return;}
   if(!nombre){mostrarAlerta('modal-u-alert','El nombre es obligatorio','error');return;}
+  // Ola 2 #54: asignar un rol de poder requiere confirmación explícita
+  if(rol==='admin'||rol==='super_admin'){
+    const rolPrevio=usuarioEditando?(usuariosAdmin.find(x=>x.email===usuarioEditando)?.rol):null;
+    if(rolPrevio!==rol&&!confirm(`Vas a dar rol ${rolLabel(rol)} a ${usuarioEditando||email}: control total de cupos, reservas y usuarios${rol==='super_admin'?' (máximo nivel)':''}. ¿Confirmar?`))return;
+  }
   setBtnLoading('btn-guardar-usuario',true);
   if(!usuarioEditando){
     const {data:ya}=await sb.from('usuarios').select('email').eq('email',email).maybeSingle();
@@ -2383,9 +2527,14 @@ async function abrirEditarVuelo(vueloId){
       document.getElementById('v-fecha-regreso').value=v.fecha_regreso?v.fecha_regreso.substring(0,10):'';
       // Precargar "Total lugares" con el conteo REAL de lugares activos (no el total_lugares almacenado,
       // que queda desfasado tras una reducción/cancelación y reviviría stock devuelto a la aerolínea al guardar).
-      const {data:lugsAct}=await sb.from('lugares').select('reducido').eq('vuelo_id',vueloId).eq('es_infant',false).eq('es_espera',false);
-      const activosCount=(lugsAct||[]).filter(l=>!l.reducido).length;
+      const {data:lugsAct}=await sb.from('lugares').select('reducido,pasajeros(status)').eq('vuelo_id',vueloId).eq('es_infant',false).eq('es_espera',false);
+      const activosArr=(lugsAct||[]).filter(l=>!l.reducido);
+      const activosCount=activosArr.length;
       document.getElementById('v-lugares').value=activosCount;
+      // Ola 2 #55: mostrar el estado real del stock antes de tocar el total
+      {const ocupadosCount=activosArr.filter(l=>{const p=l.pasajeros?.[0];return p&&p.status&&p.status!=='L';}).length;
+       const hintLug=document.getElementById('v-lugares-hint');
+       if(hintLug){hintLug.style.display='block';hintLug.textContent=`Hoy: ${activosCount} activos, ${ocupadosCount} ocupados. Subir agrega lugares nuevos; bajar elimina vacíos del final y no puede tocar ocupados — para sacar lugares de la venta usá "Reducir lugares".`;}}
       document.getElementById('v-precio').value=v.precio||'';
       const {data:pnEdit}=await sb.rpc('admin_get_precio_neto',{p_vuelo_id:vueloId});
       document.getElementById('v-precio-neto').value=pnEdit||'';
@@ -2417,6 +2566,7 @@ async function abrirModalVuelo(){
   ['v-destino','v-ciudad','v-aerolinea'].forEach(id=>{const el=document.getElementById(id);if(el)el.value=''});
   renderCiudadesOpciones('','');
   ['v-nombre','v-localizador','v-fecha','v-lugares','v-precio','v-precio-neto','v-equipaje'].forEach(id=>{const el=document.getElementById(id);if(el)el.value=''});
+  {const hintLug=document.getElementById('v-lugares-hint');if(hintLug)hintLug.style.display='none';}
   ['v-cal-pago','v-cal-cancel-sin','v-cal-cancel-con'].forEach(id=>{const el=document.getElementById(id);if(el)el.value=''});
   document.querySelectorAll('.v-cal-user').forEach(c=>{c.checked=false;});
   document.getElementById('v-visible').value='true';
@@ -2503,10 +2653,9 @@ async function guardarVuelo(){
       }
       const {error}=await sb.from('vuelos').update(datos).eq('id',editarVueloId);
       if(error){setBtnLoading('btn-crear-vuelo',false,'Guardar cambios');mostrarAlerta('modal-v-alert',error.message,'error');return;}
-      await recalcularBloqueoOperaciones(editarVueloId);
       await registrarLog('editar_cupo','vuelo',editarVueloId,{itinerario_cambio:itinerarioCambio});
       setBtnLoading('btn-crear-vuelo',false,'Guardar cambios');
-      // Aviso al equipo si cambió el itinerario de un cupo a la venta. Sólo si hay webhook (en TEST está vacío -> no aparece).
+      // Aviso al equipo si cambió el itinerario de un cupo que está a la venta (visible). Se confirma antes de enviar para no avisar por correcciones triviales.
       let avisoItinerario=false;
       if(itinerarioCambio&&datos.visible&&N8N_WEBHOOK_ITINERARIO){
         if(confirm('Cambió el itinerario de un cupo que está a la venta.\n\n¿Enviar un aviso por mail a todo el equipo (vendedores + Operaciones)?')){
