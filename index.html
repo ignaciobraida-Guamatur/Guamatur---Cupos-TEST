@@ -645,11 +645,15 @@ const sb=supabase.createClient('https://cxknhpxncusgtabkmywy.supabase.co','eyJhb
   }
 });
 
-const APP_VERSION='🧪 TESTING — datos NO reales · 2026-07-11 · b59 (sync PROD: log de negocio sellado server-side, sin duplicados del cliente · Ola 1 #10-15)';
+const APP_VERSION='🧪 TESTING — datos NO reales · 2026-07-11 · b60 (sync PROD: secreto webhooks + aviso año PNR · Ola 3)';
 // Columnas de 'vuelos' legibles por cualquier usuario. EXCLUYE precio_neto: el admin lo lee por RPC admin_get_precio_neto (gateada por es_admin). No usar select('*') sobre vuelos: la columna precio_neto quedó revocada a authenticated.
 const VUELO_COLS='id,temporada_id,nombre,ciudad_codigo,ciudad_nombre,aerolinea,fecha,fecha_regreso,total_lugares,precio,condiciones_equipaje,creado_en,destino,itinerario,visible,itinerario_historial,cal_dias_pago_final,cal_dias_cancel_sin_gastos,cal_dias_cancel_con_gastos,cal_usuarios';
 // Calendarización: al crear un cupo, dispara (fire-and-forget) la creación de eventos en Google Calendar vía n8n.
 const N8N_WEBHOOK_AGENDA=''; // TEST: agenda desactivada (no dispara eventos reales)
+// Ola 3 #64/#70: secreto compartido con los workflows n8n — va en el BODY (fetch no-cors no deja pasar headers custom).
+// Corta el spam de quien solo tenga la URL del webhook. OJO: con el repo público el secreto es visible en el fuente;
+// la protección real es el filtro server-side de destinatarios @guamatur.com en el propio workflow (#65/#70).
+const CUPOS_WEBHOOK_SECRET='5f6a2344303e1643670007a2305c6013f21349abed333db07f4a5013fe4e8970';
 async function agendarEventosCupo(v){
   try{
     if(!v||!v.fecha||!N8N_WEBHOOK_AGENDA) return;
@@ -669,7 +673,7 @@ async function agendarEventosCupo(v){
       eventos.push({tipo,fecha:`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`});
     });
     if(!eventos.length) return;
-    const payload={cupo:v.nombre||'',localizador:v.localizador||'',aerolinea:v.aerolinea||'',fecha_salida:base,url:location.origin+location.pathname,attendees:users,eventos};
+    const payload={secret:CUPOS_WEBHOOK_SECRET,cupo:v.nombre||'',localizador:v.localizador||'',aerolinea:v.aerolinea||'',fecha_salida:base,url:location.origin+location.pathname,attendees:users,eventos};
     await fetch(N8N_WEBHOOK_AGENDA,{method:'POST',mode:'no-cors',body:JSON.stringify(payload)});
   }catch(e){console.warn('[Agenda] no se pudo agendar:',e);}
 }
@@ -681,6 +685,7 @@ async function avisarCambioItinerario(v,itiViejo,itiNuevo){
     const destinatarios=(Array.isArray(vendedores)?vendedores:[]).filter(u=>u&&u.rol!=='travel_partner'&&u.email).map(u=>u.email);
     if(!destinatarios.length) return;
     const payload={
+      secret:CUPOS_WEBHOOK_SECRET,
       cupo:v.nombre||'',
       destino:v.ciudad_nombre||v.destino||'',
       aerolinea:v.aerolinea||'',
@@ -2845,16 +2850,26 @@ function interpretarPNRs(){
 
 function renderPreviewMasivo(){
   const regiones=['Argentina','Brasil','Caribe','Chile','Otros'];
+  // Ola 3 #89: si el año inferido del PNR difiere del año de la temporada elegida (o del año en curso
+  // si la temporada no trae año en el nombre), resaltar la fecha para que se confirme a mano.
+  const _tempSel=document.getElementById('m-temporada');
+  const _tempNombre=_tempSel?.selectedOptions?.[0]?.textContent||'';
+  const _mAnio=_tempNombre.match(/20\d{2}/);
+  const anioRef=_mAnio?parseInt(_mAnio[0]):ahoraUY().getFullYear();
+  let avisosAnio=0;
   let html='<div class="table-wrap" style="margin-bottom:14px"><table><thead><tr><th>✓</th><th>Nombre</th><th>Región</th><th>Ciudad</th><th>Aerolínea</th><th>Fecha</th><th>Localiz.</th><th>Lugares</th><th>Precio</th><th>Neto</th><th>Tramos</th></tr></thead><tbody>';
   cuposMasivosDraft.forEach((d,i)=>{
     const lugDetectado=d.total_lugares>0;const lug=lugDetectado?d.total_lugares:'';
+    const anioInf=d.fecha?parseInt(String(d.fecha).slice(0,4)):null;
+    const avisoAnio=!!(anioInf&&anioInf!==anioRef);
+    if(avisoAnio)avisosAnio++;
     html+=`<tr>
       <td><input type="checkbox" id="m-inc-${i}" ${d.incluir?'checked':''} style="width:15px;height:15px"/></td>
       <td><input class="form-input" id="m-nom-${i}" value="${esc(d.nombre)}" style="min-width:170px;padding:5px 8px;font-size:12px"/></td>
       <td><select class="form-select" id="m-reg-${i}" style="padding:5px 8px;font-size:12px">${regiones.map(r=>`<option${r===d.region?' selected':''}>${r}</option>`).join('')}</select></td>
       <td><input class="form-input" id="m-ciu-${i}" value="${esc(d.ciudad||d.ciudad_codigo||'')}" style="min-width:100px;padding:5px 8px;font-size:12px"/></td>
       <td><input class="form-input" id="m-aer-${i}" value="${esc(d.aerolinea)}" style="min-width:85px;padding:5px 8px;font-size:12px"/></td>
-      <td><input class="form-input" id="m-fec-${i}" type="date" value="${esc(d.fecha)}" style="padding:5px 8px;font-size:12px"/></td>
+      <td><input class="form-input" id="m-fec-${i}" type="date" value="${esc(d.fecha)}" title="${avisoAnio?`⚠ El PNR no trae año: se infirió ${anioInf}, pero la temporada apunta a ${anioRef}. Confirmá la fecha.`:''}" style="padding:5px 8px;font-size:12px${avisoAnio?';border-color:var(--orange);background:rgba(255,128,0,0.08)':''}"/>${avisoAnio?`<div style="font-size:10px;color:var(--orange);margin-top:2px">⚠ año inferido ${anioInf} ≠ ${anioRef}</div>`:''}</td>
       <td><input class="form-input" id="m-loc-${i}" value="${esc(d.localizador)}" style="width:78px;padding:5px 8px;font-size:12px"/></td>
       <td><input class="form-input" id="m-lug-${i}" type="number" min="1" value="${lug}" placeholder="?" title="${lugDetectado?'':'El PNR no trajo los lugares — completá el número (consultá), no se asume ninguno'}" style="width:62px;padding:5px 8px;font-size:12px${lugDetectado?'':';border-color:var(--red);background:rgba(255,59,59,0.08)'}"/></td>
       <td><input class="form-input" id="m-pre-${i}" type="number" min="0" value="${d.precio}" placeholder="—" style="width:68px;padding:5px 8px;font-size:12px"/></td>
@@ -2863,6 +2878,7 @@ function renderPreviewMasivo(){
     </tr>`;
   });
   html+='</tbody></table></div><div style="font-size:11px;color:var(--muted);margin-bottom:8px">Revisá especialmente Ciudad/Región (cuando el destino es un paquete). <b style="color:var(--orange)">Si el PNR no trajo los lugares, el campo queda vacío y en rojo: completalo a mano (consultá) — no se asume ningún número.</b> Destildá los que no quieras crear.</div>';
+  if(avisosAnio>0)html=`<div style="background:rgba(255,128,0,0.08);border:1px solid rgba(255,128,0,0.25);border-radius:8px;padding:8px 12px;font-size:12px;color:var(--orange);margin-bottom:10px">⚠ ${avisosAnio} cupo(s) con <b>año inferido distinto al de la temporada</b> (el PNR no trae año). Confirmá esas fechas antes de crear.</div>`+html;
   document.getElementById('m-preview').innerHTML=html;
 }
 
