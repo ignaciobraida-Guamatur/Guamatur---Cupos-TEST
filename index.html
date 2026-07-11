@@ -645,7 +645,7 @@ const sb=supabase.createClient('https://cxknhpxncusgtabkmywy.supabase.co','eyJhb
   }
 });
 
-const APP_VERSION='🧪 TESTING — datos NO reales · 2026-07-11 · b58 (sync PROD: Ola 2 — búsqueda ficha/factura + Exportar temporada + Operaciones a nombre del vendedor + menú Gestionar cupo + aviso candado + visor log)';
+const APP_VERSION='🧪 TESTING — datos NO reales · 2026-07-11 · b59 (sync PROD: log de negocio sellado server-side, sin duplicados del cliente · Ola 1 #10-15)';
 // Columnas de 'vuelos' legibles por cualquier usuario. EXCLUYE precio_neto: el admin lo lee por RPC admin_get_precio_neto (gateada por es_admin). No usar select('*') sobre vuelos: la columna precio_neto quedó revocada a authenticated.
 const VUELO_COLS='id,temporada_id,nombre,ciudad_codigo,ciudad_nombre,aerolinea,fecha,fecha_regreso,total_lugares,precio,condiciones_equipaje,creado_en,destino,itinerario,visible,itinerario_historial,cal_dias_pago_final,cal_dias_cancel_sin_gastos,cal_dias_cancel_con_gastos,cal_usuarios';
 // Calendarización: al crear un cupo, dispara (fire-and-forget) la creación de eventos en Google Calendar vía n8n.
@@ -1814,10 +1814,9 @@ async function guardarPasajero(){
       p_inf:infObj
     });
     if(error){console.error('[Pasajero] Error guardar:',error);setBtnLoading('btn-guardar-pasajero',false,'Guardar');mostrarAlerta('modal-p-alert','Error al guardar pasajero: '+error.message,'error');return;}
-    // Ola 2 #53: la RPC devuelve jsonb {id, descartados[], candado}; fallback al uuid viejo por si la base aún no migró
-    const pid=(resGuardar&&typeof resGuardar==='object')?resGuardar.id:resGuardar;
+    // Ola 2 #53: la RPC devuelve jsonb {id, descartados[], candado}.
+    // b59 (Ola 1 #12): el log venta/alta/edición lo sella la RPC; se quitó el registrarLog del cliente.
     const descartados=(resGuardar&&typeof resGuardar==='object'&&Array.isArray(resGuardar.descartados))?resGuardar.descartados:[];
-    await registrarLog(currentPasajeroId?'editar_pasajero':'alta_pasajero','pasajero',pid,{status,vuelo_id:currentVueloId});
     setBtnLoading('btn-guardar-pasajero',false,'Guardar');
     if(descartados.length){
       mostrarAlerta('modal-p-alert',`Se guardaron tus comentarios y los campos que estaban vacíos, pero NO se modificó: ${descartados.join(', ')}. Los datos ya cargados no se tocan porque la ficha está vendida o la cargó Operaciones/Admin — pedí ese cambio a Operaciones.`,'warning');
@@ -1902,7 +1901,7 @@ async function confirmarReserva(){
     setTimeout(()=>{cerrarModal('modal-reservar');cargarDetalle(reservarVueloId)},1800);
     return;
   }
-  await registrarLog('reserva','vuelo',reservarVueloId,{cantidad:hechos,a_nombre:`${apellido} ${nombre}`.trim(),vendedor:vendedorNombre,espera:reservarModoEspera});
+  // b59 (Ola 1 #10): el log de la reserva lo sella la RPC server-side; se quitó el registrarLog del cliente (duplicaba)
   let msg=(!reservarModoEspera&&hechos<cantidad)
     ?`Se reservaron ${hechos} de ${cantidad} (el resto ya estaba tomado).`
     :`${hechos} lugar${hechos>1?'es':''} reservado${hechos>1?'s':''} correctamente`;
@@ -1971,7 +1970,7 @@ async function toggleBloqueoOper(lugarId,vueloId,bloquear){
   await asegurarTokenFresco();
   const {error}=await sb.rpc('set_bloqueo_operaciones',{p_lugar_id:lugarId,p_bloquear:bloquear});
   if(error){alert('Error al '+(bloquear?'bloquear':'desbloquear')+': '+error.message);return;}
-  await registrarLog(bloquear?'bloquear_operaciones':'desbloquear_operaciones','lugar',lugarId,{vuelo_id:vueloId});
+  // b59 (Ola 1 #14): el log lo sella la RPC; se quitó el registrarLog del cliente
   cargarDetalle(vueloId);
 }
 async function restaurarLugar(lugarId,vueloId){
@@ -2075,8 +2074,7 @@ async function confirmarEliminarReserva(){
   const {data:liberadas,error}=await sb.rpc('liberar_lugares',{p_ids:ids});
   setBtnLoading('btn-confirmar-elim',false,'Liberar seleccionadas');
   if(error){mostrarAlerta('modal-elim-alert','Error al liberar: '+error.message,'error');return;}
-  // Ola 2 #61: dejar en el log QUIÉNES se liberaron (nombre/ficha/vendedor), no solo los números de lugar
-  await registrarLog('eliminar_reserva','vuelo',eliminarVueloId,{lugares:sel.map(l=>l.numero_lugar),pasajeros:sel.map(l=>{const p=l.pasajeros[0];return {lugar:l.numero_lugar,nombre:`${p.primer_apellido||''} ${p.primer_nombre||''}`.trim()||null,ficha:p.ficha||null,vendedor:p.vendedor||null};})});
+  // b59 (Ola 1 #11): el snapshot completo lo deja liberar_lugares server-side; se quitó el registrarLog del cliente
   const nLib=(liberadas==null?sel.length:liberadas);
   mostrarAlerta('modal-elim-alert',`${nLib} reserva(s) liberada(s)`,'success');
   setTimeout(()=>{cerrarModal('modal-eliminar');cargarDetalle(eliminarVueloId)},900);
@@ -2141,10 +2139,7 @@ async function confirmarCancelacion(){
     exitososLugares.push(l);
   }
   const exitosos=exitososLugares.length;
-  // B2: registrar log SOLO de lo efectivamente cancelado — no inventar una cancelación si fallan todas, ni inflar los lugares en una cancelación parcial.
-  if(exitososLugares.length){
-    await registrarLog('cancelar_reserva','vuelo',cancelarVueloId,{lugares:exitososLugares.map(l=>l.numero_lugar),penalidad,recupero});
-  }
+  // b59 (Ola 1 #13): cancelar_lugar sella su propio log por lugar (con penalidad/recupero y datos del cancelado); se quitó el registrarLog del cliente
   setBtnLoading('btn-confirmar-cancelar',false,'Confirmar cancelación');
   if(errors.length>0){
     const msg=exitosos>0
