@@ -568,13 +568,8 @@
         <div><label class="form-label" style="font-size:11px">Cancelación con gastos</label><input class="form-input" id="v-cal-cancel-con" type="number" min="0" placeholder="No aplica"/></div>
       </div>
       <label class="form-label" style="font-size:11px;margin-top:10px;display:block">Agendar a:</label>
-      <div style="display:flex;flex-wrap:wrap;gap:14px;margin-top:4px">
-        <label style="display:flex;align-items:center;gap:5px;font-size:12px;cursor:pointer"><input type="checkbox" class="v-cal-user" value="diego.busch@guamatur.com" style="width:14px;height:14px"/> Diego Busch</label>
-        <label style="display:flex;align-items:center;gap:5px;font-size:12px;cursor:pointer"><input type="checkbox" class="v-cal-user" value="rodrigo.maulelo@guamatur.com" style="width:14px;height:14px"/> Rodrigo Maulelo</label>
-        <label style="display:flex;align-items:center;gap:5px;font-size:12px;cursor:pointer"><input type="checkbox" class="v-cal-user" value="mariana@guamatur.com" style="width:14px;height:14px"/> Mariana Martinez</label>
-        <label style="display:flex;align-items:center;gap:5px;font-size:12px;cursor:pointer"><input type="checkbox" class="v-cal-user" value="dory@guamatur.com" style="width:14px;height:14px"/> Dory Fazzi</label>
-        <label style="display:flex;align-items:center;gap:5px;font-size:12px;cursor:pointer"><input type="checkbox" class="v-cal-user" value="productoaereo@guamatur.com" style="width:14px;height:14px"/> Producto Aéreo</label>
-      </div>
+      <!-- Se puebla desde CONFIG.AGENDA_INVITADOS (Ola 4 #93) -->
+      <div id="v-cal-users" style="display:flex;flex-wrap:wrap;gap:14px;margin-top:4px"></div>
     </div>
     <div style="margin-bottom:14px">
       <details style="margin-bottom:10px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:8px 10px">
@@ -635,7 +630,55 @@
 </div>
 
 <script>
-const sb=supabase.createClient('https://cxknhpxncusgtabkmywy.supabase.co','eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImN4a25ocHhuY3VzZ3RhYmtteXd5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI3NjA0ODQsImV4cCI6MjA5ODMzNjQ4NH0.OqJ-2ZAICslg0sgKttscBBv5xB-BoMn04yFyMjQHCuw',{
+// ══════════════════════════════════════════════════════════════════════════════
+// CONFIG — ÚNICO punto a editar para instalar esta app en otra agencia (Ola 4 #91/#92).
+// Qué es cada clave y de dónde sale el valor:
+//  · SUPABASE_URL / SUPABASE_ANON_KEY: proyecto Supabase → Settings → API. La anon key es
+//    pública por diseño; la seguridad real vive en la base (RLS + RPCs — ver
+//    documentacion/modelo-de-seguridad.md).
+//  · APP_URL: URL pública donde se sirve este index.html (GitHub Pages u otro hosting).
+//    Es también el redirect del login Google → tiene que figurar en Supabase Auth → URL Configuration.
+//  · OAUTH_DOMINIO: dominio de Google Workspace de la agencia (hint del login; la barrera
+//    real es la whitelist server-side es_usuario_habilitado()).
+//  · N8N_WEBHOOK_AGENDA / N8N_WEBHOOK_ITINERARIO: URLs de los workflows n8n
+//    (exports en integraciones/n8n/). Vacío = esa integración queda apagada.
+//  · WEBHOOK_SECRET: secreto compartido con esos workflows (viaja en el body porque el
+//    fetch no-cors no permite headers; el valor gemelo vive en el Code node de cada workflow).
+//    Con el repo público es visible: corta spam con la URL, NO es la barrera de seguridad.
+//  · AGENDA_INVITADOS: personas invitables a los eventos de Calendar al crear un cupo.
+//  · ATLAS_ENABLED: conector al CRM Atlas/Netviax (Edge Function atlas-ficha). false = la
+//    agencia no usa Atlas → los botones "Traer de Atlas"/"Cargar ficha" no aparecen y la
+//    carga manual queda intacta.
+//  · BRAND_* / LOGO_* / COPYRIGHT: identidad visual (manual: 00 - Sistema/referencias/marca-guamatur/).
+//    El acento violeta de la UI es decisión de producto; la marca aplica a login/PDF/logo.
+//  · CONDICIONES_ITINERARIO / CONDICIONES_NOTA: textos legales del PDF (definidos con Operaciones).
+// ══════════════════════════════════════════════════════════════════════════════
+const CONFIG={
+  SUPABASE_URL:'https://cxknhpxncusgtabkmywy.supabase.co',
+  SUPABASE_ANON_KEY:'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImN4a25ocHhuY3VzZ3RhYmtteXd5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI3NjA0ODQsImV4cCI6MjA5ODMzNjQ4NH0.OqJ-2ZAICslg0sgKttscBBv5xB-BoMn04yFyMjQHCuw',
+  APP_URL:'https://ignaciobraida-guamatur.github.io/Guamatur---Cupos-TEST/',
+  OAUTH_DOMINIO:'guamatur.com',
+  N8N_WEBHOOK_AGENDA:'', // TEST: agenda desactivada (no dispara eventos reales)
+  N8N_WEBHOOK_ITINERARIO:'', // TEST: aviso de itinerario DESACTIVADO (no manda mails reales al equipo)
+  WEBHOOK_SECRET:'5f6a2344303e1643670007a2305c6013f21349abed333db07f4a5013fe4e8970',
+  AGENDA_INVITADOS:[
+    {email:'diego.busch@guamatur.com',nombre:'Diego Busch'},
+    {email:'rodrigo.maulelo@guamatur.com',nombre:'Rodrigo Maulelo'},
+    {email:'mariana@guamatur.com',nombre:'Mariana Martinez'},
+    {email:'dory@guamatur.com',nombre:'Dory Fazzi'},
+    {email:'productoaereo@guamatur.com',nombre:'Producto Aéreo'}
+  ],
+  ATLAS_ENABLED:true,
+  BRAND_PRIMARY:'#cd0039',BRAND_SECONDARY:'#981632',BRAND_COMP:'#fcf6eb',BRAND_COMP2:'#efefef',
+  LOGO_COLOR:'logo-color.svg',   // logo color institucional (#cd0039) — para fondos claros (PDF)
+  LOGO_BLANCO:'logo-blanco.svg', // logo blanco — para fondos oscuros (app)
+  COPYRIGHT:'© Guamatur Viajes',
+  CONDICIONES_ITINERARIO:['Se requiere documentación escaneada de todos los pasajeros.','Presentarse en el aeropuerto al menos 3 horas antes del horario de partida.','Guamatur no es responsable de cualquier cambio de las aerolíneas respecto a horarios, escalas, cancelaciones, cambios.','Guamatur no responde por deterioro, pérdida, extravío, hurto o robo del equipaje y efectos personales.','En caso de vuelos charter siempre estarán sujetos a aprobación gubernamental.','Los pasajes aéreos emitidos en este período de alta demanda no son reembolsables y no admiten cambios de fecha ni están sujetos a penalidades por modificación. Recomendamos contratar un seguro de cancelación para contar con mayor flexibilidad ante imprevistos. Consultanos para más información.'],
+  CONDICIONES_NOTA:'Esta reserva queda confirmada hasta su fecha de vencimiento establecida en este documento. Para confirmar la reserva se requiere del pago total. En caso de no recibir el pago se cancela automáticamente.'
+};
+// ── Fin de CONFIG. De acá para abajo NO hay valores de instalación: el resto del
+// código usa los alias siguientes (no editar). ──
+const sb=supabase.createClient(CONFIG.SUPABASE_URL,CONFIG.SUPABASE_ANON_KEY,{
   auth:{
     persistSession:true,
     autoRefreshToken:true,
@@ -645,15 +688,13 @@ const sb=supabase.createClient('https://cxknhpxncusgtabkmywy.supabase.co','eyJhb
   }
 });
 
-const APP_VERSION='🧪 TESTING — datos NO reales · 2026-07-11 · b60 (sync PROD: secreto webhooks + aviso año PNR · Ola 3)';
+const APP_VERSION='Fase 2 · 2026-07-11 (b61-TEST · Ola 4: bloque CONFIG único + invitados desde CONFIG + flag Atlas) — AMBIENTE DE PRUEBAS';
 // Columnas de 'vuelos' legibles por cualquier usuario. EXCLUYE precio_neto: el admin lo lee por RPC admin_get_precio_neto (gateada por es_admin). No usar select('*') sobre vuelos: la columna precio_neto quedó revocada a authenticated.
 const VUELO_COLS='id,temporada_id,nombre,ciudad_codigo,ciudad_nombre,aerolinea,fecha,fecha_regreso,total_lugares,precio,condiciones_equipaje,creado_en,destino,itinerario,visible,itinerario_historial,cal_dias_pago_final,cal_dias_cancel_sin_gastos,cal_dias_cancel_con_gastos,cal_usuarios';
 // Calendarización: al crear un cupo, dispara (fire-and-forget) la creación de eventos en Google Calendar vía n8n.
-const N8N_WEBHOOK_AGENDA=''; // TEST: agenda desactivada (no dispara eventos reales)
+const N8N_WEBHOOK_AGENDA=CONFIG.N8N_WEBHOOK_AGENDA;
 // Ola 3 #64/#70: secreto compartido con los workflows n8n — va en el BODY (fetch no-cors no deja pasar headers custom).
-// Corta el spam de quien solo tenga la URL del webhook. OJO: con el repo público el secreto es visible en el fuente;
-// la protección real es el filtro server-side de destinatarios @guamatur.com en el propio workflow (#65/#70).
-const CUPOS_WEBHOOK_SECRET='5f6a2344303e1643670007a2305c6013f21349abed333db07f4a5013fe4e8970';
+const CUPOS_WEBHOOK_SECRET=CONFIG.WEBHOOK_SECRET;
 async function agendarEventosCupo(v){
   try{
     if(!v||!v.fecha||!N8N_WEBHOOK_AGENDA) return;
@@ -677,8 +718,9 @@ async function agendarEventosCupo(v){
     await fetch(N8N_WEBHOOK_AGENDA,{method:'POST',mode:'no-cors',body:JSON.stringify(payload)});
   }catch(e){console.warn('[Agenda] no se pudo agendar:',e);}
 }
-// Aviso de cambio de itinerario: al editar un cupo a la venta y cambiar el itinerario, avisa por mail (n8n -> Gmail) a todo el equipo interno. Fire-and-forget.
-const N8N_WEBHOOK_ITINERARIO=''; // TEST: aviso de itinerario DESACTIVADO (no manda mails reales al equipo)
+// Aviso de cambio de itinerario: al editar un cupo que está a la venta (visible) y cambiar el itinerario (horario/vuelo/fecha),
+// avisa por mail —vía n8n → Gmail— a todo el equipo interno (excluye Travel Partners). Fire-and-forget; el envío se confirma antes de disparar (ver guardarVuelo).
+const N8N_WEBHOOK_ITINERARIO=CONFIG.N8N_WEBHOOK_ITINERARIO;
 async function avisarCambioItinerario(v,itiViejo,itiNuevo){
   try{
     if(!N8N_WEBHOOK_ITINERARIO) return;
@@ -702,11 +744,11 @@ async function avisarCambioItinerario(v,itiViejo,itiNuevo){
   }catch(e){console.warn('[AvisoItinerario] no se pudo avisar:',e);}
 }
 document.querySelectorAll('.app-version').forEach(e=>{e.textContent=APP_VERSION;});
-{const _cr=document.getElementById('login-copyright'); if(_cr) _cr.textContent='© Guamatur Viajes '+new Date().getFullYear();}
-// Identidad de marca Guamatur (manual oficial — ver 00 - Sistema/referencias/marca-guamatur/)
-const GUA_PRIMARY='#cd0039', GUA_SECONDARY='#981632', GUA_COMP='#fcf6eb', GUA_COMP2='#efefef';
-const GUA_LOGO='logo-color.svg';        // logo color institucional (#cd0039) — para fondos claros (PDF)
-const GUA_LOGO_BLANCO='logo-blanco.svg'; // logo blanco — para fondos oscuros (app) e institucional
+{const _cr=document.getElementById('login-copyright'); if(_cr) _cr.textContent=CONFIG.COPYRIGHT+' '+new Date().getFullYear();}
+// Identidad de marca (valores en CONFIG; manual oficial — ver 00 - Sistema/referencias/marca-guamatur/)
+const GUA_PRIMARY=CONFIG.BRAND_PRIMARY, GUA_SECONDARY=CONFIG.BRAND_SECONDARY, GUA_COMP=CONFIG.BRAND_COMP, GUA_COMP2=CONFIG.BRAND_COMP2;
+const GUA_LOGO=CONFIG.LOGO_COLOR;
+const GUA_LOGO_BLANCO=CONFIG.LOGO_BLANCO;
 const AEROLINEA_COLOR={LATAM:'#1b0088',GOL:'#ff7a00',Avianca:'#d8202f',SKY:'#00247d','JetSmart':'#e40046',Azul:'#00a1de','Aerolíneas Argentinas':'#74acdf','Iberia':'#d7192d','Air Europa':'#0a3d91','American':'#0078d2','Copa':'#0c2340'};
 const AEROLINEAS=Object.keys(AEROLINEA_COLOR);
 // Ciudades con su región (para filtrar el selector Ciudad al elegir Región)
@@ -721,18 +763,22 @@ const CIUDADES=[
 // Nombre de ciudad por código de aeropuerto — para el PDF del pasajero (muchas veces no conoce el código IATA).
 const AEROPUERTOS={MVD:'Montevideo',PDP:'Punta del Este',GRU:'São Paulo',CGH:'São Paulo',VCP:'São Paulo',GIG:'Río de Janeiro',SDU:'Río de Janeiro',REC:'Recife',SSA:'Salvador de Bahía',FOR:'Fortaleza',FLN:'Florianópolis',MCZ:'Maceió',POA:'Porto Alegre',BSB:'Brasilia',IGU:'Foz de Iguazú',PUJ:'Punta Cana',AUA:'Aruba',CUN:'Cancún',CTG:'Cartagena',ADZ:'San Andrés',SCL:'Santiago de Chile',PMC:'Puerto Montt',LIM:'Lima',CUZ:'Cusco',CUS:'Cusco',BOG:'Bogotá',MIA:'Miami',MCO:'Orlando',EZE:'Buenos Aires',AEP:'Buenos Aires',COR:'Córdoba',MDZ:'Mendoza',BRC:'Bariloche',USH:'Ushuaia',FTE:'El Calafate',SLA:'Salta',ASU:'Asunción',MAD:'Madrid',BCN:'Barcelona'};
 function nombreAeropuerto(cod){if(!cod)return '';return AEROPUERTOS[String(cod).trim().toUpperCase()]||'';}
-// Condiciones generales del PDF del itinerario (texto definido con Operaciones)
-const CONDICIONES_ITINERARIO=['Se requiere documentación escaneada de todos los pasajeros.','Presentarse en el aeropuerto al menos 3 horas antes del horario de partida.','Guamatur no es responsable de cualquier cambio de las aerolíneas respecto a horarios, escalas, cancelaciones, cambios.','Guamatur no responde por deterioro, pérdida, extravío, hurto o robo del equipaje y efectos personales.','En caso de vuelos charter siempre estarán sujetos a aprobación gubernamental.','Los pasajes aéreos emitidos en este período de alta demanda no son reembolsables y no admiten cambios de fecha ni están sujetos a penalidades por modificación. Recomendamos contratar un seguro de cancelación para contar con mayor flexibilidad ante imprevistos. Consultanos para más información.'];
-const CONDICIONES_NOTA='Esta reserva queda confirmada hasta su fecha de vencimiento establecida en este documento. Para confirmar la reserva se requiere del pago total. En caso de no recibir el pago se cancela automáticamente.';
+// Condiciones generales del PDF del itinerario (valores en CONFIG; texto definido con Operaciones)
+const CONDICIONES_ITINERARIO=CONFIG.CONDICIONES_ITINERARIO;
+const CONDICIONES_NOTA=CONFIG.CONDICIONES_NOTA;
 // Escape de HTML para todo dato de usuario interpolado en innerHTML/document.write (anti-XSS)
 function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+// Ola 4 #93: los invitados de la agenda salen de CONFIG, no del HTML (otra agencia no hereda estos nombres)
+{const _cw=document.getElementById('v-cal-users'); if(_cw) _cw.innerHTML=CONFIG.AGENDA_INVITADOS.map(u=>`<label style="display:flex;align-items:center;gap:5px;font-size:12px;cursor:pointer"><input type="checkbox" class="v-cal-user" value="${esc(u.email)}" style="width:14px;height:14px"/> ${esc(u.nombre)}</label>`).join('');}
+// Ola 4 #94: sin Atlas no se muestra el conector (el botón dinámico del detalle se gatea en cargarDetalle)
+if(!CONFIG.ATLAS_ENABLED){const _ba=document.getElementById('p-traer-atlas'); if(_ba) _ba.style.display='none';}
 let currentUser=null,currentRol=null,currentVueloId=null,currentPasajeroId=null,currentLugarId=null,currentVueloFecha=null,currentVueloFechaRegreso=null,sesionIniciada=false,rolEfectivo=null;
 let temporadas=[],temporadaActiva=null,vuelosData=[],tramosCount=0,dashFiltro='todos';
 let reservarVueloId=null,reservarLugaresLibres=0,reservarLugaresIds=[];
 let cancelarLugarId=null,cancelarPasajeroId=null,cancelarVueloId=null;
 let editarVueloId=null,vendedores=[],guardandoVuelo=false,nombreCupoManual=false;
 
-async function loginGoogle(){await sb.auth.signInWithOAuth({provider:'google',options:{redirectTo:'https://ignaciobraida-guamatur.github.io/Guamatur---Cupos-TEST/',queryParams:{hd:'guamatur.com'}}})}
+async function loginGoogle(){await sb.auth.signInWithOAuth({provider:'google',options:{redirectTo:CONFIG.APP_URL,queryParams:{hd:CONFIG.OAUTH_DOMINIO}}})}
 async function cerrarSesion(){try{await sb.auth.signOut({scope:'local'});}catch(e){console.warn('signOut:',e);}window.location.reload()}
 
 // ── AUTH HELPERS: refresh token y retry para proteger contra desfasajes de reloj ──
@@ -1313,7 +1359,7 @@ async function cargarDetalle(vueloId){
     <div class="detalle-actions">
       <a href="#" class="link-volver" onclick="event.preventDefault();goTo('vuelos')">← Volver</a>
       <button class="btn btn-success" onclick="abrirModalReservar('${vueloId}',${lVReservable},'${idsLibres.join(',')}',${bloqLibres},${esVueloC})">+ Reservar lugares</button>
-      ${misRParaCarga>0?`<button class="btn btn-primary" title="Trae los pasajeros de una ficha de Atlas y los reparte en los lugares Reservados" onclick="abrirModalCargarFicha('${vueloId}')">📥 Cargar ficha en lugares R (${misRParaCarga})</button>`:''}
+      ${(CONFIG.ATLAS_ENABLED&&misRParaCarga>0)?`<button class="btn btn-primary" title="Trae los pasajeros de una ficha de Atlas y los reparte en los lugares Reservados" onclick="abrirModalCargarFicha('${vueloId}')">📥 Cargar ficha en lugares R (${misRParaCarga})</button>`:''}
       <button class="btn btn-excel" onclick="exportarExcel('${vueloId}')">⬇ Excel</button>
       ${(!esAdmin&&misReservas.length)?`<button class="btn btn-danger" onclick="abrirModalEliminar('${vueloId}')">🗑 Liberar mis reservas (${misReservas.length})</button>`:''}
       ${esAdmin?`<details class="menu-gestionar"><summary>⚙ Gestionar cupo ▾</summary><div class="menu-panel">
@@ -1547,6 +1593,7 @@ function nombreAtlas(p){
   return ((ape?ape:'')+(ape&&nom?', ':'')+(nom?nom:'')).trim()||p.nombre_completo||'(sin nombre)';
 }
 async function traerDeAtlas(){
+  if(!CONFIG.ATLAS_ENABLED) return; // Ola 4 #94
   const ficha=document.getElementById('p-ficha').value.trim();
   const btn=document.getElementById('p-traer-atlas');
   if(!ficha){ atlasStatus('Escribí primero el número de ficha.','warn'); return; }
@@ -1593,6 +1640,7 @@ function aplicarPasajeroUno(p){
 let _cfVueloId=null,_cfTargets=[],_cfPax=[],_cfInf=[];
 function cfStatus(msg,kind){const el=document.getElementById('cf-status');if(!el)return;const col={info:'var(--muted)',ok:'var(--green)',warn:'var(--yellow)',error:'var(--red)'}[kind]||'var(--muted)';el.style.display='block';el.style.color=col;el.textContent=msg;}
 async function abrirModalCargarFicha(vueloId){
+  if(!CONFIG.ATLAS_ENABLED) return; // Ola 4 #94
   _cfVueloId=vueloId;_cfTargets=[];_cfPax=[];_cfInf=[];
   const esAdmin=rolEfectivo==='admin';
   const vendNombre=vendedores.find(v=>v.email===currentUser?.email)?.nombre||currentUser?.email||'';
