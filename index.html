@@ -688,7 +688,7 @@ const sb=supabase.createClient(CONFIG.SUPABASE_URL,CONFIG.SUPABASE_ANON_KEY,{
   }
 });
 
-const APP_VERSION='Fase 2 · 2026-07-13 (b64-TEST · #75: re-agendar la agenda de pagos pregunta antes) — AMBIENTE DE PRUEBAS';
+const APP_VERSION='Fase 2 · 2026-07-13 (b65-TEST · operaciones ve el precio Neto del cupo) — AMBIENTE DE PRUEBAS';
 // Columnas de 'vuelos' legibles por cualquier usuario. EXCLUYE precio_neto: el admin lo lee por RPC admin_get_precio_neto (gateada por es_admin). No usar select('*') sobre vuelos: la columna precio_neto quedó revocada a authenticated.
 const VUELO_COLS='id,temporada_id,nombre,ciudad_codigo,ciudad_nombre,aerolinea,fecha,fecha_regreso,total_lugares,precio,condiciones_equipaje,creado_en,destino,itinerario,visible,itinerario_historial,cal_dias_pago_final,cal_dias_cancel_sin_gastos,cal_dias_cancel_con_gastos,cal_usuarios';
 // Calendarización: al crear un cupo, dispara (fire-and-forget) la creación de eventos en Google Calendar vía n8n.
@@ -1385,9 +1385,9 @@ async function cargarDetalle(vueloId){
     sb.from('lugares').select('*,pasajeros(*)').eq('vuelo_id',vueloId).order('numero_lugar'),
     sb.from('infants').select('*').eq('vuelo_id',vueloId)
   ]);
-  // El precio neto no viaja en el select (revocado a authenticated); el admin lo trae por RPC gateada
+  // El precio neto no viaja en el select (revocado a authenticated); admin y operaciones lo traen por RPC gateada (13-jul: se sumó operaciones)
   let precioNetoAdmin=null;
-  if(rolEfectivo==='admin'&&vuelo){const {data:pn}=await sb.rpc('admin_get_precio_neto',{p_vuelo_id:vueloId});precioNetoAdmin=pn;}
+  if((rolEfectivo==='admin'||rolEfectivo==='operaciones')&&vuelo){const {data:pn}=await sb.rpc('admin_get_precio_neto',{p_vuelo_id:vueloId});precioNetoAdmin=pn;}
   // El localizador (PNR del operador) tampoco viaja en el select (revocado a authenticated); se trae por RPC gateada (excluye Travel Partner).
   let localizadorCupo=null;
   if(vuelo){const {data:loc}=await sb.rpc('get_localizador',{p_vuelo_id:vueloId});localizadorCupo=loc;}
@@ -1432,7 +1432,7 @@ async function cargarDetalle(vueloId){
         ${vuelo.aerolinea?`<span>✈ ${esc(vuelo.aerolinea)}</span>`:''}
         ${localizadorCupo?`<span style="color:var(--accent2)">🔑 ${esc(localizadorCupo)}</span>`:''}
         ${vuelo.precio?`<span style="color:var(--green);font-weight:500">Precio de Venta: USD ${Number(vuelo.precio).toLocaleString('es-UY')}</span>`:''}
-        ${esAdmin&&precioNetoAdmin?`<span style="color:var(--yellow);font-weight:500">Neto: USD ${Number(precioNetoAdmin).toLocaleString('es-UY')}</span>`:''}
+        ${(esAdmin||esOper)&&precioNetoAdmin?`<span style="color:var(--yellow);font-weight:500">Neto: USD ${Number(precioNetoAdmin).toLocaleString('es-UY')}</span>`:''}
       </div>
     </div>
     <div class="detalle-actions">
