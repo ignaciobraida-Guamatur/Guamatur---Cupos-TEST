@@ -688,7 +688,7 @@ const sb=supabase.createClient(CONFIG.SUPABASE_URL,CONFIG.SUPABASE_ANON_KEY,{
   }
 });
 
-const APP_VERSION='Fase 2 · 2026-07-13 (b63-TEST · #75: editar un cupo re-agenda los eventos de Calendar) — AMBIENTE DE PRUEBAS';
+const APP_VERSION='Fase 2 · 2026-07-13 (b64-TEST · #75: re-agendar la agenda de pagos pregunta antes) — AMBIENTE DE PRUEBAS';
 // Columnas de 'vuelos' legibles por cualquier usuario. EXCLUYE precio_neto: el admin lo lee por RPC admin_get_precio_neto (gateada por es_admin). No usar select('*') sobre vuelos: la columna precio_neto quedó revocada a authenticated.
 const VUELO_COLS='id,temporada_id,nombre,ciudad_codigo,ciudad_nombre,aerolinea,fecha,fecha_regreso,total_lugares,precio,condiciones_equipaje,creado_en,destino,itinerario,visible,itinerario_historial,cal_dias_pago_final,cal_dias_cancel_sin_gastos,cal_dias_cancel_con_gastos,cal_usuarios';
 // Calendarización: al crear un cupo, dispara (fire-and-forget) la creación de eventos en Google Calendar vía n8n.
@@ -2782,22 +2782,29 @@ async function guardarVuelo(){
       const {error}=await sb.from('vuelos').update(datos).eq('id',editarVueloId);
       if(error){setBtnLoading('btn-crear-vuelo',false,'Guardar cambios');mostrarAlerta('modal-v-alert',error.message,'error');return;}
       await registrarLog('editar_cupo','vuelo',editarVueloId,{itinerario_cambio:itinerarioCambio});
-      // #75: si cambió algo que afecta la agenda de Calendar (fecha de salida, nombre, aerolínea, días o invitados),
-      // re-agendar: n8n borra los eventos viejos del cupo (IDs guardados en la base) y crea los nuevos.
-      // Si la calendarización se quitó, el payload va con eventos vacíos y solo limpia. (El localizador no entra
-      // en la comparación: su columna está revocada al cliente; un cambio de PNR solo, no re-agenda.)
-      const canonCal=x=>JSON.stringify([String(x.fecha||'').slice(0,10),x.nombre||'',x.aerolinea||'',x.cal_dias_pago_final??null,x.cal_dias_cancel_sin_gastos??null,x.cal_dias_cancel_con_gastos??null,(Array.isArray(x.cal_usuarios)?x.cal_usuarios:[]).slice().sort()]);
-      if(vAct&&canonCal(vAct)!==canonCal(datos)){
-        agendarEventosCupo({...datos,vuelo_id:editarVueloId},{edicion:true}); // fire-and-forget
-      }
       setBtnLoading('btn-crear-vuelo',false,'Guardar cambios');
-      // Aviso al equipo si cambió el itinerario de un cupo que está a la venta (visible). Se confirma antes de enviar para no avisar por correcciones triviales.
+      // 1) Aviso al equipo si cambió el itinerario de un cupo a la venta. ES LO IMPORTANTE de un cambio de
+      //    horario: unas horas pueden cambiarle el viaje al pasajero. Se confirma antes de enviar.
       let avisoItinerario=false;
       if(itinerarioCambio&&datos.visible&&N8N_WEBHOOK_ITINERARIO){
         if(confirm('Cambió el itinerario de un cupo que está a la venta.\n\n¿Enviar un aviso por mail a todo el equipo (vendedores + Operaciones)?')){
           avisarCambioItinerario(datos,itiViejo,datos.itinerario);
           avisoItinerario=true;
         }
+      }
+      // 2) Re-agendar la agenda de pagos en Calendar: SIEMPRE se pregunta (feedback Nacho, 13-jul).
+      //    Un cambio de horario suele ser de horas → NO mueve la fecha del vencimiento (v.fecha es date, no
+      //    cambia por la hora) → re-agendar sería innecesario y spamearía a los invitados (cancela los eventos
+      //    viejos + reinvita). Por eso solo dispara si cambió lo que MUEVE los vencimientos (fecha de salida,
+      //    días de pago/cancelación) o los INVITADOS — y aun así, con confirmación explícita.
+      const canonCal=x=>JSON.stringify([String(x.fecha||'').slice(0,10),x.cal_dias_pago_final??null,x.cal_dias_cancel_sin_gastos??null,x.cal_dias_cancel_con_gastos??null,(Array.isArray(x.cal_usuarios)?x.cal_usuarios:[]).slice().sort()]);
+      const teniaAgenda=Array.isArray(vAct?.cal_usuarios)&&vAct.cal_usuarios.length>0;
+      const tieneAgenda=datos.cal_usuarios.length>0;
+      if(vAct&&canonCal(vAct)!==canonCal(datos)&&(teniaAgenda||tieneAgenda)){
+        const msg=tieneAgenda
+          ?'Cambiaste la fecha de salida, los días de pago/cancelación o los invitados de un cupo con agenda.\n\n¿Reagendar los recordatorios de pago y cancelación en Google Calendar?\n\n• Los invitados recibirán la cancelación de los eventos viejos y la invitación a los nuevos.\n• Si solo cambió el HORARIO del vuelo (mismas fechas de pago), NO hace falta: el aviso al equipo ya lo maneja el mail de cambio de itinerario.'
+          :'Quitaste los invitados de la agenda de este cupo.\n\n¿Borrar del calendario los recordatorios de pago/cancelación que ya estaban? (Los invitados recibirán la cancelación.)';
+        if(confirm(msg)) agendarEventosCupo({...datos,vuelo_id:editarVueloId},{edicion:true});
       }
       mostrarAlerta('modal-v-alert',avisoItinerario?'Vuelo actualizado — aviso de cambio enviado al equipo':'Vuelo actualizado','success');
       setTimeout(()=>{cerrarModal('modal-vuelo');if(currentVueloId===editarVueloId)cargarDetalle(editarVueloId)},1000);
