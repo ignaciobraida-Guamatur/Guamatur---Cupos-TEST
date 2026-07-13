@@ -688,7 +688,7 @@ const sb=supabase.createClient(CONFIG.SUPABASE_URL,CONFIG.SUPABASE_ANON_KEY,{
   }
 });
 
-const APP_VERSION='Fase 2 · 2026-07-11 (b61-TEST · Ola 4: bloque CONFIG único + invitados desde CONFIG + flag Atlas) — AMBIENTE DE PRUEBAS';
+const APP_VERSION='Fase 2 · 2026-07-12 (b62-TEST · Ola 5: dashboard gerencial — ocupación por temporada + plata en riesgo 24/72h + margen por temporada) — AMBIENTE DE PRUEBAS';
 // Columnas de 'vuelos' legibles por cualquier usuario. EXCLUYE precio_neto: el admin lo lee por RPC admin_get_precio_neto (gateada por es_admin). No usar select('*') sobre vuelos: la columna precio_neto quedó revocada a authenticated.
 const VUELO_COLS='id,temporada_id,nombre,ciudad_codigo,ciudad_nombre,aerolinea,fecha,fecha_regreso,total_lugares,precio,condiciones_equipaje,creado_en,destino,itinerario,visible,itinerario_historial,cal_dias_pago_final,cal_dias_cancel_sin_gastos,cal_dias_cancel_con_gastos,cal_usuarios';
 // Calendarización: al crear un cupo, dispara (fire-and-forget) la creación de eventos en Google Calendar vía n8n.
@@ -1004,12 +1004,16 @@ async function cargarDashboard(){
   const cont=document.getElementById('dashboard-content');
   cont.innerHTML='<div class="loading"><div class="spinner"></div>Cargando...</div>';
 
-  const [{data:temps},{data:vuelos},{data:pasajerosDash},{data:cancelsDash}]=await Promise.all([
+  const esAdminDash=rolEfectivo==='admin';
+  const [{data:temps},{data:vuelos},{data:pasajerosDash},{data:cancelsDash},margenRes]=await Promise.all([
     sb.from('temporadas').select('*').order('creado_en',{ascending:false}),
     sb.from('vista_vuelos').select('*'),
-    sb.from('pasajeros').select('status,vendedor,vuelo_id,lugares(reducido,es_espera)'),
-    sb.from('cancelaciones').select('penalidad_usd,recupero_usd,vuelo_id,usuario,fecha')
+    sb.from('pasajeros').select('status,vendedor,vuelo_id,fecha_reserva,cancelado,lugares(reducido,es_espera)'),
+    sb.from('cancelaciones').select('penalidad_usd,recupero_usd,vuelo_id,usuario,fecha'),
+    // Ola 5 #106: agregado de margen calculado server-side; la RPC exige es_admin() (42501 para otros roles) — no llamarla sin ese rol
+    esAdminDash?sb.rpc('admin_margen_temporada'):Promise.resolve({data:null})
   ]);
+  const margenTemps=(margenRes&&margenRes.data)||[];
   if(!vuelos){cont.innerHTML='<div class="loading" style="color:var(--red)">Error</div>';return;}
 
   const vuelosVis=(rolEfectivo==='admin')?vuelos:vuelos.filter(v=>v.visible!==false);
@@ -1048,11 +1052,48 @@ async function cargarDashboard(){
   const totalPenalidad=cancelsFiltradas.reduce((s,c)=>s+(c.penalidad_usd||0),0);
   const totalRecupero=cancelsFiltradas.reduce((s,c)=>s+(c.recupero_usd||0),0);
 
+  // Ola 5 #104: ocupación por temporada (sobre TODOS los cupos visibles, sin el filtro de arriba)
+  const tempNombre={};(temps||[]).forEach(t=>{tempNombre[t.id]=t.nombre;});
+  const porTemp={};
+  vuelosVis.forEach(v=>{
+    const k=v.temporada_id||'_sin';
+    const o=porTemp[k]||(porTemp[k]={nombre:tempNombre[v.temporada_id]||'Sin temporada',cupos:0,total:0,vendidos:0,reservados:0,libres:0});
+    o.cupos++;o.total+=v.total||0;o.vendidos+=v.vendidos||0;o.reservados+=v.reservados||0;o.libres+=v.libres||0;
+  });
+  const filasTemp=(temps||[]).map(t=>porTemp[t.id]).filter(Boolean);
+  if(porTemp._sin) filasTemp.push(porTemp._sin);
+
+  // Ola 5 #105: plata en riesgo — reservas R vigentes valorizadas a precio de venta, por ventana
+  // de vencimiento y por vendedor. Regla 24/72h CALCADA de vencer_reservas(): plazo 24h si al cupo
+  // le quedan ≤3 vendibles (libres − bloqueados de vista_vuelos), si no 72h. Respeta el filtro.
+  const vueloInfo={};filtrados.forEach(v=>{vueloInfo[v.id]=v;});
+  const ahoraMs=Date.now();
+  const riesgo={b24:{cant:0,usd:0},b72:{cant:0,usd:0},sinPlazo:{cant:0,usd:0}};
+  const riesgoVend={};
+  (pasajerosDash||[]).forEach(p=>{
+    if(!vueloIds.has(p.vuelo_id)||p.status!=='R'||p.cancelado) return;
+    const lug=Array.isArray(p.lugares)?p.lugares[0]:p.lugares;
+    if(lug&&(lug.reducido||lug.es_espera)) return; // mismo criterio que el KPI "Reservados"
+    const v=vueloInfo[p.vuelo_id]||{};
+    const precio=Number(v.precio)||0;
+    let bucket='sinPlazo';
+    if(p.fecha_reserva){
+      const vendibles=(v.libres||0)-(v.bloqueados||0);
+      const plazoMs=(vendibles<=3?24:72)*3600000;
+      const restanteMs=new Date(p.fecha_reserva).getTime()+plazoMs-ahoraMs;
+      bucket=restanteMs<=24*3600000?'b24':'b72';
+    }
+    riesgo[bucket].cant++;riesgo[bucket].usd+=precio;
+    const rv=riesgoVend[p.vendedor||'—']||(riesgoVend[p.vendedor||'—']={cant:0,usd:0,b24:0});
+    rv.cant++;rv.usd+=precio;if(bucket==='b24')rv.b24++;
+  });
+  const riesgoCant=riesgo.b24.cant+riesgo.b72.cant+riesgo.sinPlazo.cant;
+  const riesgoTotal=riesgo.b24.usd+riesgo.b72.usd+riesgo.sinPlazo.usd;
+
   let filtroHtml=`<div class="filter-bar"><span style="font-size:12px;color:var(--muted)">Filtrar:</span><button class="filter-btn ${dashFiltro==='todos'?'active':''}" onclick="setDashFiltro('todos')">Todos</button>`;
   (temps||[]).forEach(t=>{filtroHtml+=`<button class="filter-btn ${dashFiltro===t.id?'active':''}" onclick="setDashFiltro('${t.id}')">${esc(t.nombre)}</button>`;});
   filtroHtml+='</div>';
 
-  const esAdminDash=rolEfectivo==='admin';
   let html=filtroHtml;
   // KPIs + análisis por región: solo admin (para el vendedor es redundante con la pestaña Cupos)
   if(esAdminDash){
@@ -1063,10 +1104,41 @@ async function cargarDashboard(){
       <div class="kpi-card"><div class="kpi-label">Libres</div><div class="kpi-value c-green">${libres}</div></div>
       <div class="kpi-card"><div class="kpi-label">% Ocupación</div><div class="kpi-value c-purple">${total>0?Math.round(vendidos/total*100):0}%</div></div>
     </div>
+    <div class="section-title" style="margin-bottom:12px">Ocupación por temporada</div>
+    <div class="table-wrap"><table><thead><tr><th>Temporada</th><th>Cupos</th><th>Lugares</th><th>Vendidos</th><th>Reservados</th><th>Libres</th><th>Ocup.</th></tr></thead><tbody>`;
+    filasTemp.forEach(t=>{const pct=t.total>0?Math.round(t.vendidos/t.total*100):0;html+=`<tr><td style="color:var(--accent2);font-weight:500">${esc(t.nombre)}</td><td>${t.cupos}</td><td>${t.total}</td><td>${t.vendidos}</td><td>${t.reservados}</td><td>${t.libres}</td><td style="font-weight:600">${pct}%</td></tr>`;});
+    html+=`</tbody></table></div>
     <div class="section-title" style="margin-bottom:12px">Análisis por región</div>
     <div class="table-wrap"><table><thead><tr><th>Cupo</th><th>Región</th><th>Total</th><th>Vendidos</th><th>Reservados</th><th>Libres</th><th>Ocup.</th><th>Alerta</th></tr></thead><tbody>`;
     filas.forEach(d=>{html+=`<tr style="cursor:pointer" onclick="goToDetalle('${d.id}')"><td style="color:var(--accent2);font-weight:500">${esc(d.nombre)}</td><td><span class="badge ${regionBadge(d.destino)}">${esc(d.destino)||'—'}</span></td><td>${d.total}</td><td>${d.vendidos}</td><td>${d.reservados}</td><td>${d.libres}</td><td>${d.pct}%</td><td><span class="badge ${d.cls}">${d.txt}</span></td></tr>`;});
     html+='</tbody></table></div>';
+
+    // Ola 5 #105: plata en riesgo — cuánto USD hay en reservas R y cuándo vence
+    const fmtUsd=n=>'$'+Math.round(n).toLocaleString('es-UY');
+    html+=`<div class="section-title" style="margin-bottom:12px">Plata en riesgo (reservas por vencer)</div>
+    <div class="op-grid" style="grid-template-columns:repeat(4,1fr)">
+      <div class="op-card"><div class="op-label">Total en riesgo</div><div class="op-value">${fmtUsd(riesgoTotal)}</div><div style="font-size:11px;color:var(--muted);margin-top:2px">${riesgoCant} lugar${riesgoCant===1?'':'es'} en R</div></div>
+      <div class="op-card ${riesgo.b24.cant>0?'danger':''}"><div class="op-label">Vence &lt;24 h</div><div class="op-value ${riesgo.b24.cant>0?'danger':''}">${fmtUsd(riesgo.b24.usd)}</div><div style="font-size:11px;color:var(--muted);margin-top:2px">${riesgo.b24.cant} lugar${riesgo.b24.cant===1?'':'es'}</div></div>
+      <div class="op-card ${riesgo.b72.cant>0?'warning':''}"><div class="op-label">Vence en 24–72 h</div><div class="op-value">${fmtUsd(riesgo.b72.usd)}</div><div style="font-size:11px;color:var(--muted);margin-top:2px">${riesgo.b72.cant} lugar${riesgo.b72.cant===1?'':'es'}</div></div>
+      <div class="op-card"><div class="op-label">Sin plazo</div><div class="op-value">${fmtUsd(riesgo.sinPlazo.usd)}</div><div style="font-size:11px;color:var(--muted);margin-top:2px">${riesgo.sinPlazo.cant} sin fecha de reserva</div></div>
+    </div>`;
+    if(riesgoCant>0){
+      const vendRiesgo=Object.entries(riesgoVend).sort((a,b)=>b[1].usd-a[1].usd);
+      html+=`<div class="table-wrap" style="margin-bottom:24px"><table><thead><tr><th>Vendedor</th><th>Reservas R</th><th>Vencen &lt;24 h</th><th>USD en riesgo</th></tr></thead><tbody>`;
+      vendRiesgo.forEach(([nom,r])=>{html+=`<tr><td>${esc(nom)}</td><td>${r.cant}</td><td class="${r.b24>0?'c-red':''}" style="font-weight:${r.b24>0?'600':'400'}">${r.b24}</td><td style="font-family:'DM Mono',monospace;font-weight:600">${fmtUsd(r.usd)}</td></tr>`;});
+      html+='</tbody></table></div>';
+    }
+
+    // Ola 5 #106: margen por temporada — agregados server-side (RPC gateada por es_admin; el neto por fila nunca viaja al cliente)
+    if(margenTemps.length){
+      const mTot=margenTemps.reduce((a,m)=>({v:a.v+Number(m.venta_usd||0),n:a.n+Number(m.neto_usd||0),c:a.c+Number(m.lugares_vendidos||0),sn:a.sn+Number(m.sin_neto||0)}),{v:0,n:0,c:0,sn:0});
+      html+=`<div class="section-title" style="margin-bottom:12px">Margen por temporada (venta vs neto)</div>
+      <div class="table-wrap"><table><thead><tr><th>Temporada</th><th>Vendidos</th><th>Venta (USD)</th><th>Neto (USD)</th><th>Margen (USD)</th><th>Margen %</th></tr></thead><tbody>`;
+      margenTemps.forEach(m=>{html+=`<tr><td style="color:var(--accent2);font-weight:500">${esc(m.temporada)}</td><td>${m.lugares_vendidos}</td><td>${fmtUsd(m.venta_usd||0)}</td><td>${fmtUsd(m.neto_usd||0)}</td><td class="c-green" style="font-weight:600">${fmtUsd(m.margen_usd||0)}</td><td>${m.margen_pct!=null?m.margen_pct+'%':'—'}</td></tr>`;});
+      html+=`<tr style="border-top:2px solid var(--border)"><td style="font-weight:700">Total</td><td style="font-weight:700">${mTot.c}</td><td style="font-weight:700">${fmtUsd(mTot.v)}</td><td style="font-weight:700">${fmtUsd(mTot.n)}</td><td class="c-green" style="font-weight:700">${fmtUsd(mTot.v-mTot.n)}</td><td style="font-weight:700">${mTot.v>0?Math.round((mTot.v-mTot.n)/mTot.v*100)+'%':'—'}</td></tr>`;
+      html+='</tbody></table></div>';
+      if(mTot.sn>0) html+=`<div style="font-size:12px;color:var(--orange);margin:-16px 0 24px 2px">⚠ ${mTot.sn} lugar${mTot.sn===1?'':'es'} vendido${mTot.sn===1?'':'s'} en cupos sin Valor Neto cargado: el margen de esas temporadas está sobreestimado.</div>`;
+    }
   }
 
   // Ranking de vendedores: lo ven todos
