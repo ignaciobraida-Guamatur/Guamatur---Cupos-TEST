@@ -688,33 +688,40 @@ const sb=supabase.createClient(CONFIG.SUPABASE_URL,CONFIG.SUPABASE_ANON_KEY,{
   }
 });
 
-const APP_VERSION='Fase 2 · 2026-07-12 (b62-TEST · Ola 5: dashboard gerencial — ocupación por temporada + plata en riesgo 24/72h + margen por temporada) — AMBIENTE DE PRUEBAS';
+const APP_VERSION='Fase 2 · 2026-07-13 (b63-TEST · #75: editar un cupo re-agenda los eventos de Calendar) — AMBIENTE DE PRUEBAS';
 // Columnas de 'vuelos' legibles por cualquier usuario. EXCLUYE precio_neto: el admin lo lee por RPC admin_get_precio_neto (gateada por es_admin). No usar select('*') sobre vuelos: la columna precio_neto quedó revocada a authenticated.
 const VUELO_COLS='id,temporada_id,nombre,ciudad_codigo,ciudad_nombre,aerolinea,fecha,fecha_regreso,total_lugares,precio,condiciones_equipaje,creado_en,destino,itinerario,visible,itinerario_historial,cal_dias_pago_final,cal_dias_cancel_sin_gastos,cal_dias_cancel_con_gastos,cal_usuarios';
 // Calendarización: al crear un cupo, dispara (fire-and-forget) la creación de eventos en Google Calendar vía n8n.
 const N8N_WEBHOOK_AGENDA=CONFIG.N8N_WEBHOOK_AGENDA;
 // Ola 3 #64/#70: secreto compartido con los workflows n8n — va en el BODY (fetch no-cors no deja pasar headers custom).
 const CUPOS_WEBHOOK_SECRET=CONFIG.WEBHOOK_SECRET;
-async function agendarEventosCupo(v){
+// #75: v.vuelo_id habilita el UPSERT en n8n (la base guarda los event IDs del cupo en vuelos.agenda_eventos;
+// el workflow borra los previos por ID y crea los nuevos). En modo edición se dispara aunque no queden
+// eventos (limpieza: se quitó la calendarización → borrar los recordatorios viejos).
+async function agendarEventosCupo(v,opts){
   try{
-    if(!v||!v.fecha||!N8N_WEBHOOK_AGENDA) return;
+    if(!N8N_WEBHOOK_AGENDA) return; // CONFIG vacío = integración apagada
+    const esEdicion=!!(opts&&opts.edicion);
+    if(!v) return;
+    if(esEdicion&&!v.vuelo_id) return; // sin id no hay upsert posible
     const users=Array.isArray(v.cal_usuarios)?v.cal_usuarios:[];
-    if(!users.length) return;
-    const base=String(v.fecha).slice(0,10);
-    const evDefs=[['Pago final',v.cal_dias_pago_final],['Cancelación sin gastos',v.cal_dias_cancel_sin_gastos],['Cancelación con gastos',v.cal_dias_cancel_con_gastos]];
     const eventos=[];
-    evDefs.forEach(([tipo,dias])=>{
-      if(dias===null||dias===undefined||dias==='') return;
-      const d=new Date(base+'T00:00:00');
-      d.setDate(d.getDate()-parseInt(dias));
-      // Pedido aéreos (Rodrigo, 29-jun): la agenda solo de lunes a viernes. Si cae finde, mover al VIERNES anterior (un deadline no se corre hacia adelante). Sáb→−1, Dom→−2.
-      const dow=d.getDay();
-      if(dow===6) d.setDate(d.getDate()-1);
-      else if(dow===0) d.setDate(d.getDate()-2);
-      eventos.push({tipo,fecha:`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`});
-    });
-    if(!eventos.length) return;
-    const payload={secret:CUPOS_WEBHOOK_SECRET,cupo:v.nombre||'',localizador:v.localizador||'',aerolinea:v.aerolinea||'',fecha_salida:base,url:location.origin+location.pathname,attendees:users,eventos};
+    if(v.fecha&&users.length){
+      const base=String(v.fecha).slice(0,10);
+      const evDefs=[['Pago final',v.cal_dias_pago_final],['Cancelación sin gastos',v.cal_dias_cancel_sin_gastos],['Cancelación con gastos',v.cal_dias_cancel_con_gastos]];
+      evDefs.forEach(([tipo,dias])=>{
+        if(dias===null||dias===undefined||dias==='') return;
+        const d=new Date(base+'T00:00:00');
+        d.setDate(d.getDate()-parseInt(dias));
+        // Pedido aéreos (Rodrigo, 29-jun): la agenda solo de lunes a viernes. Si cae finde, mover al VIERNES anterior (un deadline no se corre hacia adelante). Sáb→−1, Dom→−2.
+        const dow=d.getDay();
+        if(dow===6) d.setDate(d.getDate()-1);
+        else if(dow===0) d.setDate(d.getDate()-2);
+        eventos.push({tipo,fecha:`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`});
+      });
+    }
+    if(!esEdicion&&!eventos.length) return; // crear: la calendarización es opt-in, sin eventos no hay nada que agendar
+    const payload={secret:CUPOS_WEBHOOK_SECRET,vuelo_id:v.vuelo_id||'',cupo:v.nombre||'',localizador:v.localizador||'',aerolinea:v.aerolinea||'',fecha_salida:v.fecha?String(v.fecha).slice(0,10):'',url:location.origin+location.pathname,attendees:users,eventos};
     await fetch(N8N_WEBHOOK_AGENDA,{method:'POST',mode:'no-cors',body:JSON.stringify(payload)});
   }catch(e){console.warn('[Agenda] no se pudo agendar:',e);}
 }
@@ -2760,8 +2767,9 @@ async function guardarVuelo(){
         if(errDel){setBtnLoading('btn-crear-vuelo',false,'Guardar cambios');mostrarAlerta('modal-v-alert','Error al reducir lugares: '+errDel.message,'error');return;}
       }
       datos.total_lugares=total_lugares;
-      // Historial de itinerario: si cambió, guardar snapshot del anterior
-      const {data:vAct}=await sb.from('vuelos').select('itinerario,itinerario_historial').eq('id',editarVueloId).single();
+      // Historial de itinerario: si cambió, guardar snapshot del anterior.
+      // #75: se traen también los campos que definen la agenda de Calendar, para detectar si hay que re-agendar.
+      const {data:vAct}=await sb.from('vuelos').select('itinerario,itinerario_historial,fecha,nombre,aerolinea,cal_dias_pago_final,cal_dias_cancel_sin_gastos,cal_dias_cancel_con_gastos,cal_usuarios').eq('id',editarVueloId).single();
       const itiViejo=vAct?.itinerario||null;
       const canonIti=arr=>(Array.isArray(arr)?arr:[]).map(t=>[t.tipo||'Ida',t.fecha||'',t.aerolinea||'',t.vuelo||'',t.origen||'',t.destino||'',t.salida||'',t.llegada||''].join('|')).join('||');
       let itinerarioCambio=false;
@@ -2774,6 +2782,14 @@ async function guardarVuelo(){
       const {error}=await sb.from('vuelos').update(datos).eq('id',editarVueloId);
       if(error){setBtnLoading('btn-crear-vuelo',false,'Guardar cambios');mostrarAlerta('modal-v-alert',error.message,'error');return;}
       await registrarLog('editar_cupo','vuelo',editarVueloId,{itinerario_cambio:itinerarioCambio});
+      // #75: si cambió algo que afecta la agenda de Calendar (fecha de salida, nombre, aerolínea, días o invitados),
+      // re-agendar: n8n borra los eventos viejos del cupo (IDs guardados en la base) y crea los nuevos.
+      // Si la calendarización se quitó, el payload va con eventos vacíos y solo limpia. (El localizador no entra
+      // en la comparación: su columna está revocada al cliente; un cambio de PNR solo, no re-agenda.)
+      const canonCal=x=>JSON.stringify([String(x.fecha||'').slice(0,10),x.nombre||'',x.aerolinea||'',x.cal_dias_pago_final??null,x.cal_dias_cancel_sin_gastos??null,x.cal_dias_cancel_con_gastos??null,(Array.isArray(x.cal_usuarios)?x.cal_usuarios:[]).slice().sort()]);
+      if(vAct&&canonCal(vAct)!==canonCal(datos)){
+        agendarEventosCupo({...datos,vuelo_id:editarVueloId},{edicion:true}); // fire-and-forget
+      }
       setBtnLoading('btn-crear-vuelo',false,'Guardar cambios');
       // Aviso al equipo si cambió el itinerario de un cupo que está a la venta (visible). Se confirma antes de enviar para no avisar por correcciones triviales.
       let avisoItinerario=false;
@@ -2799,7 +2815,7 @@ async function guardarVuelo(){
         p_cal_usuarios:datos.cal_usuarios,p_fecha_regreso:datos.fecha_regreso});
       if(error){setBtnLoading('btn-crear-vuelo',false,'Crear cupo');mostrarAlerta('modal-v-alert',error.message,'error');return;}
       await registrarLog('crear_cupo','vuelo',nuevoId,{nombre:datos.nombre,total:total_lugares});
-      agendarEventosCupo(datos); // fire-and-forget: agenda eventos en Google Calendar vía n8n
+      agendarEventosCupo({...datos,vuelo_id:nuevoId}); // fire-and-forget: agenda eventos en Google Calendar vía n8n (#75: con vuelo_id para el upsert futuro)
       setBtnLoading('btn-crear-vuelo',false,'Crear cupo');
       mostrarAlerta('modal-v-alert',`Vuelo creado con ${total_lugares} lugares`,'success');
       setTimeout(()=>{cerrarModal('modal-vuelo')},1200);
