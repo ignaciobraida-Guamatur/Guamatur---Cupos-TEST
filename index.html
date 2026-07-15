@@ -390,7 +390,7 @@
     <div style="font-size:13px;color:var(--muted);margin-bottom:16px">Los lugares se reservan provisoriamente a este apellido como <b>referencia del grupo/familia</b>. El nombre completo de cada pasajero se carga después, lugar por lugar, al cargar la ficha.</div>
     <div id="r-venc-info" style="display:none;font-size:13px;background:rgba(255,128,0,0.12);border:1px solid rgba(255,128,0,0.25);color:#ffb366;padding:8px 12px;border-radius:8px;margin-bottom:14px"></div>
     <div class="form-group" id="r-vendedor-group" style="display:none">
-      <label class="form-label">Reservar a nombre del vendedor <span style="color:var(--muted)">(admin)</span></label>
+      <label class="form-label">Reservar a nombre del vendedor <span style="color:var(--muted)">(opcional)</span></label>
       <select class="form-select" id="r-vendedor"></select>
     </div>
     <div class="form-group">
@@ -515,6 +515,11 @@
     <div class="form-group" id="u-activo-group">
       <label class="form-label" style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-bottom:2px"><input type="checkbox" id="u-activo" checked style="width:auto;margin:0"/><span>Usuario activo</span></label>
       <div style="font-size:11px;color:var(--muted)">Si lo desmarcás: no podrá ingresar, ni figura en rankings ni selectores. Sus ventas históricas y su nombre en los cupos se conservan.</div>
+    </div>
+    <div class="form-group" id="u-asiste-group" style="display:none">
+      <label class="form-label">Asiste en ventas a <span style="color:var(--muted)">(opera las fichas de esas personas como propias)</span></label>
+      <select class="form-select" id="u-asiste" multiple size="4" style="height:auto"></select>
+      <div style="font-size:11px;color:var(--muted);margin-top:2px">Ctrl/Cmd + clic para elegir varias (o ninguna). Podrá reservar, vender, completar y liberar a nombre de ellas; las acciones quedan a nombre de la titular, pero el back office registra quién las hizo.</div>
     </div>
     <div class="modal-actions">
       <button class="btn btn-outline" id="btn-eliminar-usuario" style="display:none;color:#dc2626;border-color:#dc2626" onclick="eliminarUsuario()">Eliminar acceso</button>
@@ -692,7 +697,7 @@ const sb=supabase.createClient(CONFIG.SUPABASE_URL,CONFIG.SUPABASE_ANON_KEY,{
   }
 });
 
-const APP_VERSION='Fase 2 · 2026-07-14 (b66-TEST · Atlas sin empresa · infante asociado · ranking solo vendedores · usuarios inactivos)';
+const APP_VERSION='Fase 2 · 2026-07-15 (b67-TEST · delegación asiste en ventas)';
 // Columnas de 'vuelos' legibles por cualquier usuario. EXCLUYE precio_neto: el admin lo lee por RPC admin_get_precio_neto (gateada por es_admin). No usar select('*') sobre vuelos: la columna precio_neto quedó revocada a authenticated.
 const VUELO_COLS='id,temporada_id,nombre,ciudad_codigo,ciudad_nombre,aerolinea,fecha,fecha_regreso,total_lugares,precio,condiciones_equipaje,creado_en,destino,itinerario,visible,itinerario_historial,cal_dias_pago_final,cal_dias_cancel_sin_gastos,cal_dias_cancel_con_gastos,cal_usuarios';
 // Calendarización: al crear un cupo, dispara (fire-and-forget) la creación de eventos en Google Calendar vía n8n.
@@ -879,6 +884,13 @@ async function iniciarSesion(session){
   const {data:vends,error:ve}=await sb.from('usuarios').select('nombre,email,rol,activo').order('nombre');
   console.log('vendedores cargados:',vends?.length,ve);
   vendedores=vends||[];
+  // Delegación: titulares que este usuario asiste (puede operar sus fichas como propias)
+  misAsistidas=[];
+  try{
+    const {data:dels}=await sb.from('delegaciones').select('titular_email');
+    const emails=new Set((dels||[]).map(d=>String(d.titular_email||'').toLowerCase()));
+    misAsistidas=(vendedores||[]).filter(v=>emails.has(String(v.email||'').toLowerCase())&&v.activo!==false).map(v=>v.nombre).filter(Boolean);
+  }catch(e){console.warn('[delegaciones]',e);}
   // Poblar dropdown vendedor
   const sel=document.getElementById('p-vendedor');
   sel.innerHTML='<option value="">Seleccionar...</option>'+vendedores.filter(v=>v.rol!=='travel_partner'&&v.activo!==false).map(v=>`<option value="${esc(v.nombre)}">${esc(v.nombre)}</option>`).join('');
@@ -1207,7 +1219,7 @@ async function cargarMisReservas(){
   const nombre=vendedores.find(v=>v.email===currentUser?.email)?.nombre||currentUser?.email||'';
   const {data,error}=await sb.from('pasajeros')
     .select('id,status,fecha_reserva,creado_en,primer_apellido,primer_nombre,ficha,factura,vuelo_id,lugares(id,numero_lugar,es_espera,reducido),vuelos(nombre,destino,fecha)')
-    .eq('vendedor',nombre).neq('status','L').eq('cancelado',false);
+    .in('vendedor',nombresQuePuedoOperar()).neq('status','L').eq('cancelado',false);
   if(error){console.error('[MisReservas]',error);cont.innerHTML='<div class="loading" style="color:var(--red)">Error al cargar</div>';return;}
   const norm=p=>{const l=Array.isArray(p.lugares)?p.lugares[0]:p.lugares;const v=Array.isArray(p.vuelos)?p.vuelos[0]:p.vuelos;return {...p,lug:l||{},vue:v||{}};};
   const filas=(data||[]).map(norm).filter(f=>!f.lug.reducido);
@@ -1441,7 +1453,8 @@ async function cargarDetalle(vueloId){
   const bloqLibres=libresArr.filter(l=>l.bloqueado_operaciones).length;
   const numCols=14;
   const vendedorNombreActual=vendedores.find(v=>v.email===currentUser?.email)?.nombre||currentUser?.email||'';
-  const misReservas=(!esAdmin)?lugaresActivos.concat(lugaresEspera).filter(l=>{const p=l.pasajeros?.[0];return p&&!p.cancelado&&p.status!=='L'&&p.vendedor===vendedorNombreActual;}):[];
+  const nombresOp=nombresQuePuedoOperar(); // propio + titulares que asiste (delegación)
+  const misReservas=(!esAdmin)?lugaresActivos.concat(lugaresEspera).filter(l=>{const p=l.pasajeros?.[0];return p&&!p.cancelado&&p.status!=='L'&&nombresOp.includes(p.vendedor);}):[];
   // "Cargar desde ficha": lugares RESERVADOS (R) a rellenar — admin: todos; vendedor: los propios
   const misRParaCarga=esAdmin?rV:misReservas.filter(l=>l.pasajeros?.[0]?.status==='R').length;
 
@@ -1536,7 +1549,7 @@ async function cargarDetalle(vueloId){
     else if(cancelado){rowCls='row-cancelado';statusCell='<span class="badge badge-yellow">CANCEL</span>';}
     else if(l.bloqueado_operaciones&&libreSeat){rowCls='row-oper';statusCell='<span class="badge badge-l" title="Reservado para Operaciones — el vendedor debe pedirlo a un admin">🔒 OPER</span>';}
     else{rowCls=st==='V'?'row-v':st==='R'?'row-r':'';statusCell=`<span class="badge badge-${st==='V'?'v':st==='R'?'r':'l'}">${st}</span>`;}
-    const esPropia=!esAdmin&&p&&!cancelado&&st!=='L'&&p.vendedor===vendedorNombreActual;
+    const esPropia=!esAdmin&&p&&!cancelado&&st!=='L'&&nombresOp.includes(p.vendedor);
     let accion='';
     if(modo==='reducido'){accion=esAdmin?`<button class="btn-sm btn-sm-toggle" onclick="restaurarLugar('${l.id}','${vuelo.id}')">Restaurar</button>`:'—';}
     else if(esAdmin){accion=`<button class="btn-sm" onclick="abrirModalPasajero('${l.id}',${pJson},'${vuelo.id}',${inf?esc(JSON.stringify(inf)):'null'})">Editar</button>`;}
@@ -1651,6 +1664,14 @@ function abrirModalPasajero(lugarId,pasajero,vueloId,infant=null){
   } else if(rolEfectivo==='operaciones'){
     vendedorEl.value=esLibre?'':(pasajero.vendedor||'');   // Operaciones no reasigna: preserva el vendedor de la ficha
     vendedorEl.disabled=true;
+  } else if(misAsistidas.length){
+    // Vendedor-delegado: elige entre su nombre y las titulares que asiste. En edición de una fila ocupada
+    // la RPC PRESERVA el dueño; en alta atribuye al elegido. Select acotado a {propio + asistidas}.
+    const nombreVendedor=vendedores.find(v=>v.email===currentUser.email)?.nombre||currentUser.email;
+    const opts=[nombreVendedor,...misAsistidas];
+    vendedorEl.innerHTML=opts.map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join('');
+    vendedorEl.value=esLibre?nombreVendedor:(pasajero.vendedor||nombreVendedor);
+    vendedorEl.disabled=false;
   } else {
     const nombreVendedor=vendedores.find(v=>v.email===currentUser.email)?.nombre||currentUser.email;
     vendedorEl.value=nombreVendedor;
@@ -1754,7 +1775,7 @@ async function abrirModalCargarFicha(vueloId){
   const infMap={};(infants||[]).forEach(i=>{if(i.pasajero_id)infMap[i.pasajero_id]=i;});
   _cfTargets=(lugares||[]).filter(l=>!l.es_infant&&!l.es_espera&&!l.reducido)
     .map(l=>({l,p:l.pasajeros?.[0]}))
-    .filter(x=>x.p&&!x.p.cancelado&&x.p.status==='R'&&(esAdmin||x.p.vendedor===vendNombre))
+    .filter(x=>x.p&&!x.p.cancelado&&x.p.status==='R'&&(esAdmin||nombresQuePuedoOperar().includes(x.p.vendedor)))
     .map(x=>{const inf=infMap[x.p.id];return{
       lugarId:x.l.id,pasajeroId:x.p.id,numero:x.l.numero_lugar,
       ref:((x.p.primer_apellido||'')+' '+(x.p.primer_nombre||'')).trim(),
@@ -2041,13 +2062,25 @@ async function guardarPasajero(){
 let reservarModoEspera=false,reservarModoEsperaBulk=false,reservarBloqLibres=0,reservarEsC=false;
 // Selector de vendedor (admin y operaciones): reservar a nombre propio o de otro vendedor.
 // Rama A (Ola 2 #35/#36): la mesa de Operaciones carga reservas a nombre del vendedor real para no romper la atribución comercial.
+// Delegación ("asiste en ventas"): nombres de las titulares que este usuario asiste (puede operar sus fichas).
+let misAsistidas=[];
+// Nombres que el usuario puede operar/atribuir: el propio + las titulares que asiste.
+function nombresQuePuedoOperar(){
+  const propio=vendedores.find(v=>v.email===currentUser?.email)?.nombre||currentUser?.email||'';
+  return [propio,...misAsistidas].filter(Boolean);
+}
 function prepararSelectorVendedor(){
   const rvGroup=document.getElementById('r-vendedor-group'),rvSel=document.getElementById('r-vendedor');
   if(!rvGroup||!rvSel)return;
+  const propio=vendedores.find(v=>v.email===currentUser?.email)?.nombre||currentUser?.email||'';
   if(rolEfectivo==='admin'||rolEfectivo==='operaciones'){
-    const propio=vendedores.find(v=>v.email===currentUser?.email)?.nombre||currentUser?.email||'';
     const lista=[...vendedores].filter(v=>v&&v.nombre&&v.activo!==false&&v.rol!=='travel_partner').sort((a,b)=>(a.nombre||'').localeCompare(b.nombre||''));
     rvSel.innerHTML='<option value="">A nombre propio ('+esc(propio)+')</option>'+lista.map(v=>'<option value="'+esc(v.nombre)+'">'+esc(v.nombre)+'</option>').join('');
+    rvSel.value='';
+    rvGroup.style.display='';
+  } else if(misAsistidas.length){
+    // Vendedor-delegado: reserva a nombre propio o de una titular que asiste (lista acotada).
+    rvSel.innerHTML='<option value="">A nombre propio ('+esc(propio)+')</option>'+misAsistidas.map(n=>'<option value="'+esc(n)+'">'+esc(n)+'</option>').join('');
     rvSel.value='';
     rvGroup.style.display='';
   } else { rvGroup.style.display='none'; }
@@ -2088,6 +2121,7 @@ async function confirmarReserva(){
   let vendedorNombre=vendedores.find(v=>v.email===currentUser.email)?.nombre||currentUser.email;
   // Admin y Operaciones pueden reservar a nombre de otro vendedor (la RPC respeta p_vendedor para admin/operaciones; el vendedor queda con su propio nombre)
   if(rolEfectivo==='admin'||rolEfectivo==='operaciones'){const sel=document.getElementById('r-vendedor')?.value;if(sel)vendedorNombre=sel;}
+  else if(misAsistidas.length){const sel=document.getElementById('r-vendedor')?.value;if(sel&&misAsistidas.includes(sel))vendedorNombre=sel;}
   // Reserva ATÓMICA en la base (FOR UPDATE SKIP LOCKED): evita que dos vendedores tomen el mismo lugar
   let res;
   if(reservarModoEspera){
@@ -2254,7 +2288,8 @@ async function abrirModalEliminar(vueloId){
     :'Se liberarán los lugares seleccionados (se borran los datos del pasajero). Esto NO registra una cancelación con penalidad/recupero — para eso usá "Cancelar con penalidad".';
   const mi=vendedores.find(v=>v.email===currentUser?.email)?.nombre||currentUser?.email;
   const {data:lugs}=await sb.from('lugares').select('id,numero_lugar,es_espera,pasajeros(id,status,cancelado,vendedor,primer_apellido,primer_nombre,ficha)').eq('vuelo_id',vueloId).order('numero_lugar');
-  eliminarList=(lugs||[]).filter(l=>{const p=l.pasajeros?.[0];return p&&!p.cancelado&&(soloPropias?p.status==='R':p.status!=='L')&&(!soloPropias||p.vendedor===mi);});
+  const nombresOpElim=nombresQuePuedoOperar();
+  eliminarList=(lugs||[]).filter(l=>{const p=l.pasajeros?.[0];return p&&!p.cancelado&&(soloPropias?p.status==='R':p.status!=='L')&&(!soloPropias||nombresOpElim.includes(p.vendedor));});
   const lista=document.getElementById('elim-lista');
   if(!eliminarList.length){lista.innerHTML=`<div style="padding:12px;font-size:13px;color:var(--muted)">${soloPropias?'No tenés Reservados propios para liberar en este cupo (los Vendidos no se liberan acá).':'No hay reservas en este cupo.'}</div>`;}
   else{
@@ -2510,7 +2545,7 @@ async function cargarAdmin(){
   renderUsuarios();
 }
 
-const accionLabel={crear_cupo:'Creó cupo',editar_cupo:'Editó cupo',reserva:'Reservó',alta_pasajero:'Cargó pasajero',editar_pasajero:'Editó pasajero',cancelar_reserva:'Canceló reserva(s)',reduccion_lugares:'Redujo lugares',cancelacion_cupo:'Dio de baja cupo',restaurar_lugar:'Restauró lugar',visibilidad:'Cambió visibilidad',eliminar_reserva:'Liberó reserva(s)',temporada_activa:'Activó/desactivó temporada',temporada_editar:'Editó temporada',vencimiento_auto:'Vencimiento automático',bloquear_operaciones:'Bloqueó lugar (Oper)',desbloquear_operaciones:'Desbloqueó lugar (Oper)',carga_ficha_lote:'Cargó ficha en lote',agregar_lugares:'Agregó lugares',venta:'Venta',usuario_guardar:'Guardó usuario/rol',usuario_eliminar:'Eliminó usuario'};
+const accionLabel={crear_cupo:'Creó cupo',editar_cupo:'Editó cupo',reserva:'Reservó',alta_pasajero:'Cargó pasajero',editar_pasajero:'Editó pasajero',cancelar_reserva:'Canceló reserva(s)',reduccion_lugares:'Redujo lugares',cancelacion_cupo:'Dio de baja cupo',restaurar_lugar:'Restauró lugar',visibilidad:'Cambió visibilidad',eliminar_reserva:'Liberó reserva(s)',temporada_activa:'Activó/desactivó temporada',temporada_editar:'Editó temporada',vencimiento_auto:'Vencimiento automático',bloquear_operaciones:'Bloqueó lugar (Oper)',desbloquear_operaciones:'Desbloqueó lugar (Oper)',carga_ficha_lote:'Cargó ficha en lote',agregar_lugares:'Agregó lugares',venta:'Venta',usuario_guardar:'Guardó usuario/rol',usuario_eliminar:'Eliminó usuario',usuario_activar:'Activó usuario',usuario_inactivar:'Inactivó usuario',delegacion_alta:'Asignó delegación',delegacion_baja:'Quitó delegación'};
 // ── Visor de log (Ola 2 #57/#62): filtros usuario/entidad/fecha + paginación + export ──
 const LOG_PAGE=80;
 let logsCargados=[],logPagina=0,logFiltroTimer=null;
@@ -2603,7 +2638,26 @@ function abrirModalUsuario(email){
   be.style.display=(u&&u.email!==currentUser?.email)?'inline-flex':'none';
   document.getElementById('btn-guardar-usuario').disabled=false;
   document.getElementById('btn-guardar-usuario').textContent='Guardar';
+  prepararAsiste(u);
   document.getElementById('modal-usuario').style.display='flex';
+}
+
+// Delegación: pobla "Asiste en ventas a" y marca las titulares ya asignadas (solo para usuarios vendedor).
+let _asisteOriginal=[];
+async function prepararAsiste(u){
+  const grp=document.getElementById('u-asiste-group'), sel=document.getElementById('u-asiste');
+  _asisteOriginal=[]; sel.innerHTML='';
+  if(!u || u.rol!=='vendedor'){ grp.style.display='none'; return; } // solo un vendedor asiste a otro
+  const cand=(usuariosAdmin||[]).filter(v=>v.rol==='vendedor'&&v.activo!==false&&v.email!==u.email)
+    .sort((a,b)=>(a.nombre||'').localeCompare(b.nombre||''));
+  sel.innerHTML=cand.map(v=>`<option value="${esc(v.email)}">${esc(v.nombre||v.email)}</option>`).join('');
+  grp.style.display=cand.length?'':'none';
+  try{
+    const {data}=await sb.from('delegaciones').select('titular_email').eq('asistente_email',u.email);
+    _asisteOriginal=(data||[]).map(d=>String(d.titular_email||'').toLowerCase());
+    const set=new Set(_asisteOriginal);
+    Array.from(sel.options).forEach(o=>{o.selected=set.has(String(o.value).toLowerCase());});
+  }catch(e){console.warn('[delegaciones cargar]',e);}
 }
 
 async function guardarUsuario(){
@@ -2632,6 +2686,18 @@ async function guardarUsuario(){
   const {error}=await sb.rpc('admin_guardar_usuario',{p_email:usuarioEditando||email,p_nombre:nombre,p_rol:rol,p_activo:activo});
   setBtnLoading('btn-guardar-usuario',false,'Guardar');
   if(error){mostrarAlerta('modal-u-alert',error.message,'error');return;}
+  // Delegaciones ("asiste a"): aplicar el diff contra lo cargado (solo usuarios vendedor con el grupo visible)
+  if(usuarioEditando){
+    const selA=document.getElementById('u-asiste');
+    if(selA && document.getElementById('u-asiste-group').style.display!=='none'){
+      const seleccion=Array.from(selA.selectedOptions).map(o=>String(o.value).toLowerCase());
+      const nueva=new Set(seleccion);
+      const agregar=seleccion.filter(e=>!_asisteOriginal.includes(e));
+      const quitar=_asisteOriginal.filter(e=>!nueva.has(e));
+      for(const t of agregar){const {error:ed}=await sb.rpc('admin_set_delegacion',{p_asistente_email:usuarioEditando,p_titular_email:t});if(ed)console.warn('[set_delegacion]',ed);}
+      for(const t of quitar){const {error:eq}=await sb.rpc('admin_quitar_delegacion',{p_asistente_email:usuarioEditando,p_titular_email:t});if(eq)console.warn('[quitar_delegacion]',eq);}
+    }
+  }
   mostrarAlerta('modal-u-alert',usuarioEditando?'Usuario actualizado':'Usuario creado','success');
   setTimeout(()=>{cerrarModal('modal-usuario');cargarAdmin()},800);
 }
