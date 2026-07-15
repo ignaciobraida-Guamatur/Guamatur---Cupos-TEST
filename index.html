@@ -512,6 +512,10 @@
         </optgroup>
       </select>
     </div>
+    <div class="form-group" id="u-activo-group">
+      <label class="form-label" style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-bottom:2px"><input type="checkbox" id="u-activo" checked style="width:auto;margin:0"/><span>Usuario activo</span></label>
+      <div style="font-size:11px;color:var(--muted)">Si lo desmarcás: no podrá ingresar, ni figura en rankings ni selectores. Sus ventas históricas y su nombre en los cupos se conservan.</div>
+    </div>
     <div class="modal-actions">
       <button class="btn btn-outline" id="btn-eliminar-usuario" style="display:none;color:#dc2626;border-color:#dc2626" onclick="eliminarUsuario()">Eliminar acceso</button>
       <button class="btn btn-outline" onclick="cerrarModal('modal-usuario')">Cerrar</button>
@@ -688,7 +692,7 @@ const sb=supabase.createClient(CONFIG.SUPABASE_URL,CONFIG.SUPABASE_ANON_KEY,{
   }
 });
 
-const APP_VERSION='Fase 2 · 2026-07-13 (b65-TEST · operaciones ve el precio Neto del cupo) — AMBIENTE DE PRUEBAS';
+const APP_VERSION='Fase 2 · 2026-07-14 (b66-TEST · Atlas sin empresa · infante asociado · ranking solo vendedores · usuarios inactivos)';
 // Columnas de 'vuelos' legibles por cualquier usuario. EXCLUYE precio_neto: el admin lo lee por RPC admin_get_precio_neto (gateada por es_admin). No usar select('*') sobre vuelos: la columna precio_neto quedó revocada a authenticated.
 const VUELO_COLS='id,temporada_id,nombre,ciudad_codigo,ciudad_nombre,aerolinea,fecha,fecha_regreso,total_lugares,precio,condiciones_equipaje,creado_en,destino,itinerario,visible,itinerario_historial,cal_dias_pago_final,cal_dias_cancel_sin_gastos,cal_dias_cancel_con_gastos,cal_usuarios';
 // Calendarización: al crear un cupo, dispara (fire-and-forget) la creación de eventos en Google Calendar vía n8n.
@@ -852,18 +856,32 @@ async function iniciarSesion(session){
     if(le){le.textContent='La cuenta '+emailNoAuth+' no está autorizada. Pedile acceso a un administrador.';le.style.display='block';}
     return;
   }
+  if(u.activo===false){
+    // Cuenta INACTIVA (baja): mismo tratamiento que "no autorizada". El bloqueo real es server-side
+    // (es_usuario_habilitado exige activo=true → ve 0 PII); esto es la puerta en el cliente.
+    const emailInact=currentUser.email;
+    currentUser=null;currentRol=null;rolEfectivo=null;
+    await sb.auth.signOut();
+    document.querySelectorAll('.screen').forEach(x=>x.classList.remove('active'));
+    document.getElementById('screen-login').classList.add('active');
+    document.getElementById('nav-links').style.display='none';
+    document.getElementById('hamburger').style.display='none';
+    const le=document.getElementById('login-error');
+    if(le){le.textContent='La cuenta '+emailInact+' está inactiva. Pedile a un administrador que la reactive.';le.style.display='block';}
+    return;
+  }
   // Sincronizar el ID con el de Google en el primer login (vía RPC; no bloquea el login si falla)
   if(u.id!==currentUser.id){try{await sb.rpc('sync_mi_usuario_id');}catch(e){console.warn('sync id usuario:',e);}}
   currentRol=u.rol;
   // super_admin se comporta como admin en la UI (Ola 0: super admin = admin). El rol real queda en currentRol.
   rolEfectivo=(u.rol==='super_admin')?'admin':u.rol;
   // Cargar vendedores
-  const {data:vends,error:ve}=await sb.from('usuarios').select('nombre,email,rol').order('nombre');
+  const {data:vends,error:ve}=await sb.from('usuarios').select('nombre,email,rol,activo').order('nombre');
   console.log('vendedores cargados:',vends?.length,ve);
   vendedores=vends||[];
   // Poblar dropdown vendedor
   const sel=document.getElementById('p-vendedor');
-  sel.innerHTML='<option value="">Seleccionar...</option>'+vendedores.filter(v=>v.rol!=='travel_partner').map(v=>`<option value="${esc(v.nombre)}">${esc(v.nombre)}</option>`).join('');
+  sel.innerHTML='<option value="">Seleccionar...</option>'+vendedores.filter(v=>v.rol!=='travel_partner'&&v.activo!==false).map(v=>`<option value="${esc(v.nombre)}">${esc(v.nombre)}</option>`).join('');
 
   document.getElementById('user-avatar').textContent=currentUser.email[0].toUpperCase();
   document.getElementById('user-avatar').style.display='flex';
@@ -1039,6 +1057,11 @@ async function cargarDashboard(){
   // Ordenar por alerta: Completo primero, Disponible último
   filas.sort((a,b)=>a.orden-b.orden);
 
+  // Solo VENDEDORES en el ranking/listados por persona: excluir los nombres que mapean a un usuario
+  // de rol NO-vendedor (admin/operaciones/…) o a un vendedor INACTIVO. Los nombres SIN match en
+  // usuarios (posible venta real con el nombre tipeado distinto) se CONSERVAN para no ocultar ventas.
+  const _userByName={};(vendedores||[]).forEach(v=>{if(v&&v.nombre)_userByName[v.nombre]=v;});
+  const excluidoDeRanking=(nom)=>{const u=_userByName[nom];return !!(u&&(u.rol!=='vendedor'||u.activo===false));};
   // Ranking vendedores
   const rankMap={};
   (pasajerosDash||[]).filter(p=>{
@@ -1049,9 +1072,9 @@ async function cargarDashboard(){
   }).forEach(p=>{
     rankMap[p.vendedor]=(rankMap[p.vendedor]||0)+1;
   });
-  const ranking=Object.entries(rankMap).sort((a,b)=>b[1]-a[1]);
-  // Agregar vendedores con 0 ventas
-  vendedores.forEach(v=>{if(!rankMap[v.nombre]) ranking.push([v.nombre,0]);});
+  const ranking=Object.entries(rankMap).filter(([nom])=>!excluidoDeRanking(nom)).sort((a,b)=>b[1]-a[1]);
+  // Agregar vendedores ACTIVOS con 0 ventas (no admin/operaciones/inactivos)
+  vendedores.forEach(v=>{if(v.rol==='vendedor'&&v.activo!==false&&!rankMap[v.nombre]) ranking.push([v.nombre,0]);});
 
   // Cancelaciones
   const cancelsFiltradas=(cancelsDash||[]).filter(c=>vueloIds.has(c.vuelo_id));
@@ -1130,7 +1153,7 @@ async function cargarDashboard(){
       <div class="op-card"><div class="op-label">Sin plazo</div><div class="op-value">${fmtUsd(riesgo.sinPlazo.usd)}</div><div style="font-size:11px;color:var(--muted);margin-top:2px">${riesgo.sinPlazo.cant} sin fecha de reserva</div></div>
     </div>`;
     if(riesgoCant>0){
-      const vendRiesgo=Object.entries(riesgoVend).sort((a,b)=>b[1].usd-a[1].usd);
+      const vendRiesgo=Object.entries(riesgoVend).filter(([nom])=>!excluidoDeRanking(nom)).sort((a,b)=>b[1].usd-a[1].usd);
       html+=`<div class="table-wrap" style="margin-bottom:24px"><table><thead><tr><th>Vendedor</th><th>Reservas R</th><th>Vencen &lt;24 h</th><th>USD en riesgo</th></tr></thead><tbody>`;
       vendRiesgo.forEach(([nom,r])=>{html+=`<tr><td>${esc(nom)}</td><td>${r.cant}</td><td class="${r.b24>0?'c-red':''}" style="font-weight:${r.b24>0?'600':'400'}">${r.b24}</td><td style="font-family:'DM Mono',monospace;font-weight:600">${fmtUsd(r.usd)}</td></tr>`;});
       html+='</tbody></table></div>';
@@ -1716,11 +1739,11 @@ function aplicarPasajeroUno(p){
 }
 
 // --- v2: Cargar pasajeros desde ficha a TODOS los lugares reservados de una ---
-let _cfVueloId=null,_cfTargets=[],_cfPax=[],_cfInf=[];
+let _cfVueloId=null,_cfTargets=[],_cfPax=[],_cfInf=[],_cfInfEleg=[],_cfInfManual=[];
 function cfStatus(msg,kind){const el=document.getElementById('cf-status');if(!el)return;const col={info:'var(--muted)',ok:'var(--green)',warn:'var(--yellow)',error:'var(--red)'}[kind]||'var(--muted)';el.style.display='block';el.style.color=col;el.textContent=msg;}
 async function abrirModalCargarFicha(vueloId){
   if(!CONFIG.ATLAS_ENABLED) return; // Ola 4 #94
-  _cfVueloId=vueloId;_cfTargets=[];_cfPax=[];_cfInf=[];
+  _cfVueloId=vueloId;_cfTargets=[];_cfPax=[];_cfInf=[];_cfInfEleg=[];_cfInfManual=[];
   const esAdmin=rolEfectivo==='admin';
   const vendNombre=vendedores.find(v=>v.email===currentUser?.email)?.nombre||currentUser?.email||'';
   const [{data:lugares,error:e1},{data:infants}]=await Promise.all([
@@ -1765,6 +1788,22 @@ function esInfanteAtlas(p){
   }
   return !!(p&&p.tipo==='INF');
 }
+// Meses entre nacimiento y una fecha de referencia (ambas 'YYYY-MM-DD'); null si falta alguna.
+function mesesEntre(fn,fv){
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(fn||'')||!/^\d{4}-\d{2}-\d{2}$/.test(fv||''))return null;
+  const [ny,nm,nd]=fn.split('-').map(Number),[dy,dm,dd]=fv.split('-').map(Number);
+  let m=(dy-ny)*12+(dm-nm);if(dd<nd)m--;return m;
+}
+function _normApe(s){return String(s||'').trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'');}
+// Adivina a qué adulto (índice en _cfPax) asociar un infante, por apellido. '' si no matchea.
+function matchAdultoParaInfante(inf){
+  const a1=_normApe(inf.primer_apellido), a2=_normApe(inf.segundo_apellido);
+  const buscar=(val,campo)=> val? _cfPax.findIndex(p=>_normApe(p[campo])===val) : -1;
+  let idx=buscar(a1,'primer_apellido');
+  if(idx<0) idx=buscar(a2,'primer_apellido');
+  if(idx<0) idx=buscar(a1,'segundo_apellido');
+  return idx<0?'':idx;
+}
 async function cargarFichaTraer(){
   const ficha=document.getElementById('cf-ficha').value.trim();
   if(!ficha){cfStatus('Escribí el número de ficha.','warn');return;}
@@ -1786,10 +1825,15 @@ async function cargarFichaTraer(){
     const fallbackTodos=conAsiento.length===0;
     _cfPax=fallbackTodos?todos:conAsiento;
     _cfInf=fallbackTodos?[]:infantes;
+    // Infantes ASOCIABLES en el batch: los <24 meses a la fecha de SALIDA (mismo criterio que valida
+    // la RPC guardar_pasajero; adjuntar uno de 24+ meses haría fallar la carga de ese adulto).
+    const _salidaRef=String(currentVueloFecha||'').slice(0,10);
+    _cfInfEleg=[];_cfInfManual=[];
+    (_cfInf||[]).forEach(inf=>{const m=mesesEntre(String(inf.fecha_nac||'').slice(0,10),_salidaRef);if(m!==null&&m>=24)_cfInfManual.push(inf);else _cfInfEleg.push(inf);});
     renderCfMapa();
     let msg;
     if(fallbackTodos){msg=`⚠️ No pude distinguir quién ocupa lugar (todos figuran como infantes o sin fecha de nacimiento): se cargan los ${todos.length}, revisá y dejá "sin asignar" los bebés que no lleven lugar.`;}
-    else{msg=`${_cfPax.length} pasajero(s) con lugar`+(infantes.length?` · ${infantes.length} infante(s) NO se cargan (se agregan a mano al adulto)`:'')+` · ${_cfTargets.length} lugar(es) reservado(s).`;}
+    else{msg=`${_cfPax.length} pasajero(s) con lugar`+(infantes.length?` · ${infantes.length} infante(s) para asociar abajo`:'')+` · ${_cfTargets.length} lugar(es) reservado(s).`;}
     if(_cfPax.length!==_cfTargets.length)msg+=' ⚠️ Las cantidades no coinciden con los lugares: asigná lo que corresponda; lo que dejes "sin asignar" no se toca.';
     cfStatus(msg,(fallbackTodos||_cfPax.length!==_cfTargets.length)?'warn':'ok');
   }catch(e){cfStatus('No se pudo traer de Atlas ('+(e.message||e)+'). Probá de nuevo o cargá a mano.','error');}
@@ -1803,7 +1847,16 @@ function renderCfMapa(){
     const hv=esc(gHotel||t.hotel||'');
     h+=`<div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;flex-wrap:wrap"><span style="min-width:150px;font-size:12px;color:var(--muted)">Lugar #${t.numero}${t.ref?` · ${esc(t.ref)}`:''}</span><select class="form-select" id="cf-sel-${idx}" style="flex:1;min-width:140px">${opt(idx<_cfPax.length?idx:-1)}</select><input class="form-input" id="cf-hotel-${idx}" value="${hv}" placeholder="Hotel" style="flex:1;min-width:140px"/></div>`;
   });
-  if(_cfInf&&_cfInf.length)h+=`<div style="font-size:11px;color:var(--yellow);margin-top:8px">🍼 ${_cfInf.length} infante(s) en la ficha (${esc(_cfInf.map(nombreAtlas).join(', '))}) NO se cargan acá porque no ocupan lugar. Agregalos a mano al adulto responsable (marcá "lleva INFANT" al editar su lugar).</div>`;
+  if(_cfInfEleg&&_cfInfEleg.length){
+    h+='<div style="border-top:1px dashed var(--border);margin-top:10px;padding-top:8px"><div style="font-size:12px;color:var(--muted);margin-bottom:6px">🍼 Infante(s) de la ficha (no ocupan lugar). Asignalos al adulto con el que viajan: se cargan junto a ese adulto.</div>';
+    _cfInfEleg.forEach((inf,i)=>{
+      const def=matchAdultoParaInfante(inf);
+      const opts='<option value="">— no asociar (cargar a mano) —</option>'+_cfPax.map((p,pi)=>`<option value="${pi}"${pi===def?' selected':''}>${esc(nombreAtlas(p))}</option>`).join('');
+      h+=`<div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;flex-wrap:wrap"><span style="min-width:150px;font-size:12px">🍼 ${esc(nombreAtlas(inf))}</span><select class="form-select" id="cf-inf-sel-${i}" style="flex:1;min-width:180px">${opts}</select></div>`;
+    });
+    h+='</div>';
+  }
+  if(_cfInfManual&&_cfInfManual.length)h+=`<div style="font-size:11px;color:var(--yellow);margin-top:8px">⚠️ ${_cfInfManual.length} "infante(s)" (${esc(_cfInfManual.map(nombreAtlas).join(', '))}) tienen 24+ meses a la salida: no son infante para este vuelo (ocupan lugar). Cargalos a mano si corresponde.</div>`;
   h+='</div>';
   document.getElementById('cf-mapa').innerHTML=h;
   document.getElementById('cf-confirmar').style.display='';
@@ -1817,11 +1870,31 @@ async function cargarFichaConfirmar(){
   if(!asign.length){mostrarAlerta('modal-cf-alert','Asigná al menos un pasajero a un lugar.','error');return;}
   const idxs=asign.map(a=>_cfPax.indexOf(a.pax));
   if(idxs.length!==new Set(idxs).size){if(!confirm('Asignaste el mismo pasajero a más de un lugar. ¿Continuar igual?'))return;}
+  // Infantes de Atlas asociados a un adulto por el desplegable (clave = índice en _cfPax).
+  const infByPax={};
+  (_cfInfEleg||[]).forEach((inf,i)=>{
+    const v=document.getElementById('cf-inf-sel-'+i)?.value;
+    if(v!==''&&v!=null){const pi=+v;if(!(pi in infByPax))infByPax[pi]={
+      primer_apellido:inf.primer_apellido||'',segundo_apellido:inf.segundo_apellido||'',
+      primer_nombre:inf.primer_nombre||'',segundo_nombre:inf.segundo_nombre||'',
+      fecha_nacimiento:inf.fecha_nac?String(inf.fecha_nac).slice(0,10):''
+    };}
+  });
+  // Aviso si un infante quedó asociado a un adulto que NO se está cargando en ningún lugar.
+  const _asignPax=new Set(asign.map(a=>_cfPax.indexOf(a.pax)));
+  if(Object.keys(infByPax).some(pi=>!_asignPax.has(+pi))){
+    if(!confirm('Hay infante(s) asociados a un adulto que no quedó asignado a ningún lugar: esos infantes NO se cargarán. ¿Continuar?'))return;
+  }
   const status=(factura&&ficha)?'V':'R';
   setBtnLoading('cf-confirmar',true);
   await asegurarTokenFresco();
-  let ok=0,fail=0;const errs=[];
+  let ok=0,fail=0,infOk=0;const errs=[];
   for(const a of asign){
+    const _pi=_cfPax.indexOf(a.pax);
+    const _infAtlas=(_pi>=0)?infByPax[_pi]:null;
+    // Si hay infante de Atlas para este adulto, se adjunta; si no, se respeta el infante preexistente del lugar.
+    const _tieneInf=_infAtlas?true:a.t.tieneInfant;
+    const _inf=_infAtlas?_infAtlas:a.t.inf;
     try{
       const {error}=await sb.rpc('guardar_pasajero',{
         p_pasajero_id:a.t.pasajeroId,p_lugar_id:a.t.lugarId,p_vuelo_id:_cfVueloId,
@@ -1829,15 +1902,15 @@ async function cargarFichaConfirmar(){
         p_primer_nombre:a.pax.primer_nombre||'',p_segundo_nombre:a.pax.segundo_nombre||'',
         p_hotel:(a.hotel||a.t.hotel||''),p_vendedor:a.t.vendedor||'',p_ficha:ficha||null,
         p_comentarios:a.t.comentarios||null,p_status:status,p_factura:factura||null,
-        p_fecha_reserva:null,p_tiene_infant:a.t.tieneInfant,p_inf:a.t.inf
+        p_fecha_reserva:null,p_tiene_infant:_tieneInf,p_inf:_inf
       });
-      if(error){fail++;errs.push('Lugar #'+a.t.numero+': '+error.message);}else ok++;
+      if(error){fail++;errs.push('Lugar #'+a.t.numero+': '+error.message);}else{ok++;if(_infAtlas)infOk++;}
     }catch(e){fail++;errs.push('Lugar #'+a.t.numero+': '+(e.message||e));}
   }
   setBtnLoading('cf-confirmar',false,'Confirmar carga');
-  await registrarLog('carga_ficha_lote','vuelo',_cfVueloId,{ficha,asignados:ok,fallidos:fail,status});
+  await registrarLog('carga_ficha_lote','vuelo',_cfVueloId,{ficha,asignados:ok,fallidos:fail,infantes:infOk,status});
   if(fail){mostrarAlerta('modal-cf-alert',`Cargados ${ok}, con ${fail} error(es): ${esc(errs.slice(0,3).join(' · '))}`,'error');if(ok)setTimeout(()=>cargarDetalle(_cfVueloId),500);}
-  else{mostrarAlerta('modal-cf-alert',`✓ ${ok} pasajero(s) cargado(s)${status==='V'?' y marcados VENDIDOS':' (reservados con su nombre)'}.`,'success');setTimeout(()=>{cerrarModal('modal-cargar-ficha');cargarDetalle(_cfVueloId);},900);}
+  else{mostrarAlerta('modal-cf-alert',`✓ ${ok} pasajero(s) cargado(s)${infOk?` · ${infOk} infante(s) asociado(s)`:''}${status==='V'?' y marcados VENDIDOS':' (reservados con su nombre)'}.`,'success');setTimeout(()=>{cerrarModal('modal-cargar-ficha');cargarDetalle(_cfVueloId);},900);}
 }
 
 function actualizarHintInfant(){
@@ -2424,7 +2497,7 @@ async function cargarAdmin(){
   const [{data:temps},{data:vuelos},{data:usrs}]=await Promise.all([
     sb.from('temporadas').select('*').order('creado_en',{ascending:false}),
     sb.from('vuelos').select('id,nombre,temporada_id,visible').order('nombre'),
-    sb.from('usuarios').select('email,nombre,rol').order('nombre')
+    sb.from('usuarios').select('email,nombre,rol,activo').order('nombre')
   ]);
   cargarLog(true);
   temporadas=temps||[];
@@ -2508,7 +2581,10 @@ const NIVEL_ROL={super_admin:1,admin:2,operaciones:3,vendedor:4,travel_partner:5
 function renderUsuarios(){
   const el=document.getElementById('admin-usuarios');if(!el)return;
   if(!usuariosAdmin.length){el.innerHTML='<div style="font-size:13px;color:var(--muted)">Sin usuarios.</div>';return;}
-  el.innerHTML=usuariosAdmin.map(u=>`<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border);gap:8px"><div style="min-width:0;flex:1"><div style="font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(u.nombre||u.email)}</div><div style="font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(u.email)}</div></div><span class="badge ${(u.rol==='admin'||u.rol==='super_admin')?'badge-green':'badge-l'}">${rolLabel(u.rol)}</span><button class="btn-sm" onclick="abrirModalUsuario('${esc(u.email)}')">Editar</button></div>`).join('');
+  el.innerHTML=usuariosAdmin.map(u=>{
+    const inact=u.activo===false, esSelf=u.email===currentUser?.email;
+    return `<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border);gap:8px${inact?';opacity:.55':''}"><div style="min-width:0;flex:1"><div style="font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(u.nombre||u.email)}</div><div style="font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(u.email)}</div></div>${inact?'<span class="badge badge-l">Inactivo</span>':''}<span class="badge ${(u.rol==='admin'||u.rol==='super_admin')?'badge-green':'badge-l'}">${rolLabel(u.rol)}</span>${esSelf?'':`<button class="btn-sm btn-sm-toggle" onclick="toggleActivoUsuario('${esc(u.email)}',${!inact})">${inact?'Activar':'Inactivar'}</button>`}<button class="btn-sm" onclick="abrirModalUsuario('${esc(u.email)}')">Editar</button></div>`;
+  }).join('');
 }
 
 function abrirModalUsuario(email){
@@ -2519,6 +2595,9 @@ function abrirModalUsuario(email){
   document.getElementById('u-email').disabled=!!u;
   document.getElementById('u-nombre').value=u?(u.nombre||''):'';
   document.getElementById('u-rol').value=u?u.rol:'vendedor';
+  const chkAct=document.getElementById('u-activo');
+  chkAct.checked=u?(u.activo!==false):true;
+  chkAct.disabled=!!(u&&u.email===currentUser?.email); // no podés cambiar tu propio estado
   document.getElementById('modal-u-alert').innerHTML='';
   const be=document.getElementById('btn-eliminar-usuario');
   be.style.display=(u&&u.email!==currentUser?.email)?'inline-flex':'none';
@@ -2531,6 +2610,7 @@ async function guardarUsuario(){
   const email=document.getElementById('u-email').value.trim().toLowerCase();
   const nombre=document.getElementById('u-nombre').value.trim();
   const rol=document.getElementById('u-rol').value;
+  const activo=document.getElementById('u-activo').checked;
   if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)){mostrarAlerta('modal-u-alert','Ingresá un email válido','error');return;}
   if(!nombre){mostrarAlerta('modal-u-alert','El nombre es obligatorio','error');return;}
   // Ola 2 #54: asignar un rol de poder requiere confirmación explícita
@@ -2538,13 +2618,18 @@ async function guardarUsuario(){
     const rolPrevio=usuarioEditando?(usuariosAdmin.find(x=>x.email===usuarioEditando)?.rol):null;
     if(rolPrevio!==rol&&!confirm(`Vas a dar rol ${rolLabel(rol)} a ${usuarioEditando||email}: control total de cupos, reservas y usuarios${rol==='super_admin'?' (máximo nivel)':''}. ¿Confirmar?`))return;
   }
+  // Confirmación al INACTIVAR (baja): pierde acceso y sale de rankings/selectores
+  if(usuarioEditando&&!activo){
+    const eraActivo=(usuariosAdmin.find(x=>x.email===usuarioEditando)?.activo)!==false;
+    if(eraActivo&&!confirm(`Vas a INACTIVAR a ${usuarioEditando}: no podrá ingresar y saldrá de rankings y selectores. Sus ventas históricas y su nombre en los cupos se conservan. ¿Confirmar?`))return;
+  }
   setBtnLoading('btn-guardar-usuario',true);
   if(!usuarioEditando){
     const {data:ya}=await sb.from('usuarios').select('email').eq('email',email).maybeSingle();
     if(ya){setBtnLoading('btn-guardar-usuario',false,'Guardar');mostrarAlerta('modal-u-alert','Ya existe un usuario con ese email','error');return;}
   }
   // Alta/edición vía RPC con gate de admin server-side (cierra la auto-promoción a admin)
-  const {error}=await sb.rpc('admin_guardar_usuario',{p_email:usuarioEditando||email,p_nombre:nombre,p_rol:rol});
+  const {error}=await sb.rpc('admin_guardar_usuario',{p_email:usuarioEditando||email,p_nombre:nombre,p_rol:rol,p_activo:activo});
   setBtnLoading('btn-guardar-usuario',false,'Guardar');
   if(error){mostrarAlerta('modal-u-alert',error.message,'error');return;}
   mostrarAlerta('modal-u-alert',usuarioEditando?'Usuario actualizado':'Usuario creado','success');
@@ -2560,6 +2645,15 @@ async function eliminarUsuario(){
   setBtnLoading('btn-guardar-usuario',false,'Guardar');
   if(error){mostrarAlerta('modal-u-alert',error.message,'error');return;}
   cerrarModal('modal-usuario');cargarAdmin();
+}
+
+// Toggle rápido activo/inactivo desde el listado (sin abrir el modal). actualActivo = estado actual.
+async function toggleActivoUsuario(email,actualActivo){
+  if(actualActivo&&!confirm('¿Inactivar a '+email+'? No podrá ingresar y saldrá de rankings y selectores. Sus ventas históricas y su nombre en los cupos se conservan.'))return;
+  await asegurarTokenFresco();
+  const {error}=await sb.rpc('admin_set_activo',{p_email:email,p_activo:!actualActivo});
+  if(error){alert('Error: '+error.message);return;}
+  cargarAdmin();
 }
 
 let temporadaEditando=null;
