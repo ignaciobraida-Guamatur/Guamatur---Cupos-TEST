@@ -309,6 +309,10 @@
         <label class="form-label">Vendedor</label>
         <select class="form-select" id="p-vendedor"><option value="">Seleccionar...</option></select>
       </div>
+      <div class="form-group" id="p-travel-partner-group" style="display:none">
+        <label class="form-label">Travel Partner <span style="color:var(--muted)">(opcional — para quién se abre)</span></label>
+        <select class="form-select" id="p-travel-partner"><option value="">— Ninguno (venta propia) —</option></select>
+      </div>
       <div class="form-group full" id="p-venta-hint" style="display:none;background:rgba(124,111,253,0.12);border:1px solid rgba(124,111,253,0.3);border-radius:8px;padding:8px 12px;font-size:12px;color:var(--accent2)">💡 Para <b>cerrar la venta</b>: cargá <b>Ficha</b> + <b>Factura</b> y la reserva pasa automáticamente a <b>VENDIDA (V)</b>.</div>
       <div class="form-group full" id="p-ficha-group">
         <label class="form-label">Ficha <span style="color:var(--muted)">(+ Factura → Vendido)</span></label>
@@ -697,7 +701,7 @@ const sb=supabase.createClient(CONFIG.SUPABASE_URL,CONFIG.SUPABASE_ANON_KEY,{
   }
 });
 
-const APP_VERSION='Fase 2 · 2026-07-17 (b69-TEST · Natal (NAT) agregada como destino de Brasil)';
+const APP_VERSION='Fase 2 · 2026-07-17 (b70-TEST · operador de Travel Partners — PROTOTIPO)';
 // Columnas de 'vuelos' legibles por cualquier usuario. EXCLUYE precio_neto: el admin lo lee por RPC admin_get_precio_neto (gateada por es_admin). No usar select('*') sobre vuelos: la columna precio_neto quedó revocada a authenticated.
 const VUELO_COLS='id,temporada_id,nombre,ciudad_codigo,ciudad_nombre,aerolinea,fecha,fecha_regreso,total_lugares,precio,condiciones_equipaje,creado_en,destino,itinerario,visible,itinerario_historial,cal_dias_pago_final,cal_dias_cancel_sin_gastos,cal_dias_cancel_con_gastos,cal_usuarios';
 // Calendarización: al crear un cupo, dispara (fire-and-forget) la creación de eventos en Google Calendar vía n8n.
@@ -880,6 +884,8 @@ async function iniciarSesion(session){
   currentRol=u.rol;
   // super_admin se comporta como admin en la UI (Ola 0: super admin = admin). El rol real queda en currentRol.
   rolEfectivo=(u.rol==='super_admin')?'admin':u.rol;
+  // Gestor de Travel Partners (p.ej. Victoria K): flag sobre su cuenta de vendedor (no es un rol nuevo).
+  esGestorTP=(u.gestiona_tp===true);
   // Cargar vendedores
   const {data:vends,error:ve}=await sb.from('usuarios').select('nombre,email,rol,activo').order('nombre');
   console.log('vendedores cargados:',vends?.length,ve);
@@ -900,8 +906,10 @@ async function iniciarSesion(session){
   document.getElementById('nav-links').style.display='flex';
   document.getElementById('hamburger').style.display='flex';
   document.getElementById('rol-badge').style.display='block';
-  // Selector "Ver como" solo para administradores reales (vista previa de rol)
+  // Selector "Ver como": el admin real ve todos los roles; el gestor de Travel Partners (p.ej. Victoria)
+  // ve solo {Vendedora, Travel Partner} para previsualizar lo que ven los TP.
   if(rolEfectivo==='admin'){const vc=document.getElementById('ver-como');if(vc){vc.style.display='inline-block';vc.value=rolEfectivo;}}
+  else if(esGestorTP){const vc=document.getElementById('ver-como');if(vc){vc.innerHTML='<option value="vendedor">👁 Vista: Vendedora</option><option value="travel_partner">👁 Vista: Travel Partner</option>';vc.style.display='inline-block';vc.value='vendedor';}}
   aplicarRolEfectivoUI();
   // El vencimiento de reservas corre server-side (función vencer_reservas() + pg_cron), no en el cliente.
   // El vendedor aterriza en Cupos (su pantalla operativa); el admin en el Dashboard de gestión.
@@ -922,11 +930,17 @@ function aplicarRolEfectivoUI(){
   ['nav-dashboard','nav-misreservas','mobile-dashboard','mobile-misreservas'].forEach(id=>{const e=document.getElementById(id);if(e)e.style.display=sinDashMis?'none':'';});
   const bp=document.getElementById('tp-buscar-pax'); if(bp) bp.style.display=tp?'none':'';
   const rb=document.getElementById('rol-badge'); if(rb) rb.textContent=rolLabel(rolEfectivo);
-  const vc=document.getElementById('ver-como'); if(vc&&(currentRol==='admin'||currentRol==='super_admin')){vc.style.display='inline-block';vc.value=rolEfectivo;}
+  const vc=document.getElementById('ver-como'); if(vc&&(currentRol==='admin'||currentRol==='super_admin'||esGestorTP)){vc.style.display='inline-block';vc.value=rolEfectivo;}
 }
 function cambiarVista(rol){
-  if(currentRol!=='admin'&&currentRol!=='super_admin') return; // solo admins reales pueden simular vista
-  rolEfectivo=['vendedor','operaciones','travel_partner'].includes(rol)?rol:'admin';
+  const esAdminReal=(currentRol==='admin'||currentRol==='super_admin');
+  if(!esAdminReal&&!esGestorTP) return; // solo admins reales o gestores de Travel Partners pueden simular vista
+  if(esAdminReal){
+    rolEfectivo=['vendedor','operaciones','travel_partner'].includes(rol)?rol:'admin';
+  } else {
+    // Gestor de TP (rol vendedor): solo alterna entre su vista de vendedora y la de travel partner.
+    rolEfectivo=(rol==='travel_partner')?'travel_partner':'vendedor';
+  }
   aplicarRolEfectivoUI();
   // Travel Partner solo ve Cupos: aterrizar siempre ahí (con su lista/detalle read-only).
   if(rolEfectivo==='travel_partner'){goTo('vuelos');return;}
@@ -1544,6 +1558,10 @@ async function cargarDetalle(vueloId){
   const vencCls=(st!=='R'||l.es_espera||vencMs===null)?'vencimiento-ok':((vencido||(vencMs-Date.now())<12*3600000)?'vencimiento-warn':((vencMs-Date.now())<24*3600000?'vencimiento-soon':'vencimiento-ok'));
     const pJson=esc(JSON.stringify(p||{}));
     const inf=p?.id?infantMap[p.id]:null;
+    // Etiqueta Travel Partner (para quién se abrió la ficha; la venta sigue siendo del vendedor)
+    const tpEmail=p?.travel_partner_email||'';
+    const tpNom=tpEmail?((vendedores.find(v=>String(v.email||'').toLowerCase()===tpEmail.toLowerCase())||{}).nombre||tpEmail):'';
+    const tpTag=tpNom?` <span class="badge" title="Ficha abierta para el Travel Partner: ${esc(tpNom)}" style="background:rgba(124,111,253,0.18);color:var(--accent2);border:1px solid rgba(124,111,253,0.35)">TP: ${esc(tpNom)}</span>`:'';
     let rowCls,statusCell;
     if(modo==='reducido'){rowCls='row-cancelado';statusCell='<span class="badge badge-l">REDUCIDO</span>';}
     else if(cancelado){rowCls='row-cancelado';statusCell='<span class="badge badge-yellow">CANCEL</span>';}
@@ -1569,7 +1587,7 @@ async function cargarDetalle(vueloId){
       <td>${esc(p?.primer_nombre)||'—'}</td>
       <td>${esc(p?.segundo_nombre)||'—'}</td>
       <td style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(p?.hotel)||'—'}</td>
-      <td>${esc(p?.vendedor)||'—'}</td>
+      <td>${esc(p?.vendedor)||'—'}${tpTag}</td>
       <td>${statusCell}</td>
       <td>${esc(p?.factura)||'—'}</td>
       <td>${libreSeat?'—':formatFechaHora(p?.fecha_reserva||p?.creado_en)}</td>
@@ -1677,6 +1695,15 @@ function abrirModalPasajero(lugarId,pasajero,vueloId,infant=null){
     vendedorEl.value=nombreVendedor;
     vendedorEl.disabled=true;
   }
+  // Etiqueta Travel Partner: solo para el gestor de TP (p.ej. Victoria). "Para qué TP se abre esta ficha".
+  const tpGroup=document.getElementById('p-travel-partner-group');
+  const tpSel=document.getElementById('p-travel-partner');
+  if(esGestorTP&&tpGroup&&tpSel){
+    const tps=(vendedores||[]).filter(v=>v.rol==='travel_partner'&&v.activo!==false).sort((a,b)=>(a.nombre||'').localeCompare(b.nombre||''));
+    tpSel.innerHTML='<option value="">— Ninguno (venta propia) —</option>'+tps.map(t=>`<option value="${esc(t.email)}">${esc(t.nombre)}</option>`).join('');
+    tpSel.value=esLibre?'':((pasajero&&pasajero.travel_partner_email)||'');
+    tpGroup.style.display='';
+  } else if(tpGroup){ tpGroup.style.display='none'; }
   const tieneInfant=infant!==null&&!esLibre;
   document.getElementById('p-tiene-infant').checked=tieneInfant;
   document.getElementById('pi-apellido1').value=infant?.primer_apellido||'';
@@ -2037,7 +2064,8 @@ async function guardarPasajero(){
       p_factura:factura||null,
       p_fecha_reserva:pFecha,
       p_tiene_infant:tieneInfant,
-      p_inf:infObj
+      p_inf:infObj,
+      p_travel_partner_email:(document.getElementById('p-travel-partner')?.value||null)
     });
     if(error){console.error('[Pasajero] Error guardar:',error);setBtnLoading('btn-guardar-pasajero',false,'Guardar');mostrarAlerta('modal-p-alert','Error al guardar pasajero: '+error.message,'error');return;}
     // Ola 2 #53: la RPC devuelve jsonb {id, descartados[], candado}.
@@ -2064,6 +2092,7 @@ let reservarModoEspera=false,reservarModoEsperaBulk=false,reservarBloqLibres=0,r
 // Rama A (Ola 2 #35/#36): la mesa de Operaciones carga reservas a nombre del vendedor real para no romper la atribución comercial.
 // Delegación ("asiste en ventas"): nombres de las titulares que este usuario asiste (puede operar sus fichas).
 let misAsistidas=[];
+let esGestorTP=false;  // gestor de Travel Partners (flag usuarios.gestiona_tp): habilita toggle de vista + etiqueta TP
 // Nombres que el usuario puede operar/atribuir: el propio + las titulares que asiste.
 function nombresQuePuedoOperar(){
   const propio=vendedores.find(v=>v.email===currentUser?.email)?.nombre||currentUser?.email||'';
