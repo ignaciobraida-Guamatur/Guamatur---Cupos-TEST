@@ -697,7 +697,7 @@ const sb=supabase.createClient(CONFIG.SUPABASE_URL,CONFIG.SUPABASE_ANON_KEY,{
   }
 });
 
-const APP_VERSION='Fase 2 · 2026-07-15 (b68-TEST · aviso itinerario prendido en prod)';
+const APP_VERSION='Fase 2 · 2026-07-17 (b69-TEST · Natal (NAT) agregada como destino de Brasil)';
 // Columnas de 'vuelos' legibles por cualquier usuario. EXCLUYE precio_neto: el admin lo lee por RPC admin_get_precio_neto (gateada por es_admin). No usar select('*') sobre vuelos: la columna precio_neto quedó revocada a authenticated.
 const VUELO_COLS='id,temporada_id,nombre,ciudad_codigo,ciudad_nombre,aerolinea,fecha,fecha_regreso,total_lugares,precio,condiciones_equipaje,creado_en,destino,itinerario,visible,itinerario_historial,cal_dias_pago_final,cal_dias_cancel_sin_gastos,cal_dias_cancel_con_gastos,cal_usuarios';
 // Calendarización: al crear un cupo, dispara (fire-and-forget) la creación de eventos en Google Calendar vía n8n.
@@ -770,14 +770,14 @@ const AEROLINEAS=Object.keys(AEROLINEA_COLOR);
 // Ciudades con su región (para filtrar el selector Ciudad al elegir Región)
 const CIUDADES=[
   {cod:'GRU',nom:'SÃO PAULO',reg:'Brasil'},{cod:'GIG',nom:'RÍO DE JANEIRO',reg:'Brasil'},
-  {cod:'REC',nom:'RECIFE',reg:'Brasil'},{cod:'SSA',nom:'SALVADOR',reg:'Brasil'},{cod:'FOR',nom:'FORTALEZA',reg:'Brasil'},{cod:'FLN',nom:'FLORIANÓPOLIS',reg:'Brasil'},{cod:'MCZ',nom:'MACEIÓ',reg:'Brasil'},{cod:'MCZREC',nom:'MACEIÓ Y RECIFE',reg:'Brasil'},
+  {cod:'REC',nom:'RECIFE',reg:'Brasil'},{cod:'SSA',nom:'SALVADOR',reg:'Brasil'},{cod:'FOR',nom:'FORTALEZA',reg:'Brasil'},{cod:'FLN',nom:'FLORIANÓPOLIS',reg:'Brasil'},{cod:'MCZ',nom:'MACEIÓ',reg:'Brasil'},{cod:'NAT',nom:'NATAL',reg:'Brasil'},{cod:'MCZREC',nom:'MACEIÓ Y RECIFE',reg:'Brasil'},
   {cod:'PUJ',nom:'PUNTA CANA',reg:'Caribe'},{cod:'AUA',nom:'ARUBA',reg:'Caribe'},{cod:'CUN',nom:'CANCÚN',reg:'Caribe'},{cod:'CTG',nom:'CARTAGENA Y SAN ANDRÉS',reg:'Caribe'},{cod:'ADZ',nom:'SAN ANDRÉS',reg:'Caribe'},
   {cod:'SCL',nom:'SANTIAGO DE CHILE',reg:'Chile'},{cod:'PMC',nom:'PUERTO MONTT',reg:'Chile'},
   {cod:'BRC',nom:'BARILOCHE',reg:'Argentina'},{cod:'USHFTE',nom:'USHUAIA Y EL CALAFATE',reg:'Argentina'},{cod:'SLA',nom:'SALTA',reg:'Argentina'},
   {cod:'LIM',nom:'LIMA',reg:'Otros'},{cod:'LIMCUZ',nom:'LIMA Y CUSCO',reg:'Otros'},{cod:'BOG',nom:'BOGOTÁ',reg:'Otros'},{cod:'MCO',nom:'ORLANDO',reg:'Otros'},{cod:'MIA',nom:'MIAMI',reg:'Otros'}
 ];
 // Nombre de ciudad por código de aeropuerto — para el PDF del pasajero (muchas veces no conoce el código IATA).
-const AEROPUERTOS={MVD:'Montevideo',PDP:'Punta del Este',GRU:'São Paulo',CGH:'São Paulo',VCP:'São Paulo',GIG:'Río de Janeiro',SDU:'Río de Janeiro',REC:'Recife',SSA:'Salvador de Bahía',FOR:'Fortaleza',FLN:'Florianópolis',MCZ:'Maceió',POA:'Porto Alegre',BSB:'Brasilia',IGU:'Foz de Iguazú',PUJ:'Punta Cana',AUA:'Aruba',CUN:'Cancún',CTG:'Cartagena',ADZ:'San Andrés',SCL:'Santiago de Chile',PMC:'Puerto Montt',LIM:'Lima',CUZ:'Cusco',CUS:'Cusco',BOG:'Bogotá',MIA:'Miami',MCO:'Orlando',EZE:'Buenos Aires',AEP:'Buenos Aires',COR:'Córdoba',MDZ:'Mendoza',BRC:'Bariloche',USH:'Ushuaia',FTE:'El Calafate',SLA:'Salta',ASU:'Asunción',MAD:'Madrid',BCN:'Barcelona'};
+const AEROPUERTOS={MVD:'Montevideo',PDP:'Punta del Este',GRU:'São Paulo',CGH:'São Paulo',VCP:'São Paulo',GIG:'Río de Janeiro',SDU:'Río de Janeiro',REC:'Recife',SSA:'Salvador de Bahía',FOR:'Fortaleza',FLN:'Florianópolis',MCZ:'Maceió',NAT:'Natal',POA:'Porto Alegre',BSB:'Brasilia',IGU:'Foz de Iguazú',PUJ:'Punta Cana',AUA:'Aruba',CUN:'Cancún',CTG:'Cartagena',ADZ:'San Andrés',SCL:'Santiago de Chile',PMC:'Puerto Montt',LIM:'Lima',CUZ:'Cusco',CUS:'Cusco',BOG:'Bogotá',MIA:'Miami',MCO:'Orlando',EZE:'Buenos Aires',AEP:'Buenos Aires',COR:'Córdoba',MDZ:'Mendoza',BRC:'Bariloche',USH:'Ushuaia',FTE:'El Calafate',SLA:'Salta',ASU:'Asunción',MAD:'Madrid',BCN:'Barcelona'};
 function nombreAeropuerto(cod){if(!cod)return '';return AEROPUERTOS[String(cod).trim().toUpperCase()]||'';}
 // Condiciones generales del PDF del itinerario (valores en CONFIG; texto definido con Operaciones)
 const CONDICIONES_ITINERARIO=CONFIG.CONDICIONES_ITINERARIO;
