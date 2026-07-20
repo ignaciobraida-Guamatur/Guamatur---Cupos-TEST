@@ -724,7 +724,7 @@ const sb=supabase.createClient(CONFIG.SUPABASE_URL,CONFIG.SUPABASE_ANON_KEY,{
   }
 });
 
-const APP_VERSION='Fase 2 · 2026-07-20 (b71-TEST · dashboard + cancelaciones/reducciones diferenciadas por tipo)';
+const APP_VERSION='Fase 2 · 2026-07-20 (b72-TEST · dashboard: solo cupo/reducción en el cuadro de cancelaciones)';
 // Columnas de 'vuelos' legibles por cualquier usuario. EXCLUYE precio_neto: el admin lo lee por RPC admin_get_precio_neto (gateada por es_admin). No usar select('*') sobre vuelos: la columna precio_neto quedó revocada a authenticated.
 const VUELO_COLS='id,temporada_id,nombre,ciudad_codigo,ciudad_nombre,aerolinea,fecha,fecha_regreso,total_lugares,precio,condiciones_equipaje,creado_en,destino,itinerario,visible,itinerario_historial,cal_dias_pago_final,cal_dias_cancel_sin_gastos,cal_dias_cancel_con_gastos,cal_usuarios';
 // Calendarización: al crear un cupo, dispara (fire-and-forget) la creación de eventos en Google Calendar vía n8n.
@@ -1132,8 +1132,6 @@ async function cargarDashboard(){
   // Cancelaciones y reducciones (acciones del admin contra la aerolínea; se diferencian por tipo — #7).
   // Las liberaciones de reservas de un vendedor no tienen penalidad y no escriben en cancelaciones.
   const cancelsFiltradas=(cancelsDash||[]).filter(c=>vueloIds.has(c.vuelo_id));
-  const totalPenalidad=cancelsFiltradas.reduce((s,c)=>s+(Number(c.penalidad_usd)||0),0);
-  const totalRecupero=cancelsFiltradas.reduce((s,c)=>s+(Number(c.recupero_usd)||0),0);
   const canxTipo={cupo:{n:0,pen:0,rec:0},reduccion:{n:0,pen:0,rec:0},reserva:{n:0,pen:0,rec:0}};
   cancelsFiltradas.forEach(c=>{const t=canxTipo[c.tipo]||canxTipo.reserva;t.n+=(c.tipo==='reduccion'?(Number(c.cantidad)||0):1);t.pen+=Number(c.penalidad_usd)||0;t.rec+=Number(c.recupero_usd)||0;});
 
@@ -1182,21 +1180,23 @@ async function cargarDashboard(){
   });
   html+='</tbody></table></div>';
 
-  // Cancelaciones y reducciones (solo admin): diferenciadas por tipo (#7)
+  // Cancelaciones y reducciones (solo admin): acciones del admin contra la aerolínea (cupo/reducción).
+  // Las cancelaciones de RESERVA (del vendedor) van por otro canal y NO se muestran acá (b72).
   if(esAdminDash){
     const nombreCupo={};filtrados.forEach(v=>{nombreCupo[v.id]=v.nombre;});
-    const cancelsOrden=[...cancelsFiltradas].sort((a,b)=>String(b.fecha||'').localeCompare(String(a.fecha||'')));
-    const tipoLabel={cupo:'Cancelaciones de cupo',reduccion:'Reducciones de plazas',reserva:'Cancelaciones de reserva'};
-    const tipoUnidad={cupo:'cupos',reduccion:'plazas',reserva:'reservas'};
+    const tipoLabel={cupo:'Cancelaciones de cupo',reduccion:'Reducciones de plazas'};
+    const tipoUnidad={cupo:'cupos',reduccion:'plazas'};
     const fUsd=n=>'$'+Number(n||0).toLocaleString('es-UY',{minimumFractionDigits:0});
+    const penTot=canxTipo.cupo.pen+canxTipo.reduccion.pen, recTot=canxTipo.cupo.rec+canxTipo.reduccion.rec;
     html+=`<div class="section-title" style="margin-bottom:12px">Cancelaciones y reducciones</div>
     <div class="table-wrap" style="margin-bottom:12px"><table><thead><tr><th>Tipo</th><th>Cantidad</th><th>Penalidad (USD)</th><th>Recupero (USD)</th></tr></thead><tbody>`;
-    ['cupo','reduccion','reserva'].forEach(t=>{const d=canxTipo[t];html+=`<tr><td style="font-weight:500">${tipoLabel[t]}</td><td>${d.n} ${tipoUnidad[t]}</td><td class="${d.pen>0?'c-red':''}">${fUsd(d.pen)}</td><td class="c-green">${fUsd(d.rec)}</td></tr>`;});
-    html+=`<tr style="border-top:2px solid var(--border)"><td style="font-weight:700">Total</td><td></td><td class="${totalPenalidad>0?'c-red':''}" style="font-weight:700">${fUsd(totalPenalidad)}</td><td class="c-green" style="font-weight:700">${fUsd(totalRecupero)}</td></tr>`;
+    ['cupo','reduccion'].forEach(t=>{const d=canxTipo[t];html+=`<tr><td style="font-weight:500">${tipoLabel[t]}</td><td>${d.n} ${tipoUnidad[t]}</td><td class="${d.pen>0?'c-red':''}">${fUsd(d.pen)}</td><td class="c-green">${fUsd(d.rec)}</td></tr>`;});
+    html+=`<tr style="border-top:2px solid var(--border)"><td style="font-weight:700">Total</td><td></td><td class="${penTot>0?'c-red':''}" style="font-weight:700">${fUsd(penTot)}</td><td class="c-green" style="font-weight:700">${fUsd(recTot)}</td></tr>`;
     html+='</tbody></table></div>';
-    if(cancelsOrden.length){
+    const cancelsCupoRed=[...cancelsFiltradas].filter(c=>c.tipo==='cupo'||c.tipo==='reduccion').sort((a,b)=>String(b.fecha||'').localeCompare(String(a.fecha||'')));
+    if(cancelsCupoRed.length){
       html+=`<div class="table-wrap" style="margin-top:8px"><table><thead><tr><th>Tipo</th><th>Cupo</th><th>Cantidad</th><th>Usuario</th><th>Fecha</th><th>Penalidad</th><th>Recupero</th></tr></thead><tbody>`;
-      cancelsOrden.forEach(c=>{html+=`<tr><td>${esc(tipoLabel[c.tipo]||tipoLabel.reserva)}</td><td style="color:var(--accent2)">${esc(nombreCupo[c.vuelo_id])||'—'}</td><td>${c.cantidad!=null?c.cantidad:1}</td><td>${esc(c.usuario)||'—'}</td><td style="font-family:'DM Mono',monospace;font-size:12px">${formatFechaHora(c.fecha)}</td><td class="${Number(c.penalidad_usd)>0?'c-red':''}">$${Number(c.penalidad_usd||0).toLocaleString('es-UY')}</td><td class="c-green">$${Number(c.recupero_usd||0).toLocaleString('es-UY')}</td></tr>`;});
+      cancelsCupoRed.forEach(c=>{html+=`<tr><td>${esc(tipoLabel[c.tipo])}</td><td style="color:var(--accent2)">${esc(nombreCupo[c.vuelo_id])||'—'}</td><td>${c.cantidad!=null?c.cantidad:1}</td><td>${esc(c.usuario)||'—'}</td><td style="font-family:'DM Mono',monospace;font-size:12px">${formatFechaHora(c.fecha)}</td><td class="${Number(c.penalidad_usd)>0?'c-red':''}">$${Number(c.penalidad_usd||0).toLocaleString('es-UY')}</td><td class="c-green">$${Number(c.recupero_usd||0).toLocaleString('es-UY')}</td></tr>`;});
       html+='</tbody></table></div>';
     }
   }
