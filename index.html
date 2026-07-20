@@ -445,17 +445,40 @@
   </div>
 </div>
 
+<!-- MODAL CANCELAR CUPO -->
+<div id="modal-cancelar-cupo" class="modal-overlay" style="display:none">
+  <div class="modal">
+    <div class="modal-title">Cancelar cupo</div>
+    <div id="modal-cc-alert"></div>
+    <div style="background:rgba(255,59,59,0.08);border:1px solid rgba(255,59,59,0.2);border-radius:8px;padding:10px;font-size:13px;color:var(--red);margin-bottom:16px">
+      Se da de baja el <b>CUPO COMPLETO</b> (cancelación a la aerolínea): todos los lugares quedan <b>REDUCIDOS</b> — los pasajeros cargados se conservan en la sección de reducidos. Queda registrada en el dashboard de dirección. No se puede deshacer.
+    </div>
+    <div class="form-grid">
+      <div class="form-group"><label class="form-label">Penalidad (USD) <span style="color:var(--muted)">(opcional)</span></label><input class="form-input" id="cc-penalidad" type="number" min="0" step="0.01" placeholder="0"/></div>
+      <div class="form-group"><label class="form-label">Recupero (USD) <span style="color:var(--muted)">(opcional)</span></label><input class="form-input" id="cc-recupero" type="number" min="0" step="0.01" placeholder="0"/></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" onclick="cerrarModal('modal-cancelar-cupo')">Cerrar</button>
+      <button class="btn btn-danger" id="btn-confirmar-cancelar-cupo" onclick="confirmarCancelarCupo()">Cancelar cupo</button>
+    </div>
+  </div>
+</div>
+
 <!-- MODAL REDUCIR LUGARES -->
 <div id="modal-reducir" class="modal-overlay" style="display:none">
   <div class="modal">
-    <div class="modal-title">Reducción de lugares</div>
+    <div class="modal-title">Reducir plazas</div>
     <div id="modal-red-alert"></div>
     <div style="background:rgba(255,128,0,0.08);border:1px solid rgba(255,128,0,0.2);border-radius:8px;padding:10px;font-size:13px;color:#ff9933;margin-bottom:16px">
-      Los lugares reducidos no se borran: quedan al final de la planilla como <b>REDUCIDO</b> y no cuentan como libres. Solo se pueden reducir lugares <b>libres</b>.
+      Reducción de plazas de un cupo activo (la aerolínea baja lugares). Los reducidos no se borran: quedan al final de la planilla como <b>REDUCIDO</b> y no cuentan como libres. Solo se pueden reducir lugares <b>libres</b>.
     </div>
     <div class="form-group">
-      <label class="form-label">Cantidad a reducir <span id="red-libres-label" style="color:var(--muted)"></span></label>
+      <label class="form-label">Cantidad de plazas a reducir <span id="red-libres-label" style="color:var(--muted)"></span></label>
       <input class="form-input" id="red-cantidad" type="number" min="1" placeholder="Ej: 6"/>
+    </div>
+    <div class="form-grid">
+      <div class="form-group"><label class="form-label">Penalidad (USD) <span style="color:var(--muted)">(opcional)</span></label><input class="form-input" id="red-penalidad" type="number" min="0" step="0.01" placeholder="0"/></div>
+      <div class="form-group"><label class="form-label">Recupero (USD) <span style="color:var(--muted)">(opcional)</span></label><input class="form-input" id="red-recupero" type="number" min="0" step="0.01" placeholder="0"/></div>
     </div>
     <div class="modal-actions">
       <button class="btn btn-outline" onclick="cerrarModal('modal-reducir')">Cerrar</button>
@@ -701,7 +724,7 @@ const sb=supabase.createClient(CONFIG.SUPABASE_URL,CONFIG.SUPABASE_ANON_KEY,{
   }
 });
 
-const APP_VERSION='Fase 2 · 2026-07-20 (b71-TEST · dashboard: Total Plazas + orden por fecha; sin Margen/Plata en riesgo; versión detallada solo jefe de ventas)';
+const APP_VERSION='Fase 2 · 2026-07-20 (b71-TEST · dashboard + cancelaciones/reducciones diferenciadas por tipo)';
 // Columnas de 'vuelos' legibles por cualquier usuario. EXCLUYE precio_neto: el admin lo lee por RPC admin_get_precio_neto (gateada por es_admin). No usar select('*') sobre vuelos: la columna precio_neto quedó revocada a authenticated.
 const VUELO_COLS='id,temporada_id,nombre,ciudad_codigo,ciudad_nombre,aerolinea,fecha,fecha_regreso,total_lugares,precio,condiciones_equipaje,creado_en,destino,itinerario,visible,itinerario_historial,cal_dias_pago_final,cal_dias_cancel_sin_gastos,cal_dias_cancel_con_gastos,cal_usuarios';
 // Calendarización: al crear un cupo, dispara (fire-and-forget) la creación de eventos en Google Calendar vía n8n.
@@ -1067,7 +1090,7 @@ async function cargarDashboard(){
     sb.from('temporadas').select('*').order('creado_en',{ascending:false}),
     sb.from('vista_vuelos').select('*'),
     sb.from('pasajeros').select('status,vendedor,vuelo_id,fecha_reserva,cancelado,lugares(reducido,es_espera)'),
-    sb.from('cancelaciones').select('penalidad_usd,recupero_usd,vuelo_id,usuario,fecha')
+    sb.from('cancelaciones').select('penalidad_usd,recupero_usd,vuelo_id,usuario,fecha,tipo,cantidad')
   ]);
   if(!vuelos){cont.innerHTML='<div class="loading" style="color:var(--red)">Error</div>';return;}
 
@@ -1106,11 +1129,13 @@ async function cargarDashboard(){
   // Agregar vendedores ACTIVOS con 0 ventas (no admin/operaciones/inactivos)
   vendedores.forEach(v=>{if(v.rol==='vendedor'&&v.activo!==false&&!rankMap[v.nombre]) ranking.push([v.nombre,0]);});
 
-  // Cancelaciones
+  // Cancelaciones y reducciones (acciones del admin contra la aerolínea; se diferencian por tipo — #7).
+  // Las liberaciones de reservas de un vendedor no tienen penalidad y no escriben en cancelaciones.
   const cancelsFiltradas=(cancelsDash||[]).filter(c=>vueloIds.has(c.vuelo_id));
-  const totalCancels=cancelsFiltradas.length;
-  const totalPenalidad=cancelsFiltradas.reduce((s,c)=>s+(c.penalidad_usd||0),0);
-  const totalRecupero=cancelsFiltradas.reduce((s,c)=>s+(c.recupero_usd||0),0);
+  const totalPenalidad=cancelsFiltradas.reduce((s,c)=>s+(Number(c.penalidad_usd)||0),0);
+  const totalRecupero=cancelsFiltradas.reduce((s,c)=>s+(Number(c.recupero_usd)||0),0);
+  const canxTipo={cupo:{n:0,pen:0,rec:0},reduccion:{n:0,pen:0,rec:0},reserva:{n:0,pen:0,rec:0}};
+  cancelsFiltradas.forEach(c=>{const t=canxTipo[c.tipo]||canxTipo.reserva;t.n+=(c.tipo==='reduccion'?(Number(c.cantidad)||0):1);t.pen+=Number(c.penalidad_usd)||0;t.rec+=Number(c.recupero_usd)||0;});
 
   // Ola 5 #104: ocupación por temporada (sobre TODOS los cupos visibles, sin el filtro de arriba)
   const tempNombre={};(temps||[]).forEach(t=>{tempNombre[t.id]=t.nombre;});
@@ -1157,19 +1182,21 @@ async function cargarDashboard(){
   });
   html+='</tbody></table></div>';
 
-  // Cancelaciones: solo admin
+  // Cancelaciones y reducciones (solo admin): diferenciadas por tipo (#7)
   if(esAdminDash){
     const nombreCupo={};filtrados.forEach(v=>{nombreCupo[v.id]=v.nombre;});
     const cancelsOrden=[...cancelsFiltradas].sort((a,b)=>String(b.fecha||'').localeCompare(String(a.fecha||'')));
-    html+=`<div class="section-title" style="margin-bottom:12px">Cancelaciones</div>
-    <div class="op-grid" style="grid-template-columns:repeat(3,1fr)">
-      <div class="op-card"><div class="op-label">Cancelaciones</div><div class="op-value">${totalCancels}</div></div>
-      <div class="op-card ${totalPenalidad>0?'danger':''}"><div class="op-label">Penalidad total (USD)</div><div class="op-value ${totalPenalidad>0?'danger':''}">$${totalPenalidad.toLocaleString('es-UY',{minimumFractionDigits:0})}</div></div>
-      <div class="op-card"><div class="op-label">Recupero total (USD)</div><div class="op-value c-green">$${totalRecupero.toLocaleString('es-UY',{minimumFractionDigits:0})}</div></div>
-    </div>`;
+    const tipoLabel={cupo:'Cancelaciones de cupo',reduccion:'Reducciones de plazas',reserva:'Cancelaciones de reserva'};
+    const tipoUnidad={cupo:'cupos',reduccion:'plazas',reserva:'reservas'};
+    const fUsd=n=>'$'+Number(n||0).toLocaleString('es-UY',{minimumFractionDigits:0});
+    html+=`<div class="section-title" style="margin-bottom:12px">Cancelaciones y reducciones</div>
+    <div class="table-wrap" style="margin-bottom:12px"><table><thead><tr><th>Tipo</th><th>Cantidad</th><th>Penalidad (USD)</th><th>Recupero (USD)</th></tr></thead><tbody>`;
+    ['cupo','reduccion','reserva'].forEach(t=>{const d=canxTipo[t];html+=`<tr><td style="font-weight:500">${tipoLabel[t]}</td><td>${d.n} ${tipoUnidad[t]}</td><td class="${d.pen>0?'c-red':''}">${fUsd(d.pen)}</td><td class="c-green">${fUsd(d.rec)}</td></tr>`;});
+    html+=`<tr style="border-top:2px solid var(--border)"><td style="font-weight:700">Total</td><td></td><td class="${totalPenalidad>0?'c-red':''}" style="font-weight:700">${fUsd(totalPenalidad)}</td><td class="c-green" style="font-weight:700">${fUsd(totalRecupero)}</td></tr>`;
+    html+='</tbody></table></div>';
     if(cancelsOrden.length){
-      html+=`<div class="table-wrap" style="margin-top:12px"><table><thead><tr><th>Cupo</th><th>Usuario</th><th>Fecha y hora</th><th>Penalidad</th><th>Recupero</th></tr></thead><tbody>`;
-      cancelsOrden.forEach(c=>{html+=`<tr><td style="color:var(--accent2)">${esc(nombreCupo[c.vuelo_id])||'—'}</td><td>${esc(c.usuario)||'—'}</td><td style="font-family:'DM Mono',monospace;font-size:12px">${formatFechaHora(c.fecha)}</td><td class="${Number(c.penalidad_usd)>0?'c-red':''}">$${Number(c.penalidad_usd||0).toLocaleString('es-UY')}</td><td class="c-green">$${Number(c.recupero_usd||0).toLocaleString('es-UY')}</td></tr>`;});
+      html+=`<div class="table-wrap" style="margin-top:8px"><table><thead><tr><th>Tipo</th><th>Cupo</th><th>Cantidad</th><th>Usuario</th><th>Fecha</th><th>Penalidad</th><th>Recupero</th></tr></thead><tbody>`;
+      cancelsOrden.forEach(c=>{html+=`<tr><td>${esc(tipoLabel[c.tipo]||tipoLabel.reserva)}</td><td style="color:var(--accent2)">${esc(nombreCupo[c.vuelo_id])||'—'}</td><td>${c.cantidad!=null?c.cantidad:1}</td><td>${esc(c.usuario)||'—'}</td><td style="font-family:'DM Mono',monospace;font-size:12px">${formatFechaHora(c.fecha)}</td><td class="${Number(c.penalidad_usd)>0?'c-red':''}">$${Number(c.penalidad_usd||0).toLocaleString('es-UY')}</td><td class="c-green">$${Number(c.recupero_usd||0).toLocaleString('es-UY')}</td></tr>`;});
       html+='</tbody></table></div>';
     }
   }
@@ -1447,12 +1474,12 @@ async function cargarDetalle(vueloId){
         <div class="menu-label">Gestión</div>
         <button class="menu-item" onclick="this.closest('details').removeAttribute('open');abrirEditarVuelo('${vueloId}')">✏ Editar cupo</button>
         <button class="menu-item" onclick="this.closest('details').removeAttribute('open');imprimirItinerario('${vueloId}')">🖨 Imprimir / PDF</button>
-        <button class="menu-item" onclick="this.closest('details').removeAttribute('open');abrirModalReducir('${vueloId}')">▾ Reducir lugares</button>
+        <button class="menu-item" onclick="this.closest('details').removeAttribute('open');abrirModalReducir('${vueloId}')">▾ Reducir plazas</button>
         <div class="menu-divider"></div>
         <div class="menu-label">Peligro</div>
-        <button class="menu-item danger" onclick="this.closest('details').removeAttribute('open');abrirModalCancelar('${vueloId}')">⚠ Cancelar con penalidad…</button>
+        <button class="menu-item danger" onclick="this.closest('details').removeAttribute('open');abrirModalCancelar('${vueloId}')">⚠ Cancelar reserva (con penalidad)…</button>
         <button class="menu-item danger" onclick="this.closest('details').removeAttribute('open');abrirModalEliminar('${vueloId}')">🗑 Liberar lugares (borrar)</button>
-        <button class="menu-item danger" onclick="this.closest('details').removeAttribute('open');cancelarCupo('${vueloId}')">✖ Dar de baja cupo (reducir todo)</button>
+        <button class="menu-item danger" onclick="this.closest('details').removeAttribute('open');cancelarCupo('${vueloId}')">✖ Cancelar cupo</button>
       </div></details>`:''}
     </div>
   </div>`;
@@ -2221,31 +2248,42 @@ async function confirmarReduccion(){
   const n=parseInt(document.getElementById('red-cantidad').value);
   if(!n||n<1){mostrarAlerta('modal-red-alert','Ingresá una cantidad válida','error');return;}
   if(n>reducirMaxLibres){mostrarAlerta('modal-red-alert',`Solo hay ${reducirMaxLibres} lugares libres para reducir`,'error');return;}
-  if(!confirm(`¿Reducir ${n} lugar(es)? Quedan marcados como REDUCIDO al final de la planilla (solo afecta lugares libres; se pueden restaurar).`)) return;
+  const penR=parseFloat(document.getElementById('red-penalidad').value)||0;
+  const recR=parseFloat(document.getElementById('red-recupero').value)||0;
+  if(!confirm(`¿Reducir ${n} plaza(s)? Quedan marcadas como REDUCIDO al final de la planilla (solo afecta lugares libres; se pueden restaurar).${(penR||recR)?` Penalidad USD ${penR} / recupero USD ${recR}.`:''}`)) return;
   setBtnLoading('btn-confirmar-reducir',true,'Confirmar reducción');
   await asegurarTokenFresco();
-  // Reducción ATÓMICA en la base (FOR UPDATE SKIP LOCKED): evita marcar como reducido un lugar que un vendedor reservó en el ínterin (el SELECT→UPDATE client-side reintroducía el race que CLAUDE.md prohíbe)
-  const res=await conReintentoAuth(()=>sb.rpc('reducir_lugares',{p_vuelo_id:reducirVueloId,p_cantidad:n}),'RPC reducir_lugares');
+  // Reducción ATÓMICA en la base (FOR UPDATE SKIP LOCKED); la RPC registra la reducción (tipo='reduccion') con su penalidad y sella el log.
+  const res=await conReintentoAuth(()=>sb.rpc('reducir_lugares',{p_vuelo_id:reducirVueloId,p_cantidad:n,p_penalidad:penR,p_recupero:recR}),'RPC reducir_lugares');
   setBtnLoading('btn-confirmar-reducir',false,'Confirmar reducción');
   if(res?.error){mostrarAlerta('modal-red-alert','Error al reducir: '+res.error.message,'error');return;}
   const hechos=res?.data||0;
   if(hechos===0){mostrarAlerta('modal-red-alert','No se pudo reducir: esos lugares ya no estaban libres. Refrescá y reintentá.','error');setTimeout(()=>{cerrarModal('modal-reducir');cargarDetalle(reducirVueloId)},1500);return;}
-  await registrarLog('reduccion_lugares','vuelo',reducirVueloId,{cantidad:hechos});
-  mostrarAlerta('modal-red-alert',`${hechos} lugar${hechos>1?'es':''} reducido${hechos>1?'s':''}`+(hechos<n?` (de ${n} pedidos; el resto ya no estaba libre)`:''),'success');
+  mostrarAlerta('modal-red-alert',`${hechos} plaza${hechos>1?'s':''} reducida${hechos>1?'s':''}`+(hechos<n?` (de ${n} pedidas; el resto ya no estaba libre)`:''),'success');
   setTimeout(()=>{cerrarModal('modal-reducir');cargarDetalle(reducirVueloId)},1000);
 }
-async function cancelarCupo(vueloId){
-  if(!confirm('¿Dar de baja el CUPO COMPLETO (reducir todos los lugares)? Todos quedarán como REDUCIDOS (los pasajeros cargados se conservan en la sección de reducidos). No registra cancelación contable.'))return;
+let cancelarCupoVueloId=null;
+function cancelarCupo(vueloId){
+  cancelarCupoVueloId=vueloId;
+  document.getElementById('cc-penalidad').value='';
+  document.getElementById('cc-recupero').value='';
+  document.getElementById('modal-cc-alert').innerHTML='';
+  document.getElementById('btn-confirmar-cancelar-cupo').disabled=false;
+  document.getElementById('btn-confirmar-cancelar-cupo').textContent='Cancelar cupo';
+  document.getElementById('modal-cancelar-cupo').style.display='flex';
+}
+async function confirmarCancelarCupo(){
+  const pen=parseFloat(document.getElementById('cc-penalidad').value)||0;
+  const rec=parseFloat(document.getElementById('cc-recupero').value)||0;
+  if(!confirm(`¿Cancelar el CUPO COMPLETO? Todos los lugares quedan REDUCIDOS.${(pen||rec)?` Penalidad USD ${pen} / recupero USD ${rec}.`:''} No se puede deshacer.`))return;
+  setBtnLoading('btn-confirmar-cancelar-cupo',true,'Cancelar cupo');
   await asegurarTokenFresco();
-  // Ola 2 #60 (parcial): capturar el desglose ANTES de reducir para que el log no quede vacío ({}).
-  // El sellado server-side (RPC borrar_cupo) quedó diferido con #19.
-  const {data:lugsPre}=await sb.from('lugares').select('reducido,pasajeros(status)').eq('vuelo_id',vueloId).eq('es_espera',false).eq('es_infant',false);
-  const activosPre=(lugsPre||[]).filter(l=>!l.reducido);
-  const st=s=>activosPre.filter(l=>{const p=l.pasajeros?.[0];return s==='L'?(!p||p.status==='L'):(p&&p.status===s);}).length;
-  const {error}=await sb.from('lugares').update({reducido:true,bloqueado_operaciones:false}).eq('vuelo_id',vueloId).eq('es_espera',false);
-  if(error){alert('Error al dar de baja el cupo: '+error.message);return;}
-  await registrarLog('cancelacion_cupo','vuelo',vueloId,{vuelo_id:vueloId,cantidad:activosPre.length,vendidos:st('V'),reservados:st('R'),libres:st('L')});
-  cargarDetalle(vueloId);
+  // La RPC marca todos los lugares reducido (preserva pasajeros) + registra la cancelación (tipo='cupo') + sella el log.
+  const res=await conReintentoAuth(()=>sb.rpc('cancelar_cupo',{p_vuelo_id:cancelarCupoVueloId,p_penalidad:pen,p_recupero:rec}),'RPC cancelar_cupo');
+  setBtnLoading('btn-confirmar-cancelar-cupo',false,'Cancelar cupo');
+  if(res?.error){mostrarAlerta('modal-cc-alert','Error al cancelar el cupo: '+res.error.message,'error');return;}
+  mostrarAlerta('modal-cc-alert',`Cupo cancelado (${res?.data||0} lugares reducidos).`,'success');
+  setTimeout(()=>{cerrarModal('modal-cancelar-cupo');cargarDetalle(cancelarCupoVueloId)},1000);
 }
 
 // ── LOG DE ACTIVIDAD ─────────────────────────────
