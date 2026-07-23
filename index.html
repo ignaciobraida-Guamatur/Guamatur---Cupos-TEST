@@ -267,6 +267,7 @@
     <div class="admin-card">
       <div class="admin-card-title">Cupos</div>
       <button class="btn btn-primary" style="width:100%" onclick="abrirModalVuelo()">+ Nuevo cupo</button>
+      <button class="btn btn-outline" style="width:100%;margin-top:8px" onclick="abrirSelectorDuplicar()">⧉ Duplicar cupo existente</button>
       <button class="btn btn-outline" style="width:100%;margin-top:8px" onclick="abrirModalMasivo()">⚡ Crear masivos (pegar PNRs)</button>
       <div id="admin-vuelos" style="margin-top:12px"></div>
     </div>
@@ -641,6 +642,19 @@
   </div>
 </div>
 
+<!-- MODAL DUPLICAR CUPO (elegir el cupo modelo) -->
+<div id="modal-duplicar" class="modal-overlay" style="display:none">
+  <div class="modal" style="max-width:520px">
+    <div class="modal-title">Duplicar cupo</div>
+    <div style="font-size:13px;color:var(--muted);margin-bottom:14px">Elegí el cupo a copiar. Se duplican itinerario, aerolínea, ciudad, precios, equipaje, cantidad de lugares y agenda; vos completás las <b>fechas nuevas</b> y el <b>PNR</b>. No se copian pasajeros ni la agenda de Calendar del original.</div>
+    <div class="form-group full"><label class="form-label">Cupo a duplicar</label><select class="form-select" id="dup-vuelo"></select></div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" onclick="cerrarModal('modal-duplicar')">Cerrar</button>
+      <button class="btn btn-primary" id="btn-dup-confirmar" onclick="confirmarDuplicar()">Duplicar →</button>
+    </div>
+  </div>
+</div>
+
 <!-- MODAL CREAR MASIVO (pegar PNRs) -->
 <div id="modal-masivo" class="modal-overlay" style="display:none">
   <div class="modal" style="max-width:1000px">
@@ -724,7 +738,7 @@ const sb=supabase.createClient(CONFIG.SUPABASE_URL,CONFIG.SUPABASE_ANON_KEY,{
   }
 });
 
-const APP_VERSION='Fase 2 · 2026-07-22 (b74 · Duplicar cupo + validaciones de carga) · TEST';
+const APP_VERSION='Fase 2 · 2026-07-23 (b74 · Duplicar cupo existente en Administración + validaciones) · TEST';
 // Columnas de 'vuelos' legibles por cualquier usuario. EXCLUYE precio_neto: el admin lo lee por RPC admin_get_precio_neto (gateada por es_admin). No usar select('*') sobre vuelos: la columna precio_neto quedó revocada a authenticated.
 const VUELO_COLS='id,temporada_id,nombre,ciudad_codigo,ciudad_nombre,aerolinea,fecha,fecha_regreso,total_lugares,precio,condiciones_equipaje,creado_en,destino,itinerario,visible,itinerario_historial,cal_dias_pago_final,cal_dias_cancel_sin_gastos,cal_dias_cancel_con_gastos,cal_usuarios';
 // Calendarización: al crear un cupo, dispara (fire-and-forget) la creación de eventos en Google Calendar vía n8n.
@@ -1473,7 +1487,6 @@ async function cargarDetalle(vueloId){
       ${esAdmin?`<details class="menu-gestionar"><summary>⚙ Gestionar cupo ▾</summary><div class="menu-panel">
         <div class="menu-label">Gestión</div>
         <button class="menu-item" onclick="this.closest('details').removeAttribute('open');abrirEditarVuelo('${vueloId}')">✏ Editar cupo</button>
-        <button class="menu-item" onclick="this.closest('details').removeAttribute('open');abrirDuplicarVuelo('${vueloId}')">⧉ Duplicar cupo</button>
         <button class="menu-item" onclick="this.closest('details').removeAttribute('open');imprimirItinerario('${vueloId}')">🖨 Imprimir / PDF</button>
         <button class="menu-item" onclick="this.closest('details').removeAttribute('open');abrirModalReducir('${vueloId}')">▾ Reducir plazas</button>
         <div class="menu-divider"></div>
@@ -2879,6 +2892,33 @@ async function abrirEditarVuelo(vueloId,opts){
   const pegEl=document.getElementById('v-itinerario-pegar');if(pegEl)pegEl.value='';
   const pegMsg=document.getElementById('v-itinerario-parse-msg');if(pegMsg)pegMsg.textContent='';
   document.getElementById('modal-vuelo').style.display='flex';
+}
+
+// Selector de "Duplicar cupo" (panel de Administración): como acá no hay un cupo en contexto, se elige
+// el cupo modelo de una lista y se abre el modal de creación ya precargado (abrirDuplicarVuelo).
+async function abrirSelectorDuplicar(){
+  const sel=document.getElementById('dup-vuelo');
+  sel.innerHTML='<option value="">Cargando…</option>';
+  document.getElementById('modal-duplicar').style.display='flex';
+  const [{data:vlist},{data:temps}]=await Promise.all([
+    sb.from('vuelos').select('id,nombre,fecha,temporada_id').order('fecha',{ascending:false}),
+    sb.from('temporadas').select('id,nombre').order('creado_en',{ascending:false})
+  ]);
+  if(!vlist||!vlist.length){sel.innerHTML='<option value="">No hay cupos para duplicar</option>';return;}
+  const porTemp={};
+  vlist.forEach(v=>{const k=v.temporada_id||'_';(porTemp[k]=porTemp[k]||[]).push(v);});
+  const fmt=f=>f?f.substring(0,10).split('-').reverse().join('/'):'';
+  let html='<option value="">Elegí un cupo…</option>';
+  (temps||[]).forEach(t=>{const arr=porTemp[t.id];if(!arr)return;
+    html+=`<optgroup label="${esc(t.nombre)}">`+arr.map(v=>`<option value="${v.id}">${esc(v.nombre)}${v.fecha?' — '+fmt(v.fecha):''}</option>`).join('')+'</optgroup>';});
+  if(porTemp['_'])html+=`<optgroup label="(sin temporada)">`+porTemp['_'].map(v=>`<option value="${v.id}">${esc(v.nombre)}</option>`).join('')+'</optgroup>';
+  sel.innerHTML=html;
+}
+function confirmarDuplicar(){
+  const id=document.getElementById('dup-vuelo').value;
+  if(!id){alert('Elegí un cupo para duplicar.');return;}
+  cerrarModal('modal-duplicar');
+  abrirDuplicarVuelo(id);
 }
 
 async function abrirModalVuelo(){
