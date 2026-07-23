@@ -586,8 +586,7 @@
         </select>
       </div>
       <div class="form-group"><label class="form-label">Localizador</label><input class="form-input" id="v-localizador" placeholder="Ej: ABC123"/></div>
-      <div class="form-group"><label class="form-label">Fecha de salida</label><input class="form-input" id="v-fecha" type="date" onchange="sugerirNombreCupo()"/></div>
-      <div class="form-group"><label class="form-label">Fecha de regreso <span style="color:var(--muted);font-size:10px">para clasificar infantes</span></label><input class="form-input" id="v-fecha-regreso" type="date"/></div>
+      <!-- b75: la fecha de salida/regreso del cupo ya no se carga acá — se deriva del itinerario (primer tramo Ida / último Vuelta). Ver el resumen abajo. -->
       <div class="form-group"><label class="form-label">Total lugares</label><input class="form-input" id="v-lugares" type="number" min="1" placeholder="Ej: 16"/><div id="v-lugares-hint" style="display:none;font-size:11px;color:var(--yellow);margin-top:4px"></div></div>
       <div class="form-group"><label class="form-label">Precio de Venta (USD)</label><input class="form-input" id="v-precio" type="number" min="0" step="0.01" placeholder="Ej: 990"/></div>
       <div class="form-group"><label class="form-label">Valor Neto (USD) <span style="color:var(--accent2);font-size:10px">solo admins</span></label><input class="form-input" id="v-precio-neto" type="number" min="0" step="0.01" placeholder="Ej: 750"/></div>
@@ -622,7 +621,8 @@
         <label class="form-label" style="margin:0">Itinerario del cupo</label>
         <button type="button" class="btn-sm" onclick="agregarTramo()">+ Agregar tramo</button>
       </div>
-      <div style="display:grid;grid-template-columns:50px 68px 78px 64px 50px 50px 54px 54px 20px;gap:6px;margin-bottom:6px">
+      <div id="v-fechas-resumen" style="font-size:12px;margin-bottom:10px;padding:7px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:6px"><span style="color:var(--muted)">Cargá la fecha del tramo de ida para fijar la salida del cupo</span></div>
+      <div style="display:grid;grid-template-columns:50px 122px 78px 64px 50px 50px 54px 54px 20px;gap:6px;margin-bottom:6px">
         <span style="font-size:10px;color:var(--muted);text-transform:uppercase">Tipo</span>
         <span style="font-size:10px;color:var(--muted);text-transform:uppercase">Fecha</span>
         <span style="font-size:10px;color:var(--muted);text-transform:uppercase">Aerolínea</span>
@@ -738,7 +738,7 @@ const sb=supabase.createClient(CONFIG.SUPABASE_URL,CONFIG.SUPABASE_ANON_KEY,{
   }
 });
 
-const APP_VERSION='Fase 2 · 2026-07-23 (b74 · Duplicar cupo existente en Administración + validaciones) · TEST';
+const APP_VERSION='Fase 2 · 2026-07-23 (b75 · fecha del cupo desde el itinerario) · TEST';
 // Columnas de 'vuelos' legibles por cualquier usuario. EXCLUYE precio_neto: el admin lo lee por RPC admin_get_precio_neto (gateada por es_admin). No usar select('*') sobre vuelos: la columna precio_neto quedó revocada a authenticated.
 const VUELO_COLS='id,temporada_id,nombre,ciudad_codigo,ciudad_nombre,aerolinea,fecha,fecha_regreso,total_lugares,precio,condiciones_equipaje,creado_en,destino,itinerario,visible,itinerario_historial,cal_dias_pago_final,cal_dias_cancel_sin_gastos,cal_dias_cancel_con_gastos,cal_usuarios';
 // Calendarización: al crear un cupo, dispara (fire-and-forget) la creación de eventos en Google Calendar vía n8n.
@@ -839,7 +839,7 @@ let currentUser=null,currentRol=null,currentVueloId=null,currentPasajeroId=null,
 let temporadas=[],temporadaActiva=null,vuelosData=[],tramosCount=0,dashFiltro='todos';
 let reservarVueloId=null,reservarLugaresLibres=0,reservarLugaresIds=[];
 let cancelarLugarId=null,cancelarPasajeroId=null,cancelarVueloId=null;
-let editarVueloId=null,vendedores=[],guardandoVuelo=false,nombreCupoManual=false;
+let editarVueloId=null,vendedores=[],guardandoVuelo=false,nombreCupoManual=false,_regresoPrevio=null;
 
 async function loginGoogle(){await sb.auth.signInWithOAuth({provider:'google',options:{redirectTo:CONFIG.APP_URL,queryParams:{hd:CONFIG.OAUTH_DOMINIO}}})}
 async function cerrarSesion(){try{await sb.auth.signOut({scope:'local'});}catch(e){console.warn('signOut:',e);}window.location.reload()}
@@ -1034,6 +1034,7 @@ function formatFecha(s){if(!s)return '—';const str=String(s);const md=str.matc
 function formatTramoFecha(s){
   if(!s) return '—';
   const t=String(s).trim(); let m;
+  if(m=t.match(/^(\d{4})-(\d{2})-(\d{2})$/)) return `${m[3]}/${m[2]}/${m[1]}`;  // ISO (fecha real del tramo, b75+)
   if(m=t.match(/^(\d{2})(\d{2})(\d{4})$/)) return `${m[1]}/${m[2]}/${m[3]}`;
   if(m=t.match(/^(\d{2})(\d{2})(\d{2})$/)) return `${m[1]}/${m[2]}/20${m[3]}`;
   if(m=t.match(/^(\d{1,2})[\/-](\d{1,2})(?:[\/-](\d{2,4}))?$/)) return `${m[1].padStart(2,'0')}/${m[2].padStart(2,'0')}${m[3]?'/'+(m[3].length===2?'20'+m[3]:m[3]):''}`;
@@ -2807,7 +2808,7 @@ function sugerirNombreCupo(){
   const ciudadVal=document.getElementById('v-ciudad').value;
   const ciudad=ciudadVal?tcCiudad((ciudadVal.split('|')[1])||''):'';
   const aerolinea=document.getElementById('v-aerolinea').value||'';
-  const f=document.getElementById('v-fecha').value;
+  const f=fechasDelItinerario().salida||'';  // b75: la fecha del cupo sale del itinerario, no de un campo aparte
   const ffmt=f?f.split('-').reverse().join('/'):'';
   const partes=[ciudad,aerolinea,ffmt].filter(Boolean);
   if(partes.length) document.getElementById('v-nombre').value=partes.join(' - ');
@@ -2850,9 +2851,7 @@ async function abrirEditarVuelo(vueloId,opts){
       // Localizador (PNR): se hereda al EDITAR; al DUPLICAR va VACÍO (cada cupo es otra reserva → otro PNR).
       if(duplicar){document.getElementById('v-localizador').value='';}
       else{const {data:locEd}=await sb.rpc('get_localizador',{p_vuelo_id:vueloId});document.getElementById('v-localizador').value=locEd||'';}
-      // Fechas: al DUPLICAR van vacías (es el punto de la feature: mismo cupo, otra fecha).
-      document.getElementById('v-fecha').value=duplicar?'':(v.fecha?v.fecha.substring(0,10):'');
-      document.getElementById('v-fecha-regreso').value=duplicar?'':(v.fecha_regreso?v.fecha_regreso.substring(0,10):'');
+      // b75: la fecha del cupo ya no tiene campo propio — vive en el itinerario (se carga más abajo).
       const hintLug=document.getElementById('v-lugares-hint');
       if(duplicar){
         // Cupo nuevo: hereda el total nominal del modelo; el hint de edición (activos/ocupados) no aplica.
@@ -2880,11 +2879,16 @@ async function abrirEditarVuelo(vueloId,opts){
       document.getElementById('v-equipaje').value=v.condiciones_equipaje||'';
       document.getElementById('tramos-wrap').innerHTML='';
       tramosCount=0;
-      if(v.itinerario){v.itinerario.forEach(t=>{agregarTramo();const i=tramosCount-1;const selTipo=document.getElementById(`t-t-${i}`);if(selTipo)selTipo.value=t.tipo||'Ida';document.getElementById(`t-f-${i}`).value=duplicar?'':(t.fecha||'');setTramoAerolinea(i,t.aerolinea);document.getElementById(`t-v-${i}`).value=t.vuelo||'';document.getElementById(`t-o-${i}`).value=t.origen||'';document.getElementById(`t-d-${i}`).value=t.destino||'';document.getElementById(`t-s-${i}`).value=t.salida||'';document.getElementById(`t-l-${i}`).value=t.llegada||'';});}
+      // Año/mes del cupo, para migrar las fechas de tramo VIEJAS ("DD Mmm" sin año) a calendario al abrir a editar.
+      const _anioCupo=v.fecha?+v.fecha.slice(0,4):null, _mesCupo=v.fecha?+v.fecha.slice(5,7):null;
+      // b75: recordar el regreso previo para no perderlo si el itinerario no tiene tramo de vuelta cargado.
+      _regresoPrevio=duplicar?null:(v.fecha_regreso?String(v.fecha_regreso).slice(0,10):null);
+      if(v.itinerario){v.itinerario.forEach(t=>{agregarTramo();const i=tramosCount-1;const selTipo=document.getElementById(`t-t-${i}`);if(selTipo)selTipo.value=t.tipo||'Ida';document.getElementById(`t-f-${i}`).value=duplicar?'':fechaTramoAISO(t.fecha,_anioCupo,_mesCupo);setTramoAerolinea(i,t.aerolinea);document.getElementById(`t-v-${i}`).value=t.vuelo||'';document.getElementById(`t-o-${i}`).value=t.origen||'';document.getElementById(`t-d-${i}`).value=t.destino||'';document.getElementById(`t-s-${i}`).value=t.salida||'';document.getElementById(`t-l-${i}`).value=t.llegada||'';});}
       // Nombre: al EDITAR se respeta el guardado (manual); al DUPLICAR se re-sugiere (queda "Ciudad - Aerolínea"
       // sin fecha, y se completa solo al elegir la fecha nueva) para no arrastrar la fecha vieja en el nombre.
-      if(duplicar){nombreCupoManual=false;sugerirNombreCupo();}
+      if(duplicar){nombreCupoManual=false;}
       else{nombreCupoManual=true;}
+      onCambioItinerarioFechas();  // b75: pobla el resumen de fechas del cupo (y re-sugiere el nombre si corresponde)
     }
   }
   document.getElementById('modal-v-alert').innerHTML='';
@@ -2929,14 +2933,15 @@ async function abrirModalVuelo(){
   document.getElementById('btn-crear-vuelo').textContent='Crear cupo';
   ['v-destino','v-ciudad','v-aerolinea'].forEach(id=>{const el=document.getElementById(id);if(el)el.value=''});
   renderCiudadesOpciones('','');
-  ['v-nombre','v-localizador','v-fecha','v-lugares','v-precio','v-precio-neto','v-equipaje'].forEach(id=>{const el=document.getElementById(id);if(el)el.value=''});
+  ['v-nombre','v-localizador','v-lugares','v-precio','v-precio-neto','v-equipaje'].forEach(id=>{const el=document.getElementById(id);if(el)el.value=''});
   {const hintLug=document.getElementById('v-lugares-hint');if(hintLug)hintLug.style.display='none';}
   ['v-cal-pago','v-cal-cancel-sin','v-cal-cancel-con'].forEach(id=>{const el=document.getElementById(id);if(el)el.value=''});
   document.querySelectorAll('.v-cal-user').forEach(c=>{c.checked=false;});
   document.getElementById('v-visible').value='true';
-  nombreCupoManual=false;
+  nombreCupoManual=false;_regresoPrevio=null;
   document.getElementById('tramos-wrap').innerHTML='';
   tramosCount=0;
+  onCambioItinerarioFechas();  // b75: resetea el resumen de fechas del cupo (sin tramos → hint)
   document.getElementById('modal-v-alert').innerHTML='';
   document.getElementById('btn-crear-vuelo').disabled=false;
   const pegEl=document.getElementById('v-itinerario-pegar');if(pegEl)pegEl.value='';
@@ -2958,6 +2963,9 @@ async function guardarVuelo(){
     const itinerario=obtenerItinerario();
     // Itinerario obligatorio al CREAR un cupo (en edición no se fuerza, para no trabar cupos viejos)
     if(!editarVueloId&&itinerario.length===0){mostrarAlerta('modal-v-alert','Cargá al menos un tramo de itinerario para crear el cupo','error');setBtnLoading('btn-crear-vuelo',false,'Crear cupo');return;}
+    // b75: la fecha del cupo sale del itinerario (salida = primer tramo Ida, regreso = último Vuelta).
+    const _fechasCupo=fechasDelItinerario();
+    if(itinerario.length>0&&!_fechasCupo.salida){mostrarAlerta('modal-v-alert','Cargá la fecha del tramo de ida: de ahí sale la fecha de salida del cupo.','error');setBtnLoading('btn-crear-vuelo',false,editarVueloId?'Guardar cambios':'Crear cupo');return;}
     const numCalDias=id=>{const x=document.getElementById(id).value.trim();return x===''?null:Math.max(0,parseInt(x)||0);};
     const datos={
       temporada_id:document.getElementById('v-temporada').value,
@@ -2965,8 +2973,8 @@ async function guardarVuelo(){
       ciudad_codigo,ciudad_nombre,
       aerolinea:document.getElementById('v-aerolinea').value||null,
       localizador:document.getElementById('v-localizador').value.trim()||null,
-      fecha:document.getElementById('v-fecha').value||null,
-      fecha_regreso:document.getElementById('v-fecha-regreso').value||null,
+      fecha:_fechasCupo.salida,
+      fecha_regreso:_fechasCupo.regreso||_regresoPrevio,  // b75: si el itinerario no trae tramo Vuelta, conserva el regreso que ya tenía (no lo pierde)
       precio:parseFloat(document.getElementById('v-precio').value)||null,
       precio_neto:parseFloat(document.getElementById('v-precio-neto').value)||null,
       condiciones_equipaje:document.getElementById('v-equipaje').value.trim()||null,
@@ -3126,10 +3134,11 @@ function parsearItinerarioPegado(){
     agregarTramo();const i=tramosCount-1;
     const set=(id,v)=>{const el=document.getElementById(id);if(el)el.value=v||'';};
     const selT=document.getElementById(`t-t-${i}`);if(selT)selT.value=t.tipo;
-    set(`t-f-${i}`,t.fecha);setTramoAerolinea(i,t.aerolinea);set(`t-v-${i}`,t.vuelo);
+    set(`t-f-${i}`,fechaTramoAISO(t.fecha));setTramoAerolinea(i,t.aerolinea);set(`t-v-${i}`,t.vuelo);
     set(`t-o-${i}`,t.origen);set(`t-d-${i}`,t.destino);set(`t-s-${i}`,t.salida);set(`t-l-${i}`,t.llegada);
   });
-  msg.style.color='var(--green)';msg.textContent=`${tramos.length} tramo(s) detectado(s). Revisá y ajustá lo que falte.`;
+  onCambioItinerarioFechas();  // b75: refresca el resumen de fechas del cupo tras pegar el itinerario
+  msg.style.color='var(--green)';msg.textContent=`${tramos.length} tramo(s) detectado(s). ⚠️ Revisá el AÑO de cada fecha (se puso el actual por defecto) y ajustá lo que falte.`;
 }
 
 // Opciones de aerolínea para los dropdowns de tramo (Mejora 3: evita tipeo manual)
@@ -3141,9 +3150,9 @@ function agregarTramo(){
   const i=tramosCount++;
   const div=document.createElement('div');
   div.id=`tramo-${i}`;
-  div.style.cssText='display:grid;grid-template-columns:50px 68px 78px 64px 50px 50px 54px 54px 20px;gap:6px;margin-bottom:6px;align-items:center';
-  div.innerHTML=`<select class="form-select" id="t-t-${i}" style="padding:5px 8px;font-size:12px"><option value="Ida">Ida</option><option value="Vuelta">Vuelta</option></select>
-    <input class="form-input" placeholder="28 mar" id="t-f-${i}" style="padding:5px 8px;font-size:12px"/>
+  div.style.cssText='display:grid;grid-template-columns:50px 122px 78px 64px 50px 50px 54px 54px 20px;gap:6px;margin-bottom:6px;align-items:center';
+  div.innerHTML=`<select class="form-select" id="t-t-${i}" onchange="onCambioItinerarioFechas()" style="padding:5px 8px;font-size:12px"><option value="Ida">Ida</option><option value="Vuelta">Vuelta</option></select>
+    <input class="form-input" type="date" id="t-f-${i}" onchange="onCambioItinerarioFechas()" style="padding:5px 6px;font-size:12px"/>
     <select class="form-select" id="t-a-${i}" style="padding:5px 8px;font-size:12px">${opcionesAerolinea('')}</select>
     <input class="form-input" placeholder="LA 2421" id="t-v-${i}" style="padding:5px 8px;font-size:12px"/>
     <input class="form-input" placeholder="MVD" id="t-o-${i}" style="padding:5px 8px;font-size:12px"/>
@@ -3162,6 +3171,41 @@ function obtenerItinerario(){
     if(f)tramos.push({tipo:document.getElementById(`t-t-${i}`)?.value||'Ida',fecha:f,aerolinea:document.getElementById(`t-a-${i}`)?.value||'',vuelo:document.getElementById(`t-v-${i}`)?.value||'',origen:document.getElementById(`t-o-${i}`)?.value||'',destino:document.getElementById(`t-d-${i}`)?.value||'',salida:document.getElementById(`t-s-${i}`)?.value||'',llegada:document.getElementById(`t-l-${i}`)?.value||''});
   });
   return tramos;
+}
+
+// ── FECHAS DEL CUPO DERIVADAS DEL ITINERARIO (b75) ────────────────────────────
+// La fecha del cupo ya no se pide aparte: sale del itinerario. Salida = fecha más temprana de los tramos NO-Vuelta
+// (Ida); regreso = fecha más tardía de los tramos "Vuelta". Los inputs de fecha de tramo son <input type=date>
+// (ISO YYYY-MM-DD), así que traen el año — lo único que le faltaba al texto viejo para servir a los vencimientos.
+function fechasDelItinerario(){
+  const it=obtenerItinerario();
+  const iso=t=>/^\d{4}-\d{2}-\d{2}$/.test(t.fecha);
+  const idas=it.filter(t=>(t.tipo||'Ida')!=='Vuelta'&&iso(t)).map(t=>t.fecha).sort();
+  const vueltas=it.filter(t=>t.tipo==='Vuelta'&&iso(t)).map(t=>t.fecha).sort();
+  return {salida:idas[0]||null, regreso:vueltas.length?vueltas[vueltas.length-1]:null};
+}
+// Convierte una fecha de tramo VIEJA ("DD Mmm" sin año, o "D/M") a ISO YYYY-MM-DD, tomando el año del cupo
+// (v.fecha) y subiendo un año si el mes del tramo es anterior al de la salida (cruce dic→ene). Migra al vuelo
+// los cupos cargados antes de b75 cuando se abren a editar. Si ya viene ISO, la devuelve igual.
+const _MESNUM={ene:1,jan:1,feb:2,mar:3,abr:4,apr:4,may:5,jun:6,jul:7,ago:8,aug:8,sep:9,set:9,oct:10,nov:11,dic:12,dec:12};
+function fechaTramoAISO(txt,anioBase,mesSalida){
+  if(!txt) return '';
+  const t=String(txt).trim();
+  if(/^\d{4}-\d{2}-\d{2}$/.test(t)) return t;
+  const anio0=anioBase||new Date().getFullYear();
+  let m=t.match(/^(\d{1,2})\s*([A-Za-zÁÉÍÓÚáéíóú]{3,})$/);
+  if(m){const mes=_MESNUM[m[2].slice(0,3).toLowerCase()];if(mes){let a=anio0;if(mesSalida&&mes<mesSalida)a++;return `${a}-${String(mes).padStart(2,'0')}-${String(+m[1]).padStart(2,'0')}`;}}
+  m=t.match(/^(\d{1,2})[\/-](\d{1,2})(?:[\/-](\d{2,4}))?$/);
+  if(m){const mes=+m[2];let a=m[3]?(m[3].length===2?2000+ +m[3]:+m[3]):anio0;if(!m[3]&&mesSalida&&mes<mesSalida)a++;return `${a}-${String(mes).padStart(2,'0')}-${String(+m[1]).padStart(2,'0')}`;}
+  return '';
+}
+// Refresca el resumen "Salida/Regreso" (derivado del itinerario) y re-sugiere el nombre del cupo.
+function onCambioItinerarioFechas(){
+  const {salida,regreso}=fechasDelItinerario();
+  const el=document.getElementById('v-fechas-resumen');
+  if(el){const f=iso=>iso?iso.split('-').reverse().join('/'):'—';
+    el.innerHTML=salida?`Salida <b>${f(salida)}</b>${regreso?` · Regreso <b>${f(regreso)}</b>`:''}`:'<span style="color:var(--muted)">Cargá la fecha del tramo de ida para fijar la salida del cupo</span>';}
+  sugerirNombreCupo();
 }
 
 // ── CREAR CUPOS MASIVOS (pegar PNRs) ──────────────
