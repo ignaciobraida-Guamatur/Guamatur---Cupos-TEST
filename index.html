@@ -351,10 +351,10 @@
           <div class="form-group"><label class="form-label">Primer apellido INFANT</label><input class="form-input" id="pi-apellido1"/></div>
           <div class="form-group" id="pi-apellido2-group"><label class="form-label">Segundo apellido INFANT</label><input class="form-input" id="pi-apellido2"/></div>
           <div class="form-group"><label class="form-label">Primer nombre INFANT</label><input class="form-input" id="pi-nombre1"/></div>
-          <div class="form-group" id="pi-nombre2-group"><label class="form-label">Segundo nombre INFANT</label><input class="form-input" id="pi-nombre2"/></div>
+          <div class="form-group" id="pi-nombre2-group"><label class="form-label">Segundo nombre INFANT <span style="color:var(--muted)">(opcional)</span></label><input class="form-input" id="pi-nombre2"/></div>
           <div class="form-group full"><label class="form-label">Fecha de nacimiento INFANT <span style="color:var(--muted)">(para validar que siga siendo INFANT)</span></label><input class="form-input" id="pi-fecha-nac" type="date"/></div>
         </div>
-        <div id="pi-hint-v" style="display:none;font-size:11px;color:var(--yellow);margin-top:6px">Para status V son obligatorios los 4 campos del infant.</div>
+        <div id="pi-hint-v" style="display:none;font-size:11px;color:var(--yellow);margin-top:6px">Para status V son obligatorios ambos apellidos y el primer nombre del infant (el segundo nombre es opcional).</div>
       </div>
     </div>
     <div id="modal-p-alert"></div>
@@ -724,7 +724,7 @@ const sb=supabase.createClient(CONFIG.SUPABASE_URL,CONFIG.SUPABASE_ANON_KEY,{
   }
 });
 
-const APP_VERSION='Fase 2 · 2026-07-20 (b72-TEST · dashboard: solo cupo/reducción en el cuadro de cancelaciones)';
+const APP_VERSION='Fase 2 · 2026-07-22 (b74 · Duplicar cupo + validaciones de carga) · TEST';
 // Columnas de 'vuelos' legibles por cualquier usuario. EXCLUYE precio_neto: el admin lo lee por RPC admin_get_precio_neto (gateada por es_admin). No usar select('*') sobre vuelos: la columna precio_neto quedó revocada a authenticated.
 const VUELO_COLS='id,temporada_id,nombre,ciudad_codigo,ciudad_nombre,aerolinea,fecha,fecha_regreso,total_lugares,precio,condiciones_equipaje,creado_en,destino,itinerario,visible,itinerario_historial,cal_dias_pago_final,cal_dias_cancel_sin_gastos,cal_dias_cancel_con_gastos,cal_usuarios';
 // Calendarización: al crear un cupo, dispara (fire-and-forget) la creación de eventos en Google Calendar vía n8n.
@@ -1473,6 +1473,7 @@ async function cargarDetalle(vueloId){
       ${esAdmin?`<details class="menu-gestionar"><summary>⚙ Gestionar cupo ▾</summary><div class="menu-panel">
         <div class="menu-label">Gestión</div>
         <button class="menu-item" onclick="this.closest('details').removeAttribute('open');abrirEditarVuelo('${vueloId}')">✏ Editar cupo</button>
+        <button class="menu-item" onclick="this.closest('details').removeAttribute('open');abrirDuplicarVuelo('${vueloId}')">⧉ Duplicar cupo</button>
         <button class="menu-item" onclick="this.closest('details').removeAttribute('open');imprimirItinerario('${vueloId}')">🖨 Imprimir / PDF</button>
         <button class="menu-item" onclick="this.closest('details').removeAttribute('open');abrirModalReducir('${vueloId}')">▾ Reducir plazas</button>
         <div class="menu-divider"></div>
@@ -2008,7 +2009,7 @@ async function guardarPasajero(){
     }
     // Validación según status: V exige los 4 campos; R/L alcanza con primer apellido o nombre
     if(status==='V'){
-      if(!apellido1Inf||!apellido2Inf||!nombre1Inf||!nombre2Inf){mostrarAlerta('modal-p-alert',promovidoAV?'Al cargar factura + ficha la reserva pasó a VENDIDA, y una venta con INFANT requiere los 4 datos del infant (ambos apellidos y ambos nombres) para emitir el ticket. Si por ahora solo querés reservar, dejá la ficha vacía.':'Para status V, el INFANT requiere los 4 campos (ambos apellidos y ambos nombres)','error');return;}
+      if(!apellido1Inf||!apellido2Inf||!nombre1Inf){mostrarAlerta('modal-p-alert',promovidoAV?'Al cargar factura + ficha la reserva pasó a VENDIDA, y una venta con INFANT requiere ambos apellidos y el primer nombre del infant para emitir el ticket (el segundo nombre es opcional). Si por ahora solo querés reservar, dejá la ficha vacía.':'Para status V, el INFANT requiere ambos apellidos y el primer nombre (el segundo nombre es opcional)','error');return;}
     } else {
       if(!apellido1Inf&&!nombre1Inf){mostrarAlerta('modal-p-alert','Completá al menos primer apellido o primer nombre del infant','error');return;}
     }
@@ -2813,34 +2814,48 @@ function onRegionChange(){
   sugerirNombreCupo();
 }
 
-// ── EDITAR VUELO ─────────────────────────────────
-async function abrirEditarVuelo(vueloId){
-  editarVueloId=vueloId;
+// ── EDITAR / DUPLICAR VUELO ──────────────────────
+// Duplicar reusa toda la carga de Editar, con dos diferencias: (1) editarVueloId=null → al guardar entra
+// por la rama de CREACIÓN (crear_cupo) y nace un cupo nuevo con lugares vacíos; (2) NO se heredan los datos
+// que son propios de cada salida: fecha de salida/regreso, PNR y la fecha de cada tramo (se repreguntan).
+function abrirDuplicarVuelo(vueloId){ return abrirEditarVuelo(vueloId,{duplicar:true}); }
+async function abrirEditarVuelo(vueloId,opts){
+  const duplicar=!!(opts&&opts.duplicar);
+  editarVueloId=duplicar?null:vueloId;   // duplicar = alta nueva, NO edición
   const {data:temps}=await sb.from('temporadas').select('*').order('creado_en',{ascending:false});
   document.getElementById('v-temporada').innerHTML=(temps||[]).map(t=>`<option value="${t.id}">${esc(t.nombre)}</option>`).join('');
   if(vueloId){
     const {data:v}=await sb.from('vuelos').select(VUELO_COLS).eq('id',vueloId).single();
     if(v){
-      document.getElementById('modal-vuelo-title').textContent='Editar cupo';
-      document.getElementById('btn-crear-vuelo').textContent='Guardar cambios';
+      document.getElementById('modal-vuelo-title').textContent=duplicar?'Duplicar cupo':'Editar cupo';
+      document.getElementById('btn-crear-vuelo').textContent=duplicar?'Crear cupo':'Guardar cambios';
       document.getElementById('v-temporada').value=v.temporada_id||'';
       document.getElementById('v-destino').value=v.destino||'';
       renderCiudadesOpciones(v.destino||'',`${v.ciudad_codigo}|${v.ciudad_nombre}`);
       document.getElementById('v-nombre').value=v.nombre||'';
       document.getElementById('v-aerolinea').value=v.aerolinea||'';
-      {const {data:locEd}=await sb.rpc('get_localizador',{p_vuelo_id:vueloId});document.getElementById('v-localizador').value=locEd||'';}
-      document.getElementById('v-fecha').value=v.fecha?v.fecha.substring(0,10):'';
-      document.getElementById('v-fecha-regreso').value=v.fecha_regreso?v.fecha_regreso.substring(0,10):'';
-      // Precargar "Total lugares" con el conteo REAL de lugares activos (no el total_lugares almacenado,
-      // que queda desfasado tras una reducción/cancelación y reviviría stock devuelto a la aerolínea al guardar).
-      const {data:lugsAct}=await sb.from('lugares').select('reducido,pasajeros(status)').eq('vuelo_id',vueloId).eq('es_infant',false).eq('es_espera',false);
-      const activosArr=(lugsAct||[]).filter(l=>!l.reducido);
-      const activosCount=activosArr.length;
-      document.getElementById('v-lugares').value=activosCount;
-      // Ola 2 #55: mostrar el estado real del stock antes de tocar el total
-      {const ocupadosCount=activosArr.filter(l=>{const p=l.pasajeros?.[0];return p&&p.status&&p.status!=='L';}).length;
-       const hintLug=document.getElementById('v-lugares-hint');
-       if(hintLug){hintLug.style.display='block';hintLug.textContent=`Hoy: ${activosCount} activos, ${ocupadosCount} ocupados. Subir agrega lugares nuevos; bajar elimina vacíos del final y no puede tocar ocupados — para sacar lugares de la venta usá "Reducir lugares".`;}}
+      // Localizador (PNR): se hereda al EDITAR; al DUPLICAR va VACÍO (cada cupo es otra reserva → otro PNR).
+      if(duplicar){document.getElementById('v-localizador').value='';}
+      else{const {data:locEd}=await sb.rpc('get_localizador',{p_vuelo_id:vueloId});document.getElementById('v-localizador').value=locEd||'';}
+      // Fechas: al DUPLICAR van vacías (es el punto de la feature: mismo cupo, otra fecha).
+      document.getElementById('v-fecha').value=duplicar?'':(v.fecha?v.fecha.substring(0,10):'');
+      document.getElementById('v-fecha-regreso').value=duplicar?'':(v.fecha_regreso?v.fecha_regreso.substring(0,10):'');
+      const hintLug=document.getElementById('v-lugares-hint');
+      if(duplicar){
+        // Cupo nuevo: hereda el total nominal del modelo; el hint de edición (activos/ocupados) no aplica.
+        document.getElementById('v-lugares').value=v.total_lugares||'';
+        if(hintLug)hintLug.style.display='none';
+      }else{
+        // Precargar "Total lugares" con el conteo REAL de lugares activos (no el total_lugares almacenado,
+        // que queda desfasado tras una reducción/cancelación y reviviría stock devuelto a la aerolínea al guardar).
+        const {data:lugsAct}=await sb.from('lugares').select('reducido,pasajeros(status)').eq('vuelo_id',vueloId).eq('es_infant',false).eq('es_espera',false);
+        const activosArr=(lugsAct||[]).filter(l=>!l.reducido);
+        const activosCount=activosArr.length;
+        document.getElementById('v-lugares').value=activosCount;
+        // Ola 2 #55: mostrar el estado real del stock antes de tocar el total
+        const ocupadosCount=activosArr.filter(l=>{const p=l.pasajeros?.[0];return p&&p.status&&p.status!=='L';}).length;
+        if(hintLug){hintLug.style.display='block';hintLug.textContent=`Hoy: ${activosCount} activos, ${ocupadosCount} ocupados. Subir agrega lugares nuevos; bajar elimina vacíos del final y no puede tocar ocupados — para sacar lugares de la venta usá "Reducir lugares".`;}
+      }
       document.getElementById('v-precio').value=v.precio||'';
       const {data:pnEdit}=await sb.rpc('admin_get_precio_neto',{p_vuelo_id:vueloId});
       document.getElementById('v-precio-neto').value=pnEdit||'';
@@ -2849,11 +2864,14 @@ async function abrirEditarVuelo(vueloId){
       document.getElementById('v-cal-cancel-con').value=v.cal_dias_cancel_con_gastos??'';
       {const us=Array.isArray(v.cal_usuarios)?v.cal_usuarios:[];document.querySelectorAll('.v-cal-user').forEach(c=>{c.checked=us.includes(c.value);});}
       document.getElementById('v-visible').value=(v.visible===false)?'false':'true';
-      nombreCupoManual=true;
       document.getElementById('v-equipaje').value=v.condiciones_equipaje||'';
       document.getElementById('tramos-wrap').innerHTML='';
       tramosCount=0;
-      if(v.itinerario){v.itinerario.forEach(t=>{agregarTramo();const i=tramosCount-1;const selTipo=document.getElementById(`t-t-${i}`);if(selTipo)selTipo.value=t.tipo||'Ida';document.getElementById(`t-f-${i}`).value=t.fecha||'';setTramoAerolinea(i,t.aerolinea);document.getElementById(`t-v-${i}`).value=t.vuelo||'';document.getElementById(`t-o-${i}`).value=t.origen||'';document.getElementById(`t-d-${i}`).value=t.destino||'';document.getElementById(`t-s-${i}`).value=t.salida||'';document.getElementById(`t-l-${i}`).value=t.llegada||'';});}
+      if(v.itinerario){v.itinerario.forEach(t=>{agregarTramo();const i=tramosCount-1;const selTipo=document.getElementById(`t-t-${i}`);if(selTipo)selTipo.value=t.tipo||'Ida';document.getElementById(`t-f-${i}`).value=duplicar?'':(t.fecha||'');setTramoAerolinea(i,t.aerolinea);document.getElementById(`t-v-${i}`).value=t.vuelo||'';document.getElementById(`t-o-${i}`).value=t.origen||'';document.getElementById(`t-d-${i}`).value=t.destino||'';document.getElementById(`t-s-${i}`).value=t.salida||'';document.getElementById(`t-l-${i}`).value=t.llegada||'';});}
+      // Nombre: al EDITAR se respeta el guardado (manual); al DUPLICAR se re-sugiere (queda "Ciudad - Aerolínea"
+      // sin fecha, y se completa solo al elegir la fecha nueva) para no arrastrar la fecha vieja en el nombre.
+      if(duplicar){nombreCupoManual=false;sugerirNombreCupo();}
+      else{nombreCupoManual=true;}
     }
   }
   document.getElementById('modal-v-alert').innerHTML='';
@@ -2919,6 +2937,21 @@ async function guardarVuelo(){
       cal_dias_cancel_con_gastos:numCalDias('v-cal-cancel-con'),
       cal_usuarios:Array.from(document.querySelectorAll('.v-cal-user:checked')).map(c=>c.value)
     };
+    // Validaciones de carga (aplican a crear / duplicar / editar). Se corren con el itinerario ya validado.
+    const btnTxt=editarVueloId?'Guardar cambios':'Crear cupo';
+    // (a) BLOQUEANTE: la fecha de regreso no puede ser anterior a la de salida (rompe la clasificación de infantes).
+    if(datos.fecha&&datos.fecha_regreso&&datos.fecha_regreso<datos.fecha){
+      mostrarAlerta('modal-v-alert','La fecha de regreso no puede ser anterior a la de salida.','error');
+      setBtnLoading('btn-crear-vuelo',false,btnTxt);return;
+    }
+    // (b) AVISO: margen negativo (el valor neto/costo supera el precio de venta).
+    if(datos.precio!=null&&datos.precio_neto!=null&&datos.precio_neto>datos.precio){
+      if(!confirm(`El Valor Neto (USD ${datos.precio_neto}) es MAYOR al Precio de Venta (USD ${datos.precio}): el margen quedaría negativo. ¿Guardar igual?`)){setBtnLoading('btn-crear-vuelo',false,btnTxt);return;}
+    }
+    // (c) AVISO: la fecha de salida ya pasó (típico al duplicar un cupo viejo y olvidar cambiar la fecha).
+    if(datos.fecha&&datos.fecha<new Date().toISOString().slice(0,10)){
+      if(!confirm(`La fecha de salida (${datos.fecha.split('-').reverse().join('/')}) ya pasó. ¿Guardar igual?`)){setBtnLoading('btn-crear-vuelo',false,btnTxt);return;}
+    }
     if(editarVueloId){
       if(!Number.isInteger(total_lugares)||total_lugares<0){mostrarAlerta('modal-v-alert','Total de lugares inválido','error');setBtnLoading('btn-crear-vuelo',false,'Guardar cambios');return;}
       const {data:lugaresActuales}=await sb.from('lugares').select('id,numero_lugar,reducido,pasajeros(id),cancelaciones(id)').eq('vuelo_id',editarVueloId).eq('es_infant',false).eq('es_espera',false).order('numero_lugar');
