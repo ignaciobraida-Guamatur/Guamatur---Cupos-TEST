@@ -738,7 +738,7 @@ const sb=supabase.createClient(CONFIG.SUPABASE_URL,CONFIG.SUPABASE_ANON_KEY,{
   }
 });
 
-const APP_VERSION='Fase 2 · 2026-07-23 (b75 · fecha del cupo desde el itinerario) · TEST';
+const APP_VERSION='Fase 2 · 2026-07-23 (b76 · cupos por temporada en Administración) · TEST';
 // Columnas de 'vuelos' legibles por cualquier usuario. EXCLUYE precio_neto: el admin lo lee por RPC admin_get_precio_neto (gateada por es_admin). No usar select('*') sobre vuelos: la columna precio_neto quedó revocada a authenticated.
 const VUELO_COLS='id,temporada_id,nombre,ciudad_codigo,ciudad_nombre,aerolinea,fecha,fecha_regreso,total_lugares,precio,condiciones_equipaje,creado_en,destino,itinerario,visible,itinerario_historial,cal_dias_pago_final,cal_dias_cancel_sin_gastos,cal_dias_cancel_con_gastos,cal_usuarios';
 // Calendarización: al crear un cupo, dispara (fire-and-forget) la creación de eventos en Google Calendar vía n8n.
@@ -2565,16 +2565,28 @@ let usuariosAdmin=[],usuarioEditando=null;
 async function cargarAdmin(){
   const [{data:temps},{data:vuelos},{data:usrs}]=await Promise.all([
     sb.from('temporadas').select('*').order('creado_en',{ascending:false}),
-    sb.from('vuelos').select('id,nombre,temporada_id,visible').order('nombre'),
+    sb.from('vuelos').select('id,nombre,temporada_id,visible,fecha').order('nombre'),
     sb.from('usuarios').select('email,nombre,rol,activo').order('nombre')
   ]);
   cargarLog(true);
   temporadas=temps||[];
   document.getElementById('admin-temporadas').innerHTML=temporadas.map(t=>`<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border);gap:8px"><div style="font-size:13px;font-weight:500;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(t.nombre)}</div><span class="badge ${t.activa?'badge-green':'badge-l'}">${t.activa?'Activa':'Inactiva'}</span><button class="btn-sm" onclick="abrirEditarTemporada('${t.id}')">Editar</button><button class="btn-sm btn-sm-toggle" onclick="toggleActivaTemporada('${t.id}',${!!t.activa})">${t.activa?'Desactivar':'Activar'}</button></div>`).join('');
-  document.getElementById('admin-vuelos').innerHTML=(vuelos||[]).map(v=>{
-    const vis=v.visible!==false;
-    return `<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);gap:8px"><span style="font-size:13px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(v.nombre)}</span><button class="btn-sm btn-sm-toggle" onclick="toggleVisibilidadVuelo('${v.id}',${vis})" title="${vis?'Ocultar a vendedores':'Mostrar a vendedores'}">${vis?'👁 Visible':'🚫 Oculto'}</button><button class="btn-sm" onclick="abrirEditarVuelo('${v.id}')">Editar</button></div>`;
-  }).join('');
+  // Cupos agrupados POR TEMPORADA (b76): secciones plegables en vez de una lista plana. Temporadas activas
+  // abiertas y primero; dentro de cada una, los cupos en orden cronológico (por fecha de salida).
+  {
+    const filaCupo=v=>{const vis=v.visible!==false;return `<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);gap:8px"><span style="font-size:13px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(v.nombre)}</span><button class="btn-sm btn-sm-toggle" onclick="toggleVisibilidadVuelo('${v.id}',${vis})" title="${vis?'Ocultar a vendedores':'Mostrar a vendedores'}">${vis?'👁 Visible':'🚫 Oculto'}</button><button class="btn-sm" onclick="abrirEditarVuelo('${v.id}')">Editar</button></div>`;};
+    const porTemp={};(vuelos||[]).forEach(v=>{const k=v.temporada_id||'_';(porTemp[k]=porTemp[k]||[]).push(v);});
+    const secciones=[...temporadas.map(t=>({id:t.id,nombre:t.nombre,activa:t.activa})),{id:'_',nombre:'(sin temporada)',activa:null}]
+      .sort((a,b)=>(b.activa===true?1:0)-(a.activa===true?1:0));  // activas primero (sort estable conserva el resto)
+    let html='';
+    secciones.forEach(sec=>{
+      const arr=(porTemp[sec.id]||[]).slice().sort((a,b)=>String(a.fecha||'9999').localeCompare(String(b.fecha||'9999')));
+      if(!arr.length)return;
+      const badge=sec.activa===null?'':`<span class="badge ${sec.activa?'badge-green':'badge-l'}" style="font-size:10px">${sec.activa?'Activa':'Inactiva'}</span>`;
+      html+=`<details ${sec.activa!==false?'open':''} style="margin-bottom:4px;border-bottom:1px solid var(--border)"><summary style="cursor:pointer;font-size:13px;font-weight:600;padding:8px 2px;display:flex;align-items:center;gap:8px"><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(sec.nombre)}</span><span style="color:var(--muted);font-weight:400;font-size:11px">${arr.length} cupo${arr.length!==1?'s':''}</span>${badge}</summary><div style="padding:0 2px 8px 6px">${arr.map(filaCupo).join('')}</div></details>`;
+    });
+    document.getElementById('admin-vuelos').innerHTML=html||'<div style="color:var(--muted);font-size:12px;padding:8px 0">No hay cupos cargados.</div>';
+  }
   usuariosAdmin=usrs||[];
   renderUsuarios();
 }
