@@ -738,7 +738,7 @@ const sb=supabase.createClient(CONFIG.SUPABASE_URL,CONFIG.SUPABASE_ANON_KEY,{
   }
 });
 
-const APP_VERSION='Fase 2 · 2026-07-23 (b76 · cupos por temporada en Administración) · TEST';
+const APP_VERSION='Fase 2 · 2026-07-24 (b77-TEST · venta V exige HOTEL + FACTURA válida)';
 // Columnas de 'vuelos' legibles por cualquier usuario. EXCLUYE precio_neto: el admin lo lee por RPC admin_get_precio_neto (gateada por es_admin). No usar select('*') sobre vuelos: la columna precio_neto quedó revocada a authenticated.
 const VUELO_COLS='id,temporada_id,nombre,ciudad_codigo,ciudad_nombre,aerolinea,fecha,fecha_regreso,total_lugares,precio,condiciones_equipaje,creado_en,destino,itinerario,visible,itinerario_historial,cal_dias_pago_final,cal_dias_cancel_sin_gastos,cal_dias_cancel_con_gastos,cal_usuarios';
 // Calendarización: al crear un cupo, dispara (fire-and-forget) la creación de eventos en Google Calendar vía n8n.
@@ -835,7 +835,7 @@ function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;',
 {const _cw=document.getElementById('v-cal-users'); if(_cw) _cw.innerHTML=CONFIG.AGENDA_INVITADOS.map(u=>`<label style="display:flex;align-items:center;gap:5px;font-size:12px;cursor:pointer"><input type="checkbox" class="v-cal-user" value="${esc(u.email)}" style="width:14px;height:14px"/> ${esc(u.nombre)}</label>`).join('');}
 // Ola 4 #94: sin Atlas no se muestra el conector (el botón dinámico del detalle se gatea en cargarDetalle)
 if(!CONFIG.ATLAS_ENABLED){const _ba=document.getElementById('p-traer-atlas'); if(_ba) _ba.style.display='none';}
-let currentUser=null,currentRol=null,currentVueloId=null,currentPasajeroId=null,currentLugarId=null,currentVueloFecha=null,currentVueloFechaRegreso=null,sesionIniciada=false,rolEfectivo=null;
+let currentUser=null,currentRol=null,currentVueloId=null,currentPasajeroId=null,currentLugarId=null,currentVueloFecha=null,currentVueloFechaRegreso=null,sesionIniciada=false,rolEfectivo=null,_pOrig=null;
 let temporadas=[],temporadaActiva=null,vuelosData=[],tramosCount=0,dashFiltro='todos';
 let reservarVueloId=null,reservarLugaresLibres=0,reservarLugaresIds=[];
 let cancelarLugarId=null,cancelarPasajeroId=null,cancelarVueloId=null;
@@ -1648,6 +1648,9 @@ function abrirModalPasajero(lugarId,pasajero,vueloId,infant=null){
   currentLugarId=lugarId;currentVueloId=vueloId;
   const esLibre=!pasajero||!pasajero.id;
   currentPasajeroId=esLibre?null:(pasajero.id||null);
+  // Estado original de la venta: se usa para no re-bloquear una venta histórica (hotel vacío o factura
+  // vieja) al editarla; solo se exige hotel/factura válidos al CERRAR la venta o al cambiar la factura.
+  _pOrig=esLibre?null:{status:pasajero.status||'L',factura:pasajero.factura||'',hotel:pasajero.hotel||''};
   document.getElementById('p-apellido1').value=esLibre?'':(pasajero.primer_apellido||'');
   document.getElementById('p-apellido2').value=esLibre?'':(pasajero.segundo_apellido||'');
   document.getElementById('p-nombre1').value=esLibre?'':(pasajero.primer_nombre||'');
@@ -1928,6 +1931,12 @@ async function cargarFichaConfirmar(){
     if(!confirm('Hay infante(s) asociados a un adulto que no quedó asignado a ningún lugar: esos infantes NO se cargarán. ¿Continuar?'))return;
   }
   const status=(factura&&ficha)?'V':'R';
+  // Si esta carga cierra la venta (V), exigir factura válida + hotel en cada lugar asignado.
+  if(status==='V'){
+    if(!facturaValida(factura)){mostrarAlerta('modal-cf-alert','Número de factura inválido.','error');return;}
+    const sinHotel=asign.filter(a=>!((a.hotel||a.t.hotel||'').trim()));
+    if(sinHotel.length){mostrarAlerta('modal-cf-alert',`Falta el hotel en ${sinHotel.length} lugar(es): no se puede cerrar la venta sin hotel.`,'error');return;}
+  }
   setBtnLoading('cf-confirmar',true);
   await asegurarTokenFresco();
   let ok=0,fail=0,infOk=0;const errs=[];
@@ -1980,6 +1989,17 @@ function fromDatetimeLocal(val){
   return utc.toISOString();
 }
 
+// --- Regla de negocio: qué hace VÁLIDA a una factura para cerrar una venta (status V) ---
+// El campo puede traer más de un comprobante ("98450 - 98451", "98450 Y 98451"): se valida CADA
+// número. Tiene que haber al menos uno y todos deben caer en el rango de numeración vigente.
+// (Revisar este rango cuando la numeración de facturación lo supere.)
+const FACTURA_MIN=98000, FACTURA_MAX=150000;
+function facturaValida(txt){
+  const nums=String(txt||'').match(/\d+/g);
+  if(!nums) return false;                                  // "TMP", vacío, "-" → sin número
+  return nums.every(n=>{const v=+n;return v>FACTURA_MIN&&v<FACTURA_MAX;});
+}
+
 async function guardarPasajero(){
   let status=document.getElementById('p-status').value;
   if(rolEfectivo==='vendedor'&&status==='L') status='R';
@@ -1989,6 +2009,16 @@ async function guardarPasajero(){
   const promovidoAV=(status==='R'&&factura&&ficha);
   if(promovidoAV) status='V';
   if(status==='V'&&!factura){mostrarAlerta('modal-p-alert','Factura obligatoria para status V','error');return;}
+  // Al CERRAR la venta (pasar a V) se exige hotel + factura válida. Grandfather: una venta que YA era V
+  // no se re-bloquea al editar (p.ej. un comentario), salvo que cambien la factura (se re-valida). El
+  // servidor re-valida lo mismo, así que esto es solo el aviso inmediato.
+  if(status==='V'){
+    const hotel=document.getElementById('p-hotel').value.trim();
+    const eraV=!!(_pOrig&&_pOrig.status==='V');
+    const facturaCambio=!_pOrig||(_pOrig.factura||'')!==factura;
+    if(!eraV&&!hotel){mostrarAlerta('modal-p-alert','Falta el hotel: no se puede cerrar la venta sin hotel.','error');return;}
+    if((!eraV||facturaCambio)&&!facturaValida(factura)){mostrarAlerta('modal-p-alert','Número de factura inválido.','error');return;}
+  }
   // F14: una reserva o venta no puede quedar sin nombre (mismo criterio que el modal Reservar)
   if(status==='R'||status==='V'){
     const ap1=document.getElementById('p-apellido1').value.trim();
