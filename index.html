@@ -754,7 +754,7 @@ const sb=supabase.createClient(CONFIG.SUPABASE_URL,CONFIG.SUPABASE_ANON_KEY,{
   }
 });
 
-const APP_VERSION='TEST · 2026-08-06 (b79 · mejoras del equipo de administradores: columna de acciones fija, orden por cabezal, botón Editar destacado, aviso de segundo apellido, estado EMITIDO, aviso de PNR repetido, movimiento por período)';
+const APP_VERSION='TEST · 2026-08-07 (b80 · los lugares bloqueados por Operaciones cuentan como stock para el plazo de vencimiento)';
 // Columnas de 'vuelos' legibles por cualquier usuario. EXCLUYE precio_neto: el admin lo lee por RPC admin_get_precio_neto (gateada por es_admin). No usar select('*') sobre vuelos: la columna precio_neto quedó revocada a authenticated.
 // ⚠️ Toda columna que se agregue acá necesita `grant select (col) to authenticated` en la base, si no
 // PostgREST tira 400 y se cae la pantalla entera (gotcha #6). `emitido` viene de la migración 2026-08-06.
@@ -1590,8 +1590,15 @@ async function cargarDetalle(vueloId){
   const libresArr=lugaresActivos.filter(l=>!l.pasajeros?.[0]||l.pasajeros[0].status==='L');
   const lV=libresArr.length;
   // "Últimos lugares" (vencimiento 24h) = últimos lugares VENDIBLES: se excluyen los de Operaciones.
-  // Debe coincidir con vencer_reservas() en el servidor, si no el vencimiento mostrado no matchea la baja automática.
-  const esVueloC=libresArr.filter(l=>!l.bloqueado_operaciones).length<=3;
+  // Debe coincidir con vencer_reservas() Y avisos_vencimiento_pendientes() en el servidor, si no el
+  // vencimiento mostrado (y el que se avisa por mail) no matchea la baja automática.
+  // Los lugares que Operaciones tiene bloqueados SÍ cuentan como stock (decisión de Nacho, 7-ago-2026).
+  // Antes se excluían, y en un cupo donde Operaciones guardaba varios lugares el cupo parecía al límite
+  // cuando no lo estaba: caso real "Recife - AZUL - 04OCT" (3 bloqueados) donde CUALQUIER reserva nacía
+  // con 24 h. Migración db/2026-08-07-vencimiento-operaciones-cuenta-como-stock.sql — este conteo tiene
+  // que ser idéntico al de vencer_reservas() y avisos_vencimiento_pendientes(), o la fecha que se muestra
+  // (y la que se avisa por mail) no va a ser la que aplique el servidor.
+  const esVueloC=libresArr.length<=3;
   const esAdmin=rolEfectivo==='admin';
   const esOper=rolEfectivo==='operaciones';   // Ola 3: Operaciones edita cualquier ficha + (des)bloquea lugares
   const infantMap={};
