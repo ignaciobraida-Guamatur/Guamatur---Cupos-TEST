@@ -85,6 +85,22 @@
   .row-infant td{background:rgba(124,111,253,0.08)!important;color:var(--accent2)}
   .row-cancelado td{background:rgba(251,191,36,0.08)!important;color:var(--yellow)}
   .row-oper td{background:rgba(96,165,250,0.12)!important}
+  /* Orden por cabezal de columna (pedido equipo admin, ago-2026): las tablas marcadas .sortable se ordenan
+     al hacer click en el título; la flecha del ::after es el indicador. Lógica en el listener delegado. */
+  table.sortable thead th{cursor:pointer;user-select:none}
+  table.sortable thead th::after{content:'↕';margin-left:5px;font-size:9px;opacity:0.3}
+  table.sortable thead th[data-orden="asc"]::after{content:'↑';opacity:1;color:var(--accent2)}
+  table.sortable thead th[data-orden="desc"]::after{content:'↓';opacity:1;color:var(--accent2)}
+  table.sortable thead th:empty::after{content:''}
+  /* Columna de acciones FIJA (pedido equipo admin, ago-2026): la planilla es más ancha que la pantalla y el
+     scroll horizontal tapaba Editar/Bloquear/Desbloquear. Queda pegada a la derecha, siempre visible.
+     Fondo opaco propio a propósito: los tintes de fila (.row-v, .row-r…) son translúcidos y dejarían ver
+     las celdas pasando por debajo al scrollear. */
+  table.planilla th:last-child,table.planilla td:last-child{position:sticky;right:0;background:var(--surface)!important;border-left:1px solid var(--border2);z-index:2}
+  table.planilla thead th:last-child{background:var(--surface2)!important;z-index:3}
+  /* El botón más usado de la planilla: se perdía entre los demás (pedido equipo admin, ago-2026) */
+  .btn-sm-edit{border-color:var(--accent);color:var(--accent2);background:rgba(124,111,253,0.12);font-weight:500}
+  .btn-sm-edit:hover{background:rgba(124,111,253,0.28);color:var(--text)}
   .btn{padding:7px 14px;border-radius:8px;font-size:13px;cursor:pointer;font-family:'DM Sans',sans-serif;transition:all 0.15s;font-weight:500;border:none}
   .btn-primary{background:var(--accent);color:white}.btn-primary:hover{background:var(--accent2)}
   .btn-primary:disabled{opacity:0.6;cursor:not-allowed}
@@ -585,7 +601,7 @@
           <option value="Aerolíneas Argentinas">Aerolíneas Argentinas</option>
         </select>
       </div>
-      <div class="form-group"><label class="form-label">Localizador</label><input class="form-input" id="v-localizador" placeholder="Ej: ABC123"/></div>
+      <div class="form-group"><label class="form-label">Localizador</label><input class="form-input" id="v-localizador" placeholder="Ej: ABC123" onblur="chequearLocalizadorDuplicado()"/><div id="v-localizador-aviso" style="display:none;font-size:11px;color:var(--yellow);margin-top:4px"></div></div>
       <!-- b75: la fecha de salida/regreso del cupo ya no se carga acá — se deriva del itinerario (primer tramo Ida / último Vuelta). Ver el resumen abajo. -->
       <div class="form-group"><label class="form-label">Total lugares</label><input class="form-input" id="v-lugares" type="number" min="1" placeholder="Ej: 16"/><div id="v-lugares-hint" style="display:none;font-size:11px;color:var(--yellow);margin-top:4px"></div></div>
       <div class="form-group"><label class="form-label">Precio de Venta (USD)</label><input class="form-input" id="v-precio" type="number" min="0" step="0.01" placeholder="Ej: 990"/></div>
@@ -738,9 +754,11 @@ const sb=supabase.createClient(CONFIG.SUPABASE_URL,CONFIG.SUPABASE_ANON_KEY,{
   }
 });
 
-const APP_VERSION='Fase 2 · 2026-07-27 (b78-TEST · piso factura 95.000)';
+const APP_VERSION='TEST · 2026-08-06 (b79 · mejoras del equipo de administradores: columna de acciones fija, orden por cabezal, botón Editar destacado, aviso de segundo apellido, estado EMITIDO, aviso de PNR repetido, movimiento por período)';
 // Columnas de 'vuelos' legibles por cualquier usuario. EXCLUYE precio_neto: el admin lo lee por RPC admin_get_precio_neto (gateada por es_admin). No usar select('*') sobre vuelos: la columna precio_neto quedó revocada a authenticated.
-const VUELO_COLS='id,temporada_id,nombre,ciudad_codigo,ciudad_nombre,aerolinea,fecha,fecha_regreso,total_lugares,precio,condiciones_equipaje,creado_en,destino,itinerario,visible,itinerario_historial,cal_dias_pago_final,cal_dias_cancel_sin_gastos,cal_dias_cancel_con_gastos,cal_usuarios';
+// ⚠️ Toda columna que se agregue acá necesita `grant select (col) to authenticated` en la base, si no
+// PostgREST tira 400 y se cae la pantalla entera (gotcha #6). `emitido` viene de la migración 2026-08-06.
+const VUELO_COLS='id,temporada_id,nombre,ciudad_codigo,ciudad_nombre,aerolinea,fecha,fecha_regreso,total_lugares,precio,condiciones_equipaje,creado_en,destino,itinerario,visible,itinerario_historial,cal_dias_pago_final,cal_dias_cancel_sin_gastos,cal_dias_cancel_con_gastos,cal_usuarios,emitido,emitido_en,emitido_por';
 // Calendarización: al crear un cupo, dispara (fire-and-forget) la creación de eventos en Google Calendar vía n8n.
 const N8N_WEBHOOK_AGENDA=CONFIG.N8N_WEBHOOK_AGENDA;
 // Ola 3 #64/#70: secreto compartido con los workflows n8n — va en el BODY (fetch no-cors no deja pasar headers custom).
@@ -1079,6 +1097,39 @@ document.addEventListener('keydown',e=>{
 function calcularAlerta(l){return l===0?'COMPLETO':l<=3?'ULTIMOS':l<=5?'POCOS':'DISPONIBLE'}
 // Estado de un cupo: si no tiene lugares activos (total 0) => Cancelado; si no, por libres
 function estadoCupo(tot,libres){return tot===0?'CANCELADO':calcularAlerta(libres);}
+// Orden por cabezal de columna (pedido equipo admin, ago-2026). Listener DELEGADO en document a propósito:
+// las tablas del dashboard se re-arman enteras con innerHTML, así que enganchar el click a cada <th> se
+// perdería en cada refresco. Cualquier tabla con class="sortable" queda ordenable sin tocar su render.
+// Criterio: si la celda es un número (con o sin USD/%/miles) ordena numéricamente; si no, texto en español
+// (ignora acentos y mayúsculas). Una celda puede forzar su criterio con data-sort — lo usa la columna Fecha,
+// que se muestra "12 Ene" pero tiene que ordenar cronológicamente, no alfabéticamente.
+document.addEventListener('click',e=>{
+  const th=(e.target&&e.target.closest)?e.target.closest('table.sortable thead th'):null;
+  if(!th) return;
+  const tabla=th.closest('table'),tbody=tabla?tabla.querySelector('tbody'):null;
+  if(!tbody||!tbody.rows.length) return;
+  const idx=Array.prototype.indexOf.call(th.parentNode.children,th);
+  const asc=th.dataset.orden!=='asc';
+  Array.prototype.forEach.call(tabla.querySelectorAll('thead th'),h=>{delete h.dataset.orden;});
+  th.dataset.orden=asc?'asc':'desc';
+  const valor=fil=>{
+    const td=fil.children[idx];
+    if(!td) return '';
+    if(td.dataset&&td.dataset.sort) return td.dataset.sort;
+    const txt=(td.textContent||'').trim();
+    if(/^[\s$]*(USD\s*)?-?[\d.,]+\s*%?$/i.test(txt)&&/\d/.test(txt)){
+      const n=Number(txt.replace(/[^\d,.-]/g,'').replace(/\./g,'').replace(',','.'));
+      if(!isNaN(n)) return n;
+    }
+    return txt;
+  };
+  // El índice original entra como desempate: dos filas iguales conservan el orden en que venían.
+  Array.prototype.slice.call(tbody.rows).map((fil,i)=>[fil,valor(fil),i]).sort((a,b)=>{
+    const r=(typeof a[1]==='number'&&typeof b[1]==='number')?a[1]-b[1]
+      :String(a[1]).localeCompare(String(b[1]),'es',{sensitivity:'base'});
+    return (asc?r:-r)||a[2]-b[2];
+  }).forEach(x=>tbody.appendChild(x[0]));
+});
 const alertaMap={CANCELADO:['badge-cancelado','Cancelado'],COMPLETO:['badge-red','Completo'],ULTIMOS:['badge-orange','Últimos cupos'],POCOS:['badge-yellow','Pocos cupos'],DISPONIBLE:['badge-green','Disponible']};
 // Color de badge por región de marca interna
 function regionBadge(d){return d==='Brasil'?'badge-green':d==='Caribe'?'badge-orange':d==='Chile'?'badge-blue':d==='Argentina'?'badge-yellow':'badge-l';}
@@ -1177,11 +1228,11 @@ async function cargarDashboard(){
       <div class="kpi-card"><div class="kpi-label">% Ocupación</div><div class="kpi-value c-purple">${total>0?Math.round(vendidos/total*100):0}%</div></div>
     </div>
     <div class="section-title" style="margin-bottom:12px">Ocupación por temporada</div>
-    <div class="table-wrap"><table><thead><tr><th>Temporada</th><th>Cupos</th><th>Lugares</th><th>Vendidos</th><th>Reservados</th><th>Libres</th><th>Ocup.</th></tr></thead><tbody>`;
+    <div class="table-wrap"><table class="sortable"><thead><tr><th>Temporada</th><th>Cupos</th><th>Lugares</th><th>Vendidos</th><th>Reservados</th><th>Libres</th><th>Ocup.</th></tr></thead><tbody>`;
     filasTemp.forEach(t=>{const pct=t.total>0?Math.round(t.vendidos/t.total*100):0;html+=`<tr><td style="color:var(--accent2);font-weight:500">${esc(t.nombre)}</td><td>${t.cupos}</td><td>${t.total}</td><td>${t.vendidos}</td><td>${t.reservados}</td><td>${t.libres}</td><td style="font-weight:600">${pct}%</td></tr>`;});
     html+=`</tbody></table></div>
     <div class="section-title" style="margin-bottom:12px">Análisis por región</div>
-    <div class="table-wrap"><table><thead><tr><th>Cupo</th><th>Región</th><th>Total</th><th>Vendidos</th><th>Reservados</th><th>Libres</th><th>Ocup.</th><th>Alerta</th></tr></thead><tbody>`;
+    <div class="table-wrap"><table class="sortable"><thead><tr><th>Cupo</th><th>Región</th><th>Total</th><th>Vendidos</th><th>Reservados</th><th>Libres</th><th>Ocup.</th><th>Alerta</th></tr></thead><tbody>`;
     filas.forEach(d=>{html+=`<tr style="cursor:pointer" onclick="goToDetalle('${d.id}')"><td style="color:var(--accent2);font-weight:500">${esc(d.nombre)}</td><td><span class="badge ${regionBadge(d.destino)}">${esc(d.destino)||'—'}</span></td><td>${d.total}</td><td>${d.vendidos}</td><td>${d.reservados}</td><td>${d.libres}</td><td>${d.pct}%</td><td><span class="badge ${d.cls}">${d.txt}</span></td></tr>`;});
     html+='</tbody></table></div>';
 
@@ -1189,7 +1240,7 @@ async function cargarDashboard(){
 
   // Ranking de vendedores: lo ven todos
   html+=`<div class="section-title" style="margin-bottom:12px">Ranking de vendedores</div>
-  <div class="table-wrap"><table><thead><tr><th>#</th><th>Vendedor</th><th>Lugares vendidos</th></tr></thead><tbody>`;
+  <div class="table-wrap"><table class="sortable"><thead><tr><th>#</th><th>Vendedor</th><th>Lugares vendidos</th></tr></thead><tbody>`;
   ranking.forEach(([nombre,cant],i)=>{
     html+=`<tr><td style="color:var(--muted);font-family:'DM Mono',monospace">${i+1}</td><td>${esc(nombre)}</td><td><span style="font-family:'DM Mono',monospace;font-weight:600;color:${cant>0?'var(--green)':'var(--muted)'}">${cant}</span></td></tr>`;
   });
@@ -1216,9 +1267,99 @@ async function cargarDashboard(){
     }
   }
 
+  // Movimiento por período (pedido equipo admin, ago-2026: "a veces queremos saber qué vendimos en la
+  // última semana"). Sale del LOG DE NEGOCIO, que es el único lugar con la fecha de cada hecho: la tabla
+  // pasajeros no guarda fecha de venta, solo fecha_reserva. Se pinta en un div aparte para poder cambiar
+  // las fechas sin re-armar el dashboard entero.
+  if(esAdminDash){
+    html+=`<div class="section-title" style="margin-bottom:12px">Movimiento por período</div>
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:12px;margin-bottom:12px;display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
+      <div><label class="form-label">Desde</label><input type="date" class="form-input" id="mov-desde" style="width:165px"/></div>
+      <div><label class="form-label">Hasta</label><input type="date" class="form-input" id="mov-hasta" style="width:165px"/></div>
+      <button class="btn btn-primary" onclick="cargarMovimiento()">Ver</button>
+      <button class="btn-sm" onclick="movRango(7)">Últimos 7 días</button>
+      <button class="btn-sm" onclick="movRango(30)">Últimos 30</button>
+      <button class="btn btn-excel" onclick="exportarMovimiento()">⬇ Excel</button>
+    </div>
+    <div id="mov-resultado"></div>`;
+  }
+
   cont.innerHTML=html;
+  if(esAdminDash&&document.getElementById('mov-desde')) movRango(7);  // arranca mostrando la última semana
 }
 function setDashFiltro(f){dashFiltro=f;cargarDashboard()}
+
+// ── Movimiento por período (pedido equipo admin, ago-2026) ──────────────────────────────
+// OJO con los conteos: una fila del log NO es un lugar. `reserva` trae la cantidad en el detalle,
+// `cancelar_reserva` trae el array de números de lugar, `vencimiento_auto` trae cuántas venció y
+// `venta` sí es una fila por lugar. Contar filas daría de menos en reservas y cancelaciones.
+const MOV_ACCIONES=['reserva','venta','vencimiento_auto','cancelar_reserva','eliminar_reserva'];
+const MOV_LABEL={reserva:'Reserva',venta:'Venta',vencimiento_auto:'Venció sola',cancelar_reserva:'Cancelada',eliminar_reserva:'Liberada'};
+let _movFilas=[];
+function _movCant(l){
+  const d=l.detalle||{};
+  if(l.accion==='reserva') return Number(d.cantidad)||1;
+  if(l.accion==='vencimiento_auto') return Number(d.vencidas)||(Array.isArray(d.items)?d.items.length:1);
+  if(l.accion==='cancelar_reserva') return Array.isArray(d.lugares)?d.lugares.length:1;
+  if(l.accion==='eliminar_reserva') return Number(d.liberadas)||(Array.isArray(d.lugares)?d.lugares.length:1);
+  return 1;  // venta: una fila = un lugar
+}
+function movRango(dias){
+  const hoy=new Date(),desde=new Date(hoy.getTime()-(dias-1)*86400000);
+  const iso=d=>d.toISOString().slice(0,10);
+  const eD=document.getElementById('mov-desde'),eH=document.getElementById('mov-hasta');
+  if(!eD||!eH) return;
+  eD.value=iso(desde);eH.value=iso(hoy);
+  cargarMovimiento();
+}
+async function cargarMovimiento(){
+  const cont=document.getElementById('mov-resultado');if(!cont)return;
+  const desde=document.getElementById('mov-desde')?.value||'',hasta=document.getElementById('mov-hasta')?.value||'';
+  if(!desde||!hasta){cont.innerHTML='<div class="loading">Elegí un período</div>';return;}
+  cont.innerHTML='<div class="loading"><div class="spinner"></div>Cargando...</div>';
+  const {data,error}=await sb.from('log_actividad').select('*')
+    .in('accion',MOV_ACCIONES)
+    .gte('creado_en',`${desde}T00:00:00-03:00`).lte('creado_en',`${hasta}T23:59:59-03:00`)
+    .order('creado_en',{ascending:false}).limit(3000);
+  if(error){cont.innerHTML='<div class="loading" style="color:var(--red)">Error al cargar el movimiento</div>';console.error('[Movimiento]',error);return;}
+  _movFilas=data||[];
+  const suma=acc=>_movFilas.filter(l=>acc.includes(l.accion)).reduce((t,l)=>t+_movCant(l),0);
+  const nRes=suma(['reserva']),nVen=suma(['venta']),nDesc=suma(['vencimiento_auto','cancelar_reserva','eliminar_reserva']);
+  const card=(lab,val,color,ayuda)=>`<div class="info-item" title="${ayuda}"><div class="info-item-label">${lab}</div><div class="info-item-value" style="color:${color}">${val}</div></div>`;
+  let html=`<div class="info-panel">
+    ${card('Reservados',nRes,'var(--orange)','Lugares reservados en el período')}
+    ${card('Vendidos',nVen,'var(--green)','Lugares que pasaron a Vendido en el período')}
+    ${card('Reservados y descartados',nDesc,'var(--red)','Reservas que se cayeron: vencidas solas, canceladas o liberadas')}
+  </div>`;
+  // El log de negocio se selló el 11-jul y la acción `venta` recién aparece desde el 15-jul: pedir un
+  // período anterior devuelve ventas de menos. Se avisa en vez de mostrar un número que miente.
+  if(desde<'2026-07-15'){
+    html+=`<div style="font-size:11px;color:var(--yellow);margin:-8px 0 12px">⚠ El período empieza antes del 15/07/2026, que es cuando el sistema arrancó a registrar las ventas. Los "Vendidos" de los días anteriores a esa fecha no están: el número real es mayor.</div>`;
+  }
+  if(_movFilas.length>=3000){
+    html+=`<div style="font-size:11px;color:var(--yellow);margin:-8px 0 12px">⚠ El período trajo el máximo de 3.000 movimientos: puede haber más que no se están mostrando. Achicá el rango.</div>`;
+  }
+  if(!_movFilas.length){
+    html+='<div class="loading">Sin movimiento en el período</div>';cont.innerHTML=html;return;
+  }
+  html+=`<div class="table-wrap"><table class="sortable"><thead><tr><th>Fecha</th><th>Qué pasó</th><th>Lugares</th><th>Usuario</th><th>Detalle</th></tr></thead><tbody>`;
+  _movFilas.forEach(l=>{
+    const d=l.detalle||{};
+    const extra=[d.a_nombre?'a nombre de '+d.a_nombre:'',d.vendedor||'',d.factura?'factura '+d.factura:''].filter(Boolean).join(' · ');
+    html+=`<tr><td data-sort="${l.creado_en}" style="font-family:'DM Mono',monospace;font-size:12px">${formatFechaHora(l.creado_en)}</td>
+      <td>${MOV_LABEL[l.accion]||l.accion}</td><td>${_movCant(l)}</td><td>${esc(l.usuario)||'—'}</td><td style="color:var(--muted)">${esc(extra)||'—'}</td></tr>`;
+  });
+  html+='</tbody></table></div>';
+  cont.innerHTML=html;
+}
+function exportarMovimiento(){
+  if(!_movFilas.length){alert('No hay movimiento para exportar. Elegí un período y tocá "Ver".');return;}
+  const rows=[['Fecha','Qué pasó','Lugares','Usuario','Detalle']];
+  _movFilas.forEach(l=>rows.push([formatFechaHora(l.creado_en),MOV_LABEL[l.accion]||l.accion,_movCant(l),l.usuario||'',l.detalle?JSON.stringify(l.detalle):'']));
+  const ws=XLSX.utils.aoa_to_sheet(rows),wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb,ws,'Movimiento');
+  XLSX.writeFile(wb,`Movimiento ${document.getElementById('mov-desde')?.value||''} a ${document.getElementById('mov-hasta')?.value||''} - Cupos.xlsx`);
+}
 
 // ── MIS RESERVAS (vista del vendedor: todas sus reservas y ventas) ──
 async function cargarMisReservas(){
@@ -1320,15 +1461,16 @@ function renderVuelos(lista){
   });
   // #4: primero los cupos CON lugares libres (ordenados por fecha de salida); los completos/cancelados (0 libres) al fondo
   filas.sort((a,b)=>(a.lV>0?0:1)-(b.lV>0?0:1)||String(a.fecha||'9999-99-99').localeCompare(String(b.fecha||'9999-99-99'))||(a.nombre||'').localeCompare(b.nombre||''));
-  let html=`<div class="table-wrap"><table><thead><tr><th>Cupo</th><th>Región</th><th>Ciudad</th><th>Fecha</th><th>Precio</th><th>Total</th><th>Vendidos</th><th>Reservados</th><th>Libres</th><th>Ocup.</th><th>Alerta</th></tr></thead><tbody>`;
+  let html=`<div class="table-wrap"><table class="sortable"><thead><tr><th>Cupo</th><th>Región</th><th>Ciudad</th><th>Fecha</th><th>Precio</th><th>Total</th><th>Vendidos</th><th>Reservados</th><th>Libres</th><th>Ocup.</th><th>Alerta</th></tr></thead><tbody>`;
   filas.forEach(d=>{
     const oculto=(esAdmin&&d.visible===false)?' <span class="badge badge-l">Oculto</span>':'';
     const redu=(d.reducidos>0)?` <span class="badge badge-l" title="${d.reducidos} lugar(es) reducido(s)">−${d.reducidos}</span>`:'';
+    const emit=d.emitido?' <span class="badge badge-yellow" title="Cupo emitido: congelado, no se puede tocar">🎫 EMITIDO</span>':'';
     html+=`<tr style="cursor:pointer" onclick="goToDetalle('${d.id}')">
-      <td style="color:var(--accent2);font-weight:500">${esc(d.nombre)}${oculto}${redu}</td>
+      <td style="color:var(--accent2);font-weight:500">${esc(d.nombre)}${oculto}${redu}${emit}</td>
       <td><span class="badge ${regionBadge(d.destino)}">${esc(d.destino)||'—'}</span></td>
       <td>${esc(d.ciudad_nombre)||'—'}</td>
-      <td>${d.fecha?formatFecha(d.fecha):'—'}</td>
+      <td data-sort="${d.fecha||''}">${d.fecha?formatFecha(d.fecha):'—'}</td>
       <td style="color:var(--green)">${d.precio?'USD '+Number(d.precio).toLocaleString('es-UY'):'—'}</td>
       <td>${d.tot}</td>
       <td class="c-red">${d.vV}</td>
@@ -1363,7 +1505,7 @@ async function ejecutarBusquedaPasajeros(q){
   if(error){console.error('[BuscarPasajero]',error);cont.innerHTML='<div class="loading" style="color:var(--red)">Error en la búsqueda</div>';return;}
   const rows=(data||[]).filter(p=>p.primer_apellido||p.primer_nombre);
   if(!rows.length){cont.innerHTML=`<div class="loading">Sin resultados para "${esc(q)}"</div>`;return;}
-  let html=`<div class="section-title" style="margin-bottom:12px">Pasajeros encontrados (${rows.length})</div><div class="table-wrap"><table><thead><tr><th>Pasajero</th><th>Cupo</th><th>Lugar</th><th>Status</th><th>Vendedor</th><th>Ficha</th><th>Factura</th></tr></thead><tbody>`;
+  let html=`<div class="section-title" style="margin-bottom:12px">Pasajeros encontrados (${rows.length})</div><div class="table-wrap"><table class="sortable"><thead><tr><th>Pasajero</th><th>Cupo</th><th>Lugar</th><th>Status</th><th>Vendedor</th><th>Ficha</th><th>Factura</th></tr></thead><tbody>`;
   rows.forEach(p=>{
     const nombre=esc([p.primer_apellido,p.segundo_apellido,p.primer_nombre,p.segundo_nombre].filter(Boolean).join(' '));
     const st=p.cancelado?'<span class="badge badge-yellow">CANCEL</span>':`<span class="badge badge-${p.status==='V'?'v':p.status==='R'?'r':'l'}">${esc(p.status)||'L'}</span>`;
@@ -1488,6 +1630,7 @@ async function cargarDetalle(vueloId){
       ${esAdmin?`<details class="menu-gestionar"><summary>⚙ Gestionar cupo ▾</summary><div class="menu-panel">
         <div class="menu-label">Gestión</div>
         <button class="menu-item" onclick="this.closest('details').removeAttribute('open');abrirEditarVuelo('${vueloId}')">✏ Editar cupo</button>
+        <button class="menu-item" onclick="this.closest('details').removeAttribute('open');marcarEmitido('${vueloId}',${vuelo.emitido?'false':'true'})">${vuelo.emitido?'🔓 Sacar la marca de EMITIDO':'🎫 Marcar como EMITIDO (congela el cupo)'}</button>
         <button class="menu-item" onclick="this.closest('details').removeAttribute('open');imprimirItinerario('${vueloId}')">🖨 Imprimir / PDF</button>
         <button class="menu-item" onclick="this.closest('details').removeAttribute('open');abrirModalReducir('${vueloId}')">▾ Reducir plazas</button>
         <div class="menu-divider"></div>
@@ -1498,6 +1641,16 @@ async function cargarDetalle(vueloId){
       </div></details>`:''}
     </div>
   </div>`;
+
+  // Cartel de cupo EMITIDO (pedido equipo admin, ago-2026): es lo primero que tiene que ver quien lo abre,
+  // porque explica por qué todo lo demás va a rebotar.
+  if(vuelo.emitido){
+    html+=`<div style="background:rgba(251,191,36,0.10);border:1px solid rgba(251,191,36,0.35);border-radius:10px;padding:10px 14px;margin-bottom:16px;color:var(--yellow);font-size:13px">
+      <b>🎫 CUPO EMITIDO — congelado.</b> Aéreos está emitiendo o ya emitió los tickets, así que no se puede reservar, vender, ni editar pasajeros o el cupo.
+      ${vuelo.emitido_por?`Lo marcó ${esc(vuelo.emitido_por)}${vuelo.emitido_en?' el '+formatFechaHora(vuelo.emitido_en):''}.`:''}
+      ${rolEfectivo==='admin'?'Para corregir algo, sacale la marca desde “⚙ Gestionar cupo”.':'Si hay que corregir algo, pedíselo a un administrador.'}
+    </div>`;
+  }
 
   html+=`<div class="info-panel">
     <div class="info-item"><div class="info-item-label">Vendidos</div><div class="info-item-value c-red">${vV}</div></div>
@@ -1564,9 +1717,9 @@ async function cargarDetalle(vueloId){
     const esPropia=!esAdmin&&p&&!cancelado&&st!=='L'&&nombresOp.includes(p.vendedor);
     let accion='';
     if(modo==='reducido'){accion=esAdmin?`<button class="btn-sm btn-sm-toggle" onclick="restaurarLugar('${l.id}','${vuelo.id}')">Restaurar</button>`:'—';}
-    else if(esAdmin){accion=`<button class="btn-sm" onclick="abrirModalPasajero('${l.id}',${pJson},'${vuelo.id}',${inf?esc(JSON.stringify(inf)):'null'})">Editar</button>`;}
-    else if(esOper&&!cancelado&&(st!=='L'||modo==='activo')){accion=`<button class="btn-sm" onclick="abrirModalPasajero('${l.id}',${pJson},'${vuelo.id}',${inf?esc(JSON.stringify(inf)):'null'})">Editar</button>`;} // Ola 2 #40: operaciones también edita Libres activos (carga el pasajero en un paso); en espera conserva "Anotar en espera"
-    else if(esPropia){accion=`<button class="btn-sm" onclick="abrirModalPasajero('${l.id}',${pJson},'${vuelo.id}',${inf?esc(JSON.stringify(inf)):'null'})">Editar</button>`;}
+    else if(esAdmin){accion=`<button class="btn-sm btn-sm-edit" onclick="abrirModalPasajero('${l.id}',${pJson},'${vuelo.id}',${inf?esc(JSON.stringify(inf)):'null'})">Editar</button>`;}
+    else if(esOper&&!cancelado&&(st!=='L'||modo==='activo')){accion=`<button class="btn-sm btn-sm-edit" onclick="abrirModalPasajero('${l.id}',${pJson},'${vuelo.id}',${inf?esc(JSON.stringify(inf)):'null'})">Editar</button>`;} // Ola 2 #40: operaciones también edita Libres activos (carga el pasajero en un paso); en espera conserva "Anotar en espera"
+    else if(esPropia){accion=`<button class="btn-sm btn-sm-edit" onclick="abrirModalPasajero('${l.id}',${pJson},'${vuelo.id}',${inf?esc(JSON.stringify(inf)):'null'})">Editar</button>`;}
     else if(modo==='espera'&&libreSeat){accion=`<button class="btn-sm" onclick="reservarSlot('${l.id}','${vuelo.id}')">Anotar en espera</button>`;}
     else if(modo==='espera'){accion='—';}
     // Botón visible "PDF de esta reserva" — solo en lugares con reserva (no en libres ni reducidos)
@@ -1599,7 +1752,7 @@ async function cargarDetalle(vueloId){
   }
 
   const headPlanilla=`<tr><th>#</th><th>Primer apellido</th><th>Segundo apellido</th><th>Primer nombre</th><th>Segundo nombre</th><th>Hotel</th><th>Vendedor</th><th>Status</th><th>Factura</th><th>Fecha reserva</th><th>Vencimiento</th><th>Ficha</th><th>Comentarios</th><th></th></tr>`;
-  html+=`<div class="table-wrap"><table><thead>${headPlanilla}</thead><tbody>`;
+  html+=`<div class="table-wrap"><table class="planilla"><thead>${headPlanilla}</thead><tbody>`;
   lugaresActivos.forEach((l,idx)=>{html+=fila(l,'activo',true,numCols-1,idx+1);});
   if(lugaresReducidos.length){
     html+=`<tr><td colspan="${numCols}" style="background:var(--surface2);color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:0.5px;font-weight:600">Lugares reducidos (${lugaresReducidos.length})</td></tr>`;
@@ -1614,7 +1767,7 @@ async function cargarDetalle(vueloId){
     const libresEspera=lugaresEspera.filter(l=>!l.pasajeros?.[0]||l.pasajeros[0].status==='L').length;
     html+=`<details style="margin-bottom:24px"><summary style="cursor:pointer;padding:12px 16px;background:var(--surface);border:1px solid var(--border);border-radius:12px;font-size:13px;font-weight:500;color:var(--accent2);list-style:none">📋 Lista de espera — ${ocupEspera}/${lugaresEspera.length} ocupados <span style="color:var(--muted);font-weight:400">(click para desplegar)</span></summary>
     <div style="margin-top:8px">${libresEspera>0?`<button class="btn btn-success" onclick="abrirModalReservarEspera('${vueloId}',${libresEspera})">+ Reservar en espera</button>`:''}</div>
-    <div class="table-wrap" style="margin-top:8px"><table><thead><tr><th>#</th><th>Primer apellido</th><th>Segundo apellido</th><th>Primer nombre</th><th>Segundo nombre</th><th>Hotel</th><th>Vendedor</th><th>Status</th><th>Factura</th><th>Fecha reserva</th><th>Vencimiento</th><th>Ficha</th><th>Comentarios</th><th></th></tr></thead><tbody>`;
+    <div class="table-wrap" style="margin-top:8px"><table class="planilla"><thead><tr><th>#</th><th>Primer apellido</th><th>Segundo apellido</th><th>Primer nombre</th><th>Segundo nombre</th><th>Hotel</th><th>Vendedor</th><th>Status</th><th>Factura</th><th>Fecha reserva</th><th>Vencimiento</th><th>Ficha</th><th>Comentarios</th><th></th></tr></thead><tbody>`;
     lugaresEspera.forEach(l=>{html+=fila(l,'espera',true,esperaCols-1);});
     html+='</tbody></table></div></details>';
   } else if(esAdmin){
@@ -2024,6 +2177,11 @@ async function guardarPasajero(){
     const ap1=document.getElementById('p-apellido1').value.trim();
     const no1=document.getElementById('p-nombre1').value.trim();
     if(!ap1&&!no1){mostrarAlerta('modal-p-alert','Cargá al menos primer apellido o primer nombre del pasajero','error');return;}
+    // Aviso de segundo apellido (pedido equipo admin, ago-2026). NO es obligatorio: mucha gente no lo tiene.
+    // Pero el nombre del ticket tiene que coincidir con el documento, y olvidarlo se paga en la emisión.
+    // Solo avisa cuando el campo está vacío y el pasajero SÍ tiene primer apellido cargado.
+    const ap2=document.getElementById('p-apellido2').value.trim();
+    if(ap1&&!ap2&&!confirm('No cargaste el SEGUNDO APELLIDO.\n\nNo es obligatorio, pero el nombre del ticket tiene que coincidir con el documento del pasajero.\n\n¿Guardar igual?'))return;
   }
   // F2-A: cargó Factura pero falta la Ficha → NO se promueve a V, queda como R y el cron puede vencerla. Avisar.
   if(factura&&!ficha&&status!=='V'){
@@ -2677,6 +2835,40 @@ async function toggleVisibilidadVuelo(id,actual){
   cargarAdmin();
 }
 
+// Aviso de localizador (PNR) repetido (pedido equipo admin, ago-2026). Es AVISO, no bloqueo, a propósito:
+// el control de carga de Cupos 2027 (25-jul) dejó asentado que el PNR se repite de forma legítima en
+// viajes multi-tramo, así que bloquear rebotaría cargas correctas. Va por RPC porque `localizador` está
+// oculto por grants de columna y un select directo no lo puede leer.
+async function chequearLocalizadorDuplicado(){
+  const el=document.getElementById('v-localizador'), aviso=document.getElementById('v-localizador-aviso');
+  if(!el||!aviso) return;
+  const loc=el.value.trim();
+  aviso.style.display='none'; aviso.textContent='';
+  if(!loc) return;
+  try{
+    const {data,error}=await sb.rpc('localizador_en_uso',{p_localizador:loc,p_excluir:editarVueloId||null});
+    if(error||!Array.isArray(data)||!data.length) return;
+    const donde=data.map(d=>`${d.nombre}${d.fecha?' ('+formatFecha(d.fecha)+')':''}`).join(' · ');
+    aviso.innerHTML=`⚠ Este localizador ya está en ${data.length===1?'otro cupo':'otros '+data.length+' cupos'}: <b>${esc(donde)}</b>. Puede ser correcto (un viaje multi-tramo comparte PNR) — revisá que no sea un cupo duplicado.`;
+    aviso.style.display='block';
+  }catch(e){ /* el aviso es una ayuda: si falla, no frena la carga */ }
+}
+
+// EMITIDO (pedido equipo admin, ago-2026): aéreos está emitiendo o ya emitió → el cupo se congela.
+// El candado REAL vive en la base (triggers sobre lugares/pasajeros/infants/vuelos + RPC gateada por
+// es_admin()); esto es solo el disparador y la advertencia. Aunque alguien saltee esta pantalla, la
+// base rechaza igual.
+async function marcarEmitido(vueloId,emitir){
+  const msg=emitir
+    ? 'Marcar el cupo como EMITIDO.\n\nA partir de acá NADIE lo toca: no se puede reservar, vender, editar pasajeros ni editar el cupo.\n\nSolo un administrador puede sacarle la marca después.\n\n¿Confirmás?'
+    : 'Sacarle la marca de EMITIDO.\n\nEl cupo vuelve a quedar editable con las reglas de siempre.\n\n¿Confirmás?';
+  if(!confirm(msg))return;
+  await asegurarTokenFresco();
+  const {error}=await sb.rpc('marcar_cupo_emitido',{p_vuelo_id:vueloId,p_emitido:emitir});
+  if(error){alert('No se pudo cambiar el estado del cupo: '+error.message);return;}
+  cargarDetalle(vueloId);
+}
+
 async function toggleActivaTemporada(id,actual){
   await asegurarTokenFresco();
   const {error}=await sb.from('temporadas').update({activa:!actual}).eq('id',id);
@@ -2976,6 +3168,7 @@ async function abrirModalVuelo(){
   ['v-destino','v-ciudad','v-aerolinea'].forEach(id=>{const el=document.getElementById(id);if(el)el.value=''});
   renderCiudadesOpciones('','');
   ['v-nombre','v-localizador','v-lugares','v-precio','v-precio-neto','v-equipaje'].forEach(id=>{const el=document.getElementById(id);if(el)el.value=''});
+  {const av=document.getElementById('v-localizador-aviso');if(av){av.style.display='none';av.textContent='';}}  // el aviso de PNR repetido no se arrastra de un cupo al siguiente
   {const hintLug=document.getElementById('v-lugares-hint');if(hintLug)hintLug.style.display='none';}
   ['v-cal-pago','v-cal-cancel-sin','v-cal-cancel-con'].forEach(id=>{const el=document.getElementById(id);if(el)el.value=''});
   document.querySelectorAll('.v-cal-user').forEach(c=>{c.checked=false;});
