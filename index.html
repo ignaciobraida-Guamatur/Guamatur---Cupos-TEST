@@ -818,12 +818,16 @@ const CONFIG={
   N8N_WEBHOOK_ITINERARIO:'', // TEST: aviso de itinerario DESACTIVADO (no manda mails reales al equipo)
   N8N_WEBHOOK_MEZCLA:'', // TEST: aviso de mezcla DESACTIVADO (no manda mails reales a Operaciones)
   WEBHOOK_SECRET:'5f6a2344303e1643670007a2305c6013f21349abed333db07f4a5013fe4e8970',
+  // b89: `porDefecto` = qué recordatorios vienen ya marcados al crear un cupo NUEVO, según lo que pidió
+  // cada uno por mail (26-ago-2026). Claves válidas: 'pago_final', 'cancel_sin_gastos', 'cancel_con_gastos'
+  // (las de CAL_EVENTOS). Lista vacía = no recibe ninguno salvo que lo tilden a mano en ese cupo.
+  // Al EDITAR o DUPLICAR un cupo esto NO se aplica: ahí manda la grilla que el cupo ya tenía guardada.
   AGENDA_INVITADOS:[
-    {email:'diego.busch@guamatur.com',nombre:'Diego Busch'},
-    {email:'rodrigo.maulelo@guamatur.com',nombre:'Rodrigo Maulelo'},
-    {email:'mariana@guamatur.com',nombre:'Mariana Martinez'},
-    {email:'dory@guamatur.com',nombre:'Dory Fazzi'},
-    {email:'productoaereo@guamatur.com',nombre:'Producto Aéreo'}
+    {email:'diego.busch@guamatur.com',nombre:'Diego Busch',porDefecto:['pago_final','cancel_sin_gastos','cancel_con_gastos']},
+    {email:'rodrigo.maulelo@guamatur.com',nombre:'Rodrigo Maulelo',porDefecto:[]},  // pidió recibirlos en la casilla de Producto Aéreo, no en la suya
+    {email:'mariana@guamatur.com',nombre:'Mariana Martinez',porDefecto:['cancel_sin_gastos','cancel_con_gastos']},
+    {email:'dory@guamatur.com',nombre:'Dory Fazzi',porDefecto:['pago_final']},
+    {email:'productoaereo@guamatur.com',nombre:'Producto Aéreo',porDefecto:['pago_final','cancel_sin_gastos','cancel_con_gastos']}
   ],
   ATLAS_ENABLED:true,
   BRAND_PRIMARY:'#cd0039',BRAND_SECONDARY:'#981632',BRAND_COMP:'#fcf6eb',BRAND_COMP2:'#efefef',
@@ -848,7 +852,7 @@ const sb=supabase.createClient(CONFIG.SUPABASE_URL,CONFIG.SUPABASE_ANON_KEY,{
 // ⚠️ Una sola versión por cadena y CORTA: el detalle va al CHANGELOG.md, no acá. Nacho ve este texto
 // completo en el encabezado (el resto ve solo el "bNN") y si es largo se desborda; además `APP_VERSION_CORTA`
 // saca el número con un match, así que dos "bNN" en la misma cadena confunden cuál es la versión.
-const APP_VERSION='TEST · b88 (pastilla de acción con color lleno)';
+const APP_VERSION='TEST · 2026-08-26 (b89 · la grilla de recordatorios del cupo nuevo ya viene marcada según lo que pidió cada uno)';
 // Columnas de 'vuelos' legibles por cualquier usuario. EXCLUYE precio_neto: el admin lo lee por RPC admin_get_precio_neto (gateada por es_admin). No usar select('*') sobre vuelos: la columna precio_neto quedó revocada a authenticated.
 // ⚠️ Toda columna que se agregue acá necesita `grant select (col) to authenticated` en la base, si no
 // PostgREST tira 400 y se cae la pantalla entera (gotcha #6). `emitido` viene de la migración 2026-08-06.
@@ -3686,7 +3690,13 @@ async function abrirModalVuelo(){
   {const av=document.getElementById('v-localizador-aviso');if(av){av.style.display='none';av.textContent='';}}  // el aviso de PNR repetido no se arrastra de un cupo al siguiente
   {const hintLug=document.getElementById('v-lugares-hint');if(hintLug)hintLug.style.display='none';}
   ['v-cal-pago','v-cal-cancel-sin','v-cal-cancel-con'].forEach(id=>{const el=document.getElementById(id);if(el)el.value=''});
-  document.querySelectorAll('.v-cal-u').forEach(c=>{c.checked=false;});
+  // b89: un cupo nuevo nace con la grilla ya marcada (CONFIG.AGENDA_INVITADOS[].porDefecto). Antes nacía
+  // vacía y cada uno tildaba lo que se acordaba, así que dos cupos cargados el mismo día avisaban a gente
+  // distinta. Se puede desmarcar a mano en el cupo: esto es el punto de partida, no un candado.
+  document.querySelectorAll('.v-cal-u').forEach(c=>{
+    const inv=(CONFIG.AGENDA_INVITADOS||[]).find(u=>u.email===c.value);
+    c.checked=Array.isArray(inv?.porDefecto)&&inv.porDefecto.includes(c.dataset.ev);
+  });
   document.getElementById('v-visible').value='true';
   nombreCupoManual=false;_regresoPrevio=null;_itiAlAbrir=null;
   document.getElementById('tramos-wrap').innerHTML='';
