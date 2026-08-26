@@ -847,7 +847,7 @@ const sb=supabase.createClient(CONFIG.SUPABASE_URL,CONFIG.SUPABASE_ANON_KEY,{
 // ⚠️ Una sola versión por cadena y CORTA: el detalle va al CHANGELOG.md, no acá. Nacho ve este texto
 // completo en el encabezado (el resto ve solo el "bNN") y si es largo se desborda; además `APP_VERSION_CORTA`
 // saca el número con un match, así que dos "bNN" en la misma cadena confunden cuál es la versión.
-const APP_VERSION='TEST · b85 (agenda por vencimiento: cada vencimiento con SUS destinatarios)';
+const APP_VERSION='TEST · b86 (el aviso al equipo dice QUÉ cambió del cupo)';
 // Columnas de 'vuelos' legibles por cualquier usuario. EXCLUYE precio_neto: el admin lo lee por RPC admin_get_precio_neto (gateada por es_admin). No usar select('*') sobre vuelos: la columna precio_neto quedó revocada a authenticated.
 // ⚠️ Toda columna que se agregue acá necesita `grant select (col) to authenticated` en la base, si no
 // PostgREST tira 400 y se cae la pantalla entera (gotcha #6). `emitido` viene de la migración 2026-08-06.
@@ -926,7 +926,11 @@ async function agendarEventosCupo(v,opts){
 // Aviso de cambio de itinerario: al editar un cupo que está a la venta (visible) y cambiar el itinerario (horario/vuelo/fecha),
 // avisa por mail —vía n8n → Gmail— a todo el equipo interno (excluye Travel Partners). Fire-and-forget; el envío se confirma antes de disparar (ver guardarVuelo).
 const N8N_WEBHOOK_ITINERARIO=CONFIG.N8N_WEBHOOK_ITINERARIO;
-async function avisarCambioItinerario(v,itiViejo,itiNuevo){
+// b86 (pedido Rodrigo): antes se llamaba avisarCambioItinerario y el mail decía "cambio de itinerario"
+// pasara lo que pasara. Ahora viaja la LISTA de lo que cambió (`cambios`) y el mail se arma con eso: el
+// asunto y el cuerpo nombran lo que realmente pasó. El itinerario viaja igual, pero solo se muestra si
+// fue lo que cambió. ⚠️ El valor neto NUNCA va en este payload: es información reservada.
+async function avisarCambioCupo(v,itiViejo,itiNuevo,cambios){
   try{
     if(!N8N_WEBHOOK_ITINERARIO) return;
     const destinatarios=(Array.isArray(vendedores)?vendedores:[]).filter(u=>u&&u.rol!=='travel_partner'&&u.email).map(u=>u.email);
@@ -941,12 +945,13 @@ async function avisarCambioItinerario(v,itiViejo,itiNuevo){
       url:location.origin+location.pathname,
       editor:(vendedores.find(x=>x.email===currentUser?.email)?.nombre||currentUser?.email||'?'),
       editor_email:currentUser?.email||'',
+      cambios:Array.isArray(cambios)?cambios:[],
       itinerario_anterior:Array.isArray(itiViejo)?itiViejo:[],
       itinerario_nuevo:Array.isArray(itiNuevo)?itiNuevo:[],
       destinatarios
     };
     await fetch(N8N_WEBHOOK_ITINERARIO,{method:'POST',mode:'no-cors',body:JSON.stringify(payload)});
-  }catch(e){console.warn('[AvisoItinerario] no se pudo avisar:',e);}
+  }catch(e){console.warn('[AvisoCupo] no se pudo avisar:',e);}
 }
 // #5: la descripción larga de la versión la ve SOLO Nacho; el resto ve solo el número (derivado de APP_VERSION).
 const APP_VERSION_CORTA=(APP_VERSION.match(/b\d+(?:-[A-Za-z]+)?/)||['—'])[0];
@@ -1007,6 +1012,11 @@ let temporadas=[],temporadaActiva=null,vuelosData=[],tramosCount=0,dashFiltro='t
 let reservarVueloId=null,reservarLugaresLibres=0,reservarLugaresIds=[];
 let cancelarLugarId=null,cancelarPasajeroId=null,cancelarVueloId=null;
 let editarVueloId=null,vendedores=[],guardandoVuelo=false,nombreCupoManual=false,_regresoPrevio=null;
+// b86: el itinerario TAL COMO QUEDÓ CARGADO EN EL FORMULARIO al abrir el cupo a editar. Es la base
+// contra la que se compara al guardar. No se compara contra lo que hay en la base porque al abrir, las
+// fechas de tramo viejas ("10 ene") se migran a calendario ISO (b75): esa migración no es un cambio de
+// itinerario, pero contra la base lo parecía y disparaba el aviso al equipo en CUALQUIER edición.
+let _itiAlAbrir=null;
 // Acciones comerciales (b82): catálogo de etiquetas que el admin le pone a lugares sueltos
 // (preventa, Black Friday…). Lo lee cualquier usuario: el vendedor tiene que ver el color.
 let accionesComerciales=[];
@@ -3528,6 +3538,9 @@ async function abrirEditarVuelo(vueloId,opts){
       if(duplicar){nombreCupoManual=false;}
       else{nombreCupoManual=true;}
       onCambioItinerarioFechas();  // b75: pobla el resumen de fechas del cupo (y re-sugiere el nombre si corresponde)
+      // b86: foto del itinerario YA CARGADO en el formulario. Es contra esto que se compara al guardar,
+      // así la migración de fechas de b75 ("10 ene" → ISO) no cuenta como cambio de itinerario.
+      _itiAlAbrir=duplicar?null:obtenerItinerario();
     }
   }
   document.getElementById('modal-v-alert').innerHTML='';
@@ -3578,7 +3591,7 @@ async function abrirModalVuelo(){
   ['v-cal-pago','v-cal-cancel-sin','v-cal-cancel-con'].forEach(id=>{const el=document.getElementById(id);if(el)el.value=''});
   document.querySelectorAll('.v-cal-u').forEach(c=>{c.checked=false;});
   document.getElementById('v-visible').value='true';
-  nombreCupoManual=false;_regresoPrevio=null;
+  nombreCupoManual=false;_regresoPrevio=null;_itiAlAbrir=null;
   document.getElementById('tramos-wrap').innerHTML='';
   tramosCount=0;
   onCambioItinerarioFechas();  // b75: resetea el resumen de fechas del cupo (sin tramos → hint)
@@ -3669,27 +3682,55 @@ async function guardarVuelo(){
       datos.total_lugares=total_lugares;
       // Historial de itinerario: si cambió, guardar snapshot del anterior.
       // #75: se traen también los campos que definen la agenda de Calendar, para detectar si hay que re-agendar.
-      const {data:vAct}=await sb.from('vuelos').select('itinerario,itinerario_historial,fecha,nombre,aerolinea,cal_dias_pago_final,cal_dias_cancel_sin_gastos,cal_dias_cancel_con_gastos,cal_usuarios').eq('id',editarVueloId).single();
+      const {data:vAct}=await sb.from('vuelos').select('itinerario,itinerario_historial,fecha,nombre,aerolinea,precio,condiciones_equipaje,cal_dias_pago_final,cal_dias_cancel_sin_gastos,cal_dias_cancel_con_gastos,cal_usuarios').eq('id',editarVueloId).single();
       const itiViejo=vAct?.itinerario||null;
       const canonIti=arr=>(Array.isArray(arr)?arr:[]).map(t=>[t.tipo||'Ida',t.fecha||'',t.aerolinea||'',t.vuelo||'',t.origen||'',t.destino||'',t.salida||'',t.llegada||''].join('|')).join('||');
+      // b86: se compara contra el itinerario tal como se CARGÓ EN EL FORMULARIO (_itiAlAbrir), no contra la
+      // base. Si se comparara contra la base, la migración de fechas de b75 ("10 ene" → ISO) que ocurre al
+      // abrir el modal contaría como cambio: en prod eso pasa en 77 de 106 cupos, así que CUALQUIER edición
+      // (subir lugares, tocar el precio) disparaba un falso "cambió el itinerario" (reporte de Rodrigo).
+      const itiBase=Array.isArray(_itiAlAbrir)?_itiAlAbrir:itiViejo;
       let itinerarioCambio=false;
-      if(canonIti(itiViejo)!==canonIti(datos.itinerario)){
+      if(canonIti(itiBase)!==canonIti(datos.itinerario)){
         itinerarioCambio=true;
         const hist=Array.isArray(vAct?.itinerario_historial)?vAct.itinerario_historial:[];
         hist.push({fecha:new Date().toISOString(),usuario:(vendedores.find(v=>v.email===currentUser?.email)?.nombre||currentUser?.email||'?'),itinerario:itiViejo});
         datos.itinerario_historial=hist;
       }
+      // b86 (pedido Rodrigo, 23-jul): el aviso al equipo tiene que decir QUÉ cambió, no llamar "cambio de
+      // itinerario" a todo. Se juntan acá los cambios que le importan a quien vende este cupo. Los cambios
+      // internos (nombre, temporada, visibilidad, agenda de Calendar) NO avisan, y el VALOR NETO nunca sale
+      // por mail: es información reservada (grants de columna).
+      const cambiosCupo=[];
+      if(itinerarioCambio) cambiosCupo.push({tipo:'itinerario',etiqueta:'el itinerario (vuelo, horario o fecha)'});
+      if(total_lugares!==cantidadActual) cambiosCupo.push({
+        tipo:total_lugares>cantidadActual?'mas_lugares':'menos_lugares',
+        etiqueta:total_lugares>cantidadActual?`la cantidad de lugares: ahora hay MÁS (${cantidadActual} → ${total_lugares})`:`la cantidad de lugares: ahora hay MENOS (${cantidadActual} → ${total_lugares})`,
+        antes:cantidadActual,ahora:total_lugares});
+      {const pAntes=vAct?.precio==null?null:Number(vAct.precio), pAhora=datos.precio==null?null:Number(datos.precio);
+       if(pAntes!==pAhora) cambiosCupo.push({tipo:'precio',etiqueta:`el precio de venta (${pAntes==null?'sin precio':'USD '+pAntes} → ${pAhora==null?'sin precio':'USD '+pAhora})`,antes:pAntes,ahora:pAhora});}
+      if((vAct?.aerolinea||'')!==(datos.aerolinea||'')) cambiosCupo.push({tipo:'aerolinea',etiqueta:`la aerolínea (${vAct?.aerolinea||'sin aerolínea'} → ${datos.aerolinea||'sin aerolínea'})`,antes:vAct?.aerolinea||'',ahora:datos.aerolinea||''});
+      if((vAct?.condiciones_equipaje||'')!==(datos.condiciones_equipaje||'')) cambiosCupo.push({tipo:'equipaje',etiqueta:'las condiciones de equipaje',antes:vAct?.condiciones_equipaje||'',ahora:datos.condiciones_equipaje||''});
       const {error}=await sb.from('vuelos').update(datos).eq('id',editarVueloId);
       if(error){setBtnLoading('btn-crear-vuelo',false,'Guardar cambios');mostrarAlerta('modal-v-alert',error.message,'error');return;}
       await registrarLog('editar_cupo','vuelo',editarVueloId,{itinerario_cambio:itinerarioCambio});
       setBtnLoading('btn-crear-vuelo',false,'Guardar cambios');
-      // 1) Aviso al equipo si cambió el itinerario de un cupo a la venta. ES LO IMPORTANTE de un cambio de
-      //    horario: unas horas pueden cambiarle el viaje al pasajero. Se confirma antes de enviar.
-      let avisoItinerario=false;
-      if(itinerarioCambio&&datos.visible&&N8N_WEBHOOK_ITINERARIO){
-        if(confirm('Cambió el itinerario de un cupo que está a la venta.\n\n¿Enviar un aviso por mail a todo el equipo (vendedores + Operaciones)?')){
-          avisarCambioItinerario(datos,itiViejo,datos.itinerario);
-          avisoItinerario=true;
+      // 1) Aviso al equipo si cambió algo del cupo que está a la venta. Un cambio de horario de unas horas
+      //    puede cambiarle el viaje al pasajero, y que aparezcan lugares nuevos es una oportunidad de venta:
+      //    las dos cosas merecen aviso, pero cada una con su nombre. Se confirma SIEMPRE antes de enviar
+      //    (pedido explícito de Rodrigo: que siga preguntando).
+      let avisoCambio=false;
+      if(cambiosCupo.length&&datos.visible){
+        const listado=cambiosCupo.map(c=>'  • '+c.etiqueta).join('\n');
+        if(N8N_WEBHOOK_ITINERARIO){
+          if(confirm(`En este cupo, que está a la venta, cambió:\n\n${listado}\n\n¿Enviar un aviso por mail a todo el equipo (vendedores + Operaciones)?`)){
+            avisarCambioCupo(datos,itiViejo,datos.itinerario,cambiosCupo);
+            avisoCambio=true;
+          }
+        }else{
+          // Ambiente con el aviso apagado (TEST): igual se muestra lo detectado, para poder probar que el
+          // sistema nombra bien el cambio sin mandarle un mail a nadie.
+          alert(`En este cupo, que está a la venta, cambió:\n\n${listado}\n\nEn este ambiente el aviso por mail está apagado: no se envía nada.`);
         }
       }
       // 2) Re-agendar la agenda de pagos en Calendar: SIEMPRE se pregunta (feedback Nacho, 13-jul).
@@ -3707,7 +3748,7 @@ async function guardarVuelo(){
           :'Quitaste los invitados de la agenda de este cupo.\n\n¿Borrar del calendario los recordatorios de pago/cancelación que ya estaban? (Los invitados recibirán la cancelación.)';
         if(confirm(msg)) agendarEventosCupo({...datos,vuelo_id:editarVueloId},{edicion:true});
       }
-      mostrarAlerta('modal-v-alert',avisoItinerario?'Vuelo actualizado — aviso de cambio enviado al equipo':'Vuelo actualizado','success');
+      mostrarAlerta('modal-v-alert',avisoCambio?'Vuelo actualizado — aviso de cambio enviado al equipo':'Vuelo actualizado','success');
       setTimeout(()=>{cerrarModal('modal-vuelo');if(currentVueloId===editarVueloId)cargarDetalle(editarVueloId)},1000);
     } else {
       if(!total_lugares){mostrarAlerta('modal-v-alert','Total de lugares es obligatorio','error');setBtnLoading('btn-crear-vuelo',false,'Crear cupo');return;}
