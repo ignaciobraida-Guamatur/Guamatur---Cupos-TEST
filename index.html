@@ -292,6 +292,12 @@
       <button class="btn btn-primary" style="width:100%" onclick="abrirModalUsuario()">+ Nuevo usuario</button>
       <div id="admin-usuarios" style="margin-top:12px"></div>
     </div>
+    <div class="admin-card">
+      <div class="admin-card-title">Acciones comerciales <span style="color:var(--muted);font-size:11px;font-weight:400">(preventa, Black Friday…)</span></div>
+      <button class="btn btn-primary" style="width:100%" onclick="abrirModalAccion()">+ Nueva acción</button>
+      <div style="font-size:11px;color:var(--muted);margin-top:8px">Las etiquetas se le ponen a los lugares desde “⚙ Gestionar cupo”. Los lugares marcados no se bloquean.</div>
+      <div id="admin-acciones" style="margin-top:12px"></div>
+    </div>
   </div>
   <div class="admin-card" style="margin-top:16px">
     <div class="admin-card-title" style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
@@ -500,6 +506,62 @@
     <div class="modal-actions">
       <button class="btn btn-outline" onclick="cerrarModal('modal-reducir')">Cerrar</button>
       <button class="btn btn-warning" id="btn-confirmar-reducir" onclick="confirmarReduccion()">Confirmar reducción</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL CREAR / EDITAR ACCIÓN COMERCIAL (b82, solo admin) -->
+<div id="modal-accion" class="modal-overlay" style="display:none">
+  <div class="modal" style="max-width:460px">
+    <div class="modal-title" id="modal-accion-titulo">Nueva acción comercial</div>
+    <div id="modal-accion-alert"></div>
+    <div class="form-group">
+      <label class="form-label">Nombre</label>
+      <input class="form-input" id="acc-nombre" placeholder="Ej: Pre venta Verano 2027" maxlength="60"/>
+    </div>
+    <div class="form-grid">
+      <div class="form-group">
+        <label class="form-label">Color</label>
+        <input class="form-input" id="acc-color" type="color" value="#7c6ffd" style="height:40px;padding:4px"/>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Estado</label>
+        <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin-top:8px;cursor:pointer">
+          <input type="checkbox" id="acc-activa" checked/> Activa (se puede asignar)
+        </label>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" onclick="cerrarModal('modal-accion')">Cancelar</button>
+      <button class="btn btn-primary" id="btn-guardar-accion" onclick="guardarAccion()">Guardar</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL ACCIONES COMERCIALES DEL CUPO (b82, solo admin) -->
+<div id="modal-acciones-cupo" class="modal-overlay" style="display:none">
+  <div class="modal" style="max-width:640px">
+    <div class="modal-title">Acciones comerciales</div>
+    <div id="modal-acc-alert"></div>
+    <div style="background:rgba(124,111,253,0.08);border:1px solid rgba(124,111,253,0.2);border-radius:8px;padding:10px;font-size:13px;color:var(--accent2);margin-bottom:16px">
+      Marcá los lugares que van para una acción comercial (preventa, Black Friday…). <b>No se bloquean</b>: el vendedor los puede reservar normalmente. La marca queda aunque se reserven o se vendan, que es lo que permite después ver cómo viene la acción.
+    </div>
+    <div class="form-group">
+      <label class="form-label">Acción a aplicar</label>
+      <select class="form-select" id="acc-selector"></select>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Lugares <span id="acc-contador" style="color:var(--muted)"></span></label>
+      <div style="display:flex;gap:8px;margin-bottom:8px">
+        <button class="btn-sm" type="button" onclick="accMarcarTodos(true)">Marcar todos</button>
+        <button class="btn-sm" type="button" onclick="accMarcarTodos(false)">Desmarcar todos</button>
+      </div>
+      <div id="acc-lugares" style="max-height:300px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;padding:8px"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" onclick="cerrarModal('modal-acciones-cupo')">Cerrar</button>
+      <button class="btn btn-outline" id="btn-quitar-accion" onclick="aplicarAccionLugares(true)">Quitar la etiqueta</button>
+      <button class="btn btn-primary" id="btn-aplicar-accion" onclick="aplicarAccionLugares(false)">Aplicar acción</button>
     </div>
   </div>
 </div>
@@ -787,7 +849,7 @@ const sb=supabase.createClient(CONFIG.SUPABASE_URL,CONFIG.SUPABASE_ANON_KEY,{
 // ⚠️ Una sola versión por cadena y CORTA: el detalle va al CHANGELOG.md, no acá. Nacho ve este texto
 // completo en el encabezado (el resto ve solo el "bNN") y si es largo se desborda; además `APP_VERSION_CORTA`
 // saca el número con un match, así que dos "bNN" en la misma cadena confunden cuál es la versión.
-const APP_VERSION='TEST · 2026-08-13 (b81 · Estirar vencimiento: admin y Operaciones dan mas horas a una reserva sin tocar la fecha de reserva)';
+const APP_VERSION='TEST · b82 · ACCIONES COMERCIALES (etiquetas por lugar, sin bloqueo)';
 // Columnas de 'vuelos' legibles por cualquier usuario. EXCLUYE precio_neto: el admin lo lee por RPC admin_get_precio_neto (gateada por es_admin). No usar select('*') sobre vuelos: la columna precio_neto quedó revocada a authenticated.
 // ⚠️ Toda columna que se agregue acá necesita `grant select (col) to authenticated` en la base, si no
 // PostgREST tira 400 y se cae la pantalla entera (gotcha #6). `emitido` viene de la migración 2026-08-06.
@@ -891,6 +953,10 @@ let temporadas=[],temporadaActiva=null,vuelosData=[],tramosCount=0,dashFiltro='t
 let reservarVueloId=null,reservarLugaresLibres=0,reservarLugaresIds=[];
 let cancelarLugarId=null,cancelarPasajeroId=null,cancelarVueloId=null;
 let editarVueloId=null,vendedores=[],guardandoVuelo=false,nombreCupoManual=false,_regresoPrevio=null;
+// Acciones comerciales (b82): catálogo de etiquetas que el admin le pone a lugares sueltos
+// (preventa, Black Friday…). Lo lee cualquier usuario: el vendedor tiene que ver el color.
+let accionesComerciales=[];
+const accionDeLugar=l=>(l&&l.accion_id)?(accionesComerciales.find(a=>a.id===l.accion_id)||null):null;
 
 async function loginGoogle(){await sb.auth.signInWithOAuth({provider:'google',options:{redirectTo:CONFIG.APP_URL,queryParams:{hd:CONFIG.OAUTH_DOMINIO}}})}
 async function cerrarSesion(){try{await sb.auth.signOut({scope:'local'});}catch(e){console.warn('signOut:',e);}window.location.reload()}
@@ -984,6 +1050,11 @@ async function iniciarSesion(session){
   const {data:vends,error:ve}=await sb.from('usuarios').select('nombre,email,rol,activo').order('nombre');
   console.log('vendedores cargados:',vends?.length,ve);
   vendedores=vends||[];
+  // Catálogo de acciones comerciales (b82). Si falla no se rompe nada: los lugares se ven sin etiqueta.
+  try{
+    const {data:accs}=await sb.from('acciones_comerciales').select('id,nombre,color,activa').order('nombre');
+    accionesComerciales=accs||[];
+  }catch(e){console.warn('[acciones comerciales]',e);accionesComerciales=[];}
   // Delegación: titulares que este usuario asiste (puede operar sus fichas como propias)
   misAsistidas=[];
   try{
@@ -1680,6 +1751,7 @@ async function cargarDetalle(vueloId){
         <button class="menu-item" onclick="this.closest('details').removeAttribute('open');marcarEmitido('${vueloId}',${vuelo.emitido?'false':'true'})">${vuelo.emitido?'🔓 Sacar la marca de EMITIDO':'🎫 Marcar como EMITIDO (congela el cupo)'}</button>
         <button class="menu-item" onclick="this.closest('details').removeAttribute('open');imprimirItinerario('${vueloId}')">🖨 Imprimir / PDF</button>
         <button class="menu-item" onclick="this.closest('details').removeAttribute('open');abrirModalReducir('${vueloId}')">▾ Reducir plazas</button>
+        <button class="menu-item" onclick="this.closest('details').removeAttribute('open');abrirModalAccionesCupo('${vueloId}')">🏷 Acciones comerciales</button>
         <div class="menu-divider"></div>
         <div class="menu-label">Peligro</div>
         <button class="menu-item danger" onclick="this.closest('details').removeAttribute('open');abrirModalCancelar('${vueloId}')">⚠ Cancelar reserva (con penalidad)…</button>
@@ -1757,6 +1829,11 @@ async function cargarDetalle(vueloId){
     const tpEmail=p?.travel_partner_email||'';
     const tpNom=tpEmail?((vendedores.find(v=>String(v.email||'').toLowerCase()===tpEmail.toLowerCase())||{}).nombre||tpEmail):'';
     const tpTag=tpNom?` <span class="badge" title="Ficha abierta para el Travel Partner: ${esc(tpNom)}" style="background:rgba(124,111,253,0.18);color:var(--accent2);border:1px solid rgba(124,111,253,0.35)">TP: ${esc(tpNom)}</span>`:'';
+    // Acción comercial (b82): el lugar está reservado para una acción (preventa, Black Friday…).
+    // NO lo bloquea: el vendedor lo reserva normal. Es una marca visual, con el color de la acción.
+    const acc=accionDeLugar(l);
+    const accStyle=acc?` style="box-shadow:inset 5px 0 0 ${esc(acc.color)}"`:'';
+    const accTag=acc?` <span class="badge" title="Acción comercial: ${esc(acc.nombre)} — el lugar se puede reservar normalmente" style="background:${esc(acc.color)}22;color:${esc(acc.color)};border:1px solid ${esc(acc.color)}66">🏷 ${esc(acc.nombre)}</span>`:'';
     let rowCls,statusCell;
     if(modo==='reducido'){rowCls='row-cancelado';statusCell='<span class="badge badge-l">REDUCIDO</span>';}
     else if(cancelado){rowCls='row-cancelado';statusCell='<span class="badge badge-yellow">CANCEL</span>';}
@@ -1775,7 +1852,7 @@ async function cargarDetalle(vueloId){
     // Ola 3: admin/operaciones (des)bloquean un lugar para Operaciones (solo lugares activos libres)
     const btnBloqueo=((esAdmin||esOper)&&modo==='activo'&&libreSeat&&!l.reducido)?`<button class="btn-sm btn-sm-oper" title="${l.bloqueado_operaciones?'Liberar este lugar para que lo puedan reservar los vendedores':'Reservar este lugar para Operaciones (los vendedores no lo pueden tomar)'}" onclick="toggleBloqueoOper('${l.id}','${vuelo.id}',${l.bloqueado_operaciones?'false':'true'})">${l.bloqueado_operaciones?'🔓 Desbloquear':'🔒 Bloquear Oper'}</button>`:'';
     const accionCell=[(accion&&accion!=='—')?accion:'',btnPdf,btnBloqueo].filter(Boolean).join(' ')||accion;
-    let h=`<tr class="${rowCls}">
+    let h=`<tr class="${rowCls}"${accStyle}>
       <td style="font-family:'DM Mono',monospace;font-weight:500"${numVisible!=null&&numVisible!==l.numero_lugar?` title="Lugar interno ${l.numero_lugar} — es el que figura en el historial de actividad"`:''}>${numVisible!=null?numVisible:l.numero_lugar}</td>
       <td>${esc(p?.primer_apellido)||'—'}</td>
       <td>${esc(p?.segundo_apellido)||'—'}</td>
@@ -1783,7 +1860,7 @@ async function cargarDetalle(vueloId){
       <td>${esc(p?.segundo_nombre)||'—'}</td>
       <td style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(p?.hotel)||'—'}</td>
       <td>${esc(p?.vendedor)||'—'}${tpTag}</td>
-      <td>${statusCell}</td>
+      <td>${statusCell}${accTag}</td>
       <td>${esc(p?.factura)||'—'}</td>
       <td>${libreSeat?'—':formatFechaHora(p?.fecha_reserva||p?.creado_en)}</td>
       <td class="${vencCls}">${st==='R'?(l.es_espera?'<span style="color:var(--muted)">sin venc. (espera)</span>':vText):(st==='V'?'<span style="color:var(--green)">Vendida</span>':'—')}</td>
@@ -2513,6 +2590,139 @@ async function confirmarReduccion(){
   mostrarAlerta('modal-red-alert',`${hechos} plaza${hechos>1?'s':''} reducida${hechos>1?'s':''}`+(hechos<n?` (de ${n} pedidas; el resto ya no estaba libre)`:''),'success');
   setTimeout(()=>{cerrarModal('modal-reducir');cargarDetalle(reducirVueloId)},1000);
 }
+// ---------- Acciones comerciales: administración del catálogo (b82, solo admin) ----------
+// El resumen (lugares / libres / reservados / vendidos) es el "control de lo vendido" que pidió
+// Operaciones: sirve para ver cómo viene cada acción sin tener que abrir cupo por cupo.
+async function cargarAccionesAdmin(){
+  const el=document.getElementById('admin-acciones');if(!el)return;
+  await asegurarTokenFresco();
+  const res=await conReintentoAuth(()=>sb.rpc('admin_resumen_acciones'),'RPC admin_resumen_acciones');
+  if(res?.error){el.innerHTML='<div style="font-size:13px;color:var(--muted)">No se pudo cargar el resumen.</div>';return;}
+  const filas=res?.data||[];
+  accionesComerciales=filas.map(f=>({id:f.accion_id,nombre:f.nombre,color:f.color,activa:f.activa}));
+  if(!filas.length){el.innerHTML='<div style="font-size:13px;color:var(--muted)">Todavía no hay acciones creadas.</div>';return;}
+  el.innerHTML=filas.map(f=>`<div style="padding:8px 0;border-bottom:1px solid var(--border)${f.activa?'':';opacity:.55'}">
+    <div style="display:flex;align-items:center;gap:8px">
+      <span style="width:12px;height:12px;border-radius:3px;background:${esc(f.color)};flex:none"></span>
+      <div style="font-size:13px;font-weight:500;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(f.nombre)}</div>
+      ${f.activa?'':'<span class="badge badge-l">Inactiva</span>'}
+      <button class="btn-sm" onclick="abrirModalAccion('${f.accion_id}')">Editar</button>
+      <button class="btn-sm btn-sm-toggle" onclick="eliminarAccion('${f.accion_id}','${esc(f.nombre)}',${f.lugares})">${f.lugares>0?'Desactivar':'Borrar'}</button>
+    </div>
+    <div style="font-size:11px;color:var(--muted);margin-top:3px;padding-left:20px">
+      ${f.lugares} lugar${f.lugares===1?'':'es'} · <span style="color:var(--green)">${f.vendidos} vendido${f.vendidos===1?'':'s'}</span> · ${f.reservados} reservado${f.reservados===1?'':'s'} · ${f.libres} libre${f.libres===1?'':'s'}
+    </div>
+  </div>`).join('');
+}
+let accionEditId=null;
+function abrirModalAccion(id){
+  accionEditId=id||null;
+  const a=id?(accionesComerciales.find(x=>x.id===id)||{}):{};
+  document.getElementById('acc-nombre').value=a.nombre||'';
+  document.getElementById('acc-color').value=a.color||'#7c6ffd';
+  document.getElementById('acc-activa').checked=a.activa!==false;
+  document.getElementById('modal-accion-titulo').textContent=id?'Editar acción comercial':'Nueva acción comercial';
+  document.getElementById('modal-accion-alert').innerHTML='';
+  document.getElementById('modal-accion').style.display='flex';
+}
+async function guardarAccion(){
+  const nombre=document.getElementById('acc-nombre').value.trim();
+  if(!nombre){mostrarAlerta('modal-accion-alert','Poné un nombre','error');return;}
+  const color=document.getElementById('acc-color').value;
+  const activa=document.getElementById('acc-activa').checked;
+  setBtnLoading('btn-guardar-accion',true,'Guardar');
+  await asegurarTokenFresco();
+  const res=await conReintentoAuth(()=>sb.rpc('admin_guardar_accion',{p_id:accionEditId,p_nombre:nombre,p_color:color,p_activa:activa}),'RPC admin_guardar_accion');
+  setBtnLoading('btn-guardar-accion',false,'Guardar');
+  if(res?.error){
+    const dup=/acciones_comerciales_nombre_uniq|duplicate key/i.test(res.error.message||'');
+    mostrarAlerta('modal-accion-alert',dup?'Ya existe una acción con ese nombre':'Error: '+res.error.message,'error');
+    return;
+  }
+  cerrarModal('modal-accion');
+  cargarAccionesAdmin();
+}
+async function eliminarAccion(id,nombre,lugares){
+  const msg=lugares>0
+    ? `"${nombre}" tiene ${lugares} lugar(es) marcados, así que no se borra: se DESACTIVA (deja de ofrecerse, pero se conserva el rastro de lo que ya se vendió). ¿Continuar?`
+    : `¿Borrar la acción "${nombre}"?`;
+  if(!confirm(msg))return;
+  await asegurarTokenFresco();
+  const res=await conReintentoAuth(()=>sb.rpc('admin_eliminar_accion',{p_id:id}),'RPC admin_eliminar_accion');
+  if(res?.error){alert('Error: '+res.error.message);return;}
+  cargarAccionesAdmin();
+}
+
+// ---------- Acciones comerciales (b82) ----------
+// El admin marca lugares de un cupo con una etiqueta de acción (preventa, Black Friday…).
+// Los lugares NO se bloquean: es una marca visual que sobrevive a la reserva y a la venta.
+let accionesVueloId=null;
+async function abrirModalAccionesCupo(vueloId){
+  accionesVueloId=vueloId;
+  await asegurarTokenFresco();
+  // Refresco el catálogo por si el admin creó una acción nueva en otra pestaña
+  const {data:accs}=await sb.from('acciones_comerciales').select('id,nombre,color,activa').order('nombre');
+  accionesComerciales=accs||[];
+  const activas=accionesComerciales.filter(a=>a.activa);
+  const sel=document.getElementById('acc-selector');
+  sel.innerHTML=activas.length
+    ? activas.map(a=>`<option value="${a.id}">${esc(a.nombre)}</option>`).join('')
+    : '<option value="">— No hay acciones creadas —</option>';
+  document.getElementById('btn-aplicar-accion').disabled=!activas.length;
+
+  const {data:lugs}=await sb.from('lugares')
+    .select('id,numero_lugar,es_espera,reducido,accion_id,pasajeros(status,cancelado,primer_apellido,primer_nombre)')
+    .eq('vuelo_id',vueloId).eq('es_infant',false).order('numero_lugar');
+  // Mismo criterio que la RPC: espera y reducidos no participan de acciones comerciales
+  const elegibles=(lugs||[]).filter(l=>!l.es_espera&&!l.reducido);
+  document.getElementById('acc-lugares').innerHTML = elegibles.length ? elegibles.map(l=>{
+    const p=l.pasajeros?.[0];
+    const st=p?.cancelado?'CANCEL':(p?.status||'L');
+    const quien=(p&&st!=='L'&&!p.cancelado)?` — ${esc(p.primer_apellido||'')} ${esc(p.primer_nombre||'')}`.trimEnd():'';
+    const acc=accionDeLugar(l);
+    const marca=acc?` <span class="badge" style="background:${esc(acc.color)}22;color:${esc(acc.color)};border:1px solid ${esc(acc.color)}66">🏷 ${esc(acc.nombre)}</span>`:'';
+    const estado=st==='L'?'<span style="color:var(--muted)">libre</span>':`<b>${st}</b>${quien}`;
+    return `<label style="display:flex;align-items:center;gap:8px;padding:5px 4px;border-bottom:1px solid var(--border);cursor:pointer">
+      <input type="checkbox" class="acc-chk" value="${l.id}" ${acc?'checked':''} onchange="accActualizarContador()"/>
+      <span style="font-family:'DM Mono',monospace;min-width:28px">${l.numero_lugar}</span>
+      <span style="flex:1;font-size:13px">${estado}</span>${marca}
+    </label>`;
+  }).join('') : '<div style="color:var(--muted);font-size:13px;padding:6px">Este cupo no tiene lugares elegibles.</div>';
+
+  document.getElementById('modal-acc-alert').innerHTML='';
+  accActualizarContador();
+  document.getElementById('modal-acciones-cupo').style.display='flex';
+}
+function accActualizarContador(){
+  const n=document.querySelectorAll('.acc-chk:checked').length;
+  const tot=document.querySelectorAll('.acc-chk').length;
+  document.getElementById('acc-contador').textContent=`(${n} de ${tot} marcados)`;
+}
+function accMarcarTodos(v){
+  document.querySelectorAll('.acc-chk').forEach(c=>{c.checked=v});
+  accActualizarContador();
+}
+async function aplicarAccionLugares(quitar){
+  const ids=[...document.querySelectorAll('.acc-chk:checked')].map(c=>c.value);
+  if(!ids.length){mostrarAlerta('modal-acc-alert','Marcá al menos un lugar','error');return;}
+  const accId=document.getElementById('acc-selector').value;
+  if(!quitar&&!accId){mostrarAlerta('modal-acc-alert','Primero creá una acción comercial desde Administración','error');return;}
+  const nombreAcc=(accionesComerciales.find(a=>a.id===accId)||{}).nombre||'';
+  if(!confirm(quitar
+      ? `¿Quitarle la etiqueta a ${ids.length} lugar(es)?`
+      : `¿Marcar ${ids.length} lugar(es) como "${nombreAcc}"? No se bloquean: el vendedor los va a poder reservar igual.`)) return;
+  const btn=quitar?'btn-quitar-accion':'btn-aplicar-accion';
+  const txt=quitar?'Quitar la etiqueta':'Aplicar acción';
+  setBtnLoading(btn,true,txt);
+  await asegurarTokenFresco();
+  const res=await conReintentoAuth(()=>sb.rpc('set_accion_lugares',{p_lugar_ids:ids,p_accion_id:quitar?null:accId}),'RPC set_accion_lugares');
+  setBtnLoading(btn,false,txt);
+  if(res?.error){mostrarAlerta('modal-acc-alert','Error: '+res.error.message,'error');return;}
+  const n=res?.data||0;
+  mostrarAlerta('modal-acc-alert',quitar?`Etiqueta quitada de ${n} lugar(es)`:`${n} lugar(es) marcados como "${nombreAcc}"`,'success');
+  setTimeout(()=>{cerrarModal('modal-acciones-cupo');cargarDetalle(accionesVueloId)},900);
+}
+
 let cancelarCupoVueloId=null;
 function cancelarCupo(vueloId){
   cancelarCupoVueloId=vueloId;
@@ -2805,6 +3015,7 @@ async function cargarAdmin(){
     sb.from('usuarios').select('email,nombre,rol,activo').order('nombre')
   ]);
   cargarLog(true);
+  cargarAccionesAdmin();
   temporadas=temps||[];
   document.getElementById('admin-temporadas').innerHTML=temporadas.map(t=>`<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border);gap:8px"><div style="font-size:13px;font-weight:500;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(t.nombre)}</div><span class="badge ${t.activa?'badge-green':'badge-l'}">${t.activa?'Activa':'Inactiva'}</span><button class="btn-sm" onclick="abrirEditarTemporada('${t.id}')">Editar</button><button class="btn-sm btn-sm-toggle" onclick="toggleActivaTemporada('${t.id}',${!!t.activa})">${t.activa?'Desactivar':'Activar'}</button></div>`).join('');
   // Cupos agrupados POR TEMPORADA (b76): secciones plegables en vez de una lista plana. Temporadas activas
