@@ -848,7 +848,7 @@ const sb=supabase.createClient(CONFIG.SUPABASE_URL,CONFIG.SUPABASE_ANON_KEY,{
 // ⚠️ Una sola versión por cadena y CORTA: el detalle va al CHANGELOG.md, no acá. Nacho ve este texto
 // completo en el encabezado (el resto ve solo el "bNN") y si es largo se desborda; además `APP_VERSION_CORTA`
 // saca el número con un match, así que dos "bNN" en la misma cadena confunden cuál es la versión.
-const APP_VERSION='TEST · b87 (preventa: vence en 48h, pastilla en el listado, aviso de mezcla)';
+const APP_VERSION='TEST · b88 (pastilla de acción con color lleno)';
 // Columnas de 'vuelos' legibles por cualquier usuario. EXCLUYE precio_neto: el admin lo lee por RPC admin_get_precio_neto (gateada por es_admin). No usar select('*') sobre vuelos: la columna precio_neto quedó revocada a authenticated.
 // ⚠️ Toda columna que se agregue acá necesita `grant select (col) to authenticated` en la base, si no
 // PostgREST tira 400 y se cae la pantalla entera (gotcha #6). `emitido` viene de la migración 2026-08-06.
@@ -1026,6 +1026,14 @@ const accionDeLugar=l=>(l&&l.accion_id)?(accionesComerciales.find(a=>a.id===l.ac
 // b87: {vuelo_id: [acciones con lugares LIBRES]} — alimenta las pastillas del listado de cupos.
 // Se rearma en cada cargarVuelos(); sale de la RPC acciones_libres_por_cupo.
 let accionesPorCupo={};
+// Texto blanco o negro sobre el color de la acción, según cuál se lea. El color lo elige el admin y
+// puede ser claro: un amarillo con texto blanco no se lee. Luminancia percibida (ITU-R BT.601).
+function textoSobre(hex){
+  const h=String(hex||'').replace('#','');
+  if(!/^[0-9a-f]{6}$/i.test(h)) return '#fff';
+  const r=parseInt(h.slice(0,2),16),g=parseInt(h.slice(2,4),16),b=parseInt(h.slice(4,6),16);
+  return (0.299*r+0.587*g+0.114*b)>150?'#111':'#fff';
+}
 
 async function loginGoogle(){await sb.auth.signInWithOAuth({provider:'google',options:{redirectTo:CONFIG.APP_URL,queryParams:{hd:CONFIG.OAUTH_DOMINIO}}})}
 async function cerrarSesion(){try{await sb.auth.signOut({scope:'local'});}catch(e){console.warn('signOut:',e);}window.location.reload()}
@@ -1666,7 +1674,10 @@ function renderVuelos(lista){
     // b87: pastilla por acción comercial con lugares libres. Va con el color de la acción y su nombre,
     // así el vendedor identifica la preventa sin entrar al cupo. El "N libres" evita el malentendido de
     // creer que TODO el cupo es de la acción.
-    const acc=(accionesPorCupo[d.id]||[]).map(a=>` <span class="badge" style="background:${esc(a.color)}22;color:${esc(a.color)};border:1px solid ${esc(a.color)}66" title="${esc(a.nombre)}: ${a.libres} de ${a.total} lugares todavía libres. Se reservan normalmente; vencen en 48 h.">${esc(a.nombre)} · ${a.libres} libre${a.libres===1?'':'s'}</span>`).join('');
+    // La pastilla va con el color LLENO y no como tinte suave: el nombre del cupo ya se pinta con el
+    // acento violeta de la UI, así que una pastilla translúcida del mismo tono se confundía con el
+    // título (feedback de Nacho). Llena, se lee como una etiqueta y no como parte del nombre.
+    const acc=(accionesPorCupo[d.id]||[]).map(a=>` <span class="badge" style="background:${esc(a.color)};color:${textoSobre(a.color)};border:1px solid ${esc(a.color)};font-weight:700;letter-spacing:.2px" title="${esc(a.nombre)}: ${a.libres} de ${a.total} lugares todavía libres. Se reservan normalmente; vencen en 48 h.">${esc(a.nombre)} · ${a.libres} libre${a.libres===1?'':'s'}</span>`).join('');
     html+=`<tr style="cursor:pointer" onclick="goToDetalle('${d.id}')">
       <td style="color:var(--accent2);font-weight:500">${esc(d.nombre)}${oculto}${redu}${emit}${acc}</td>
       <td><span class="badge ${regionBadge(d.destino)}">${esc(d.destino)||'—'}</span></td>
