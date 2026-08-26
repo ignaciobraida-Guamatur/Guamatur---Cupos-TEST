@@ -829,6 +829,21 @@ const CONFIG={
     {email:'dory@guamatur.com',nombre:'Dory Fazzi',porDefecto:['pago_final']},
     {email:'productoaereo@guamatur.com',nombre:'Producto Aéreo',porDefecto:['pago_final','cancel_sin_gastos','cancel_con_gastos']}
   ],
+  // b90 — VOUCHER DE VUELO POR PASAJERO (pedido de Mikaela Minetti, 7 y 10-ago-2026).
+  // Para estas aerolíneas Guamatur emite su propio voucher, porque no llega uno de la línea aérea a
+  // nombre del pasajero. Agregar o sacar una aerolínea de esta lista es todo lo que hace falta.
+  VOUCHER_AEROLINEAS:['SKY','Azul','GOL'],
+  // Cómo se nombra a la aerolínea EN EL VOUCHER (razón social, como en el que hace Operaciones a mano).
+  // Si una no está acá, se usa el nombre corto del cupo.
+  VOUCHER_COMPANIA:{SKY:'SKY AIRLINE',Azul:'AZUL LINHAS AEREAS',GOL:'GOL LINHAS AEREAS'},
+  // Bloque "Importante" del voucher — texto EXACTO que pasó Operaciones. No es el mismo que
+  // CONDICIONES_ITINERARIO: aquel son las condiciones de contratación del cupo, este es el ticket manual.
+  VOUCHER_IMPORTANTE:[
+    'La documentación de viaje es de su exclusiva responsabilidad. Deberá tener un mínimo de 6 meses de vigencia y encontrarse en buen estado. Recomendamos consultar con el Consulado correspondiente los requisitos de ingreso al país de destino y/o tránsito.',
+    'Si viaja con menores no olvide consultar en el siguiente enlace http://bit.do/informacion-sobre-permiso-de-menor.',
+    'Para obtener los datos oficiales puede consultar directamente a las oficinas correspondientes: https://migracion.minterior.gub.uy - https://dnic.minterior.gub.uy/.',
+    'La presentación en los aeropuertos debe ser de 3 horas antes de cada salida de vuelo.'
+  ],
   ATLAS_ENABLED:true,
   BRAND_PRIMARY:'#cd0039',BRAND_SECONDARY:'#981632',BRAND_COMP:'#fcf6eb',BRAND_COMP2:'#efefef',
   LOGO_COLOR:'logo-color.svg',   // logo color institucional (#cd0039) — para fondos claros (PDF)
@@ -852,7 +867,7 @@ const sb=supabase.createClient(CONFIG.SUPABASE_URL,CONFIG.SUPABASE_ANON_KEY,{
 // ⚠️ Una sola versión por cadena y CORTA: el detalle va al CHANGELOG.md, no acá. Nacho ve este texto
 // completo en el encabezado (el resto ve solo el "bNN") y si es largo se desborda; además `APP_VERSION_CORTA`
 // saca el número con un match, así que dos "bNN" en la misma cadena confunden cuál es la versión.
-const APP_VERSION='TEST · 2026-08-26 (b89 · la grilla de recordatorios del cupo nuevo ya viene marcada según lo que pidió cada uno)';
+const APP_VERSION='TEST · 2026-08-26 (b90 · voucher de vuelo por pasajero para SKY, Azul y GOL — solo Operaciones y admin)';
 // Columnas de 'vuelos' legibles por cualquier usuario. EXCLUYE precio_neto: el admin lo lee por RPC admin_get_precio_neto (gateada por es_admin). No usar select('*') sobre vuelos: la columna precio_neto quedó revocada a authenticated.
 // ⚠️ Toda columna que se agregue acá necesita `grant select (col) to authenticated` en la base, si no
 // PostgREST tira 400 y se cae la pantalla entera (gotcha #6). `emitido` viene de la migración 2026-08-06.
@@ -1817,6 +1832,8 @@ async function cargarDetalle(vueloId){
   const esVueloC=libresArr.length<=3;
   const esAdmin=rolEfectivo==='admin';
   const esOper=rolEfectivo==='operaciones';   // Ola 3: Operaciones edita cualquier ficha + (des)bloquea lugares
+  // b90: ¿este cupo es de una aerolínea para la que Guamatur emite su propio voucher? (CONFIG.VOUCHER_AEROLINEAS)
+  const aeroConVoucher=(CONFIG.VOUCHER_AEROLINEAS||[]).some(a=>String(a).trim().toLowerCase()===String(vuelo?.aerolinea||'').trim().toLowerCase());
   const infantMap={};
   (infants||[]).forEach(inf=>{if(inf.pasajero_id)infantMap[inf.pasajero_id]=inf});
   // Reservable: admin todos los libres; vendedor excluye los bloqueados para Operaciones
@@ -1992,7 +2009,11 @@ async function cargarDetalle(vueloId){
     const btnPdf=(p&&st!=='L'&&!cancelado&&modo!=='reducido')?`<button class="btn-sm" title="Itinerario PDF de esta reserva (con fecha y vencimiento)" onclick="event.stopPropagation();imprimirItinerario('${vuelo.id}','${l.id}')">🖨 PDF</button>`:'';
     // Ola 3: admin/operaciones (des)bloquean un lugar para Operaciones (solo lugares activos libres)
     const btnBloqueo=((esAdmin||esOper)&&modo==='activo'&&libreSeat&&!l.reducido)?`<button class="btn-sm btn-sm-oper" title="${l.bloqueado_operaciones?'Liberar este lugar para que lo puedan reservar los vendedores':'Reservar este lugar para Operaciones (los vendedores no lo pueden tomar)'}" onclick="toggleBloqueoOper('${l.id}','${vuelo.id}',${l.bloqueado_operaciones?'false':'true'})">${l.bloqueado_operaciones?'🔓 Desbloquear':'🔒 Bloquear Oper'}</button>`:'';
-    const accionCell=[(accion&&accion!=='—')?accion:'',btnPdf,btnBloqueo].filter(Boolean).join(' ')||accion;
+    // b90: voucher de vuelo. Solo Operaciones y admin (no el vendedor), solo en las aerolíneas que no
+    // emiten ticket propio, y solo sobre una VENTA: un voucher de una reserva sin pagar sería un
+    // documento de viaje de algo que todavía se puede caer.
+    const btnVoucher=((esAdmin||esOper)&&aeroConVoucher&&p&&st==='V'&&!cancelado&&modo!=='reducido')?`<button class="btn-sm" title="Voucher de vuelo de este pasajero (el ticket manual de Guamatur)" onclick="event.stopPropagation();imprimirVoucherPasajero('${vuelo.id}','${l.id}')">🎫 Voucher</button>`:'';
+    const accionCell=[(accion&&accion!=='—')?accion:'',btnPdf,btnVoucher,btnBloqueo].filter(Boolean).join(' ')||accion;
     let h=`<tr class="${rowCls}"${accStyle}>
       <td style="font-family:'DM Mono',monospace;font-weight:500"${numVisible!=null&&numVisible!==l.numero_lugar?` title="Lugar interno ${l.numero_lugar} — es el que figura en el historial de actividad"`:''}>${acc?`<span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:${esc(acc.color)};margin-right:6px;vertical-align:middle" title="${esc(acc.nombre)}"></span>`:''}${numVisible!=null?numVisible:l.numero_lugar}</td>
       <td>${esc(p?.primer_apellido)||'—'}</td>
@@ -3147,6 +3168,75 @@ async function exportarTemporada(){
 }
 
 // ── IMPRIMIR / PDF ITINERARIO (con logo) ─────────
+// ── b90 · VOUCHER DE VUELO POR PASAJERO ──────────────────────────────────────────────────────────
+// Pedido de Mikaela Minetti (7 y 10-ago-2026): para SKY, Azul y GOL, Guamatur emite un voucher manual
+// que hoy Operaciones arma a mano. Es un documento DE VUELO y solo eso: **no lleva alojamiento**, ni
+// número de ficha, ni vendedor, ni precio — Mikaela lo pidió explícitamente ("el voucher que hacemos
+// está relacionado únicamente a los vuelos emitidos a ese pasajero individual").
+// ⚠️ NO confundir con imprimirItinerario(): aquel es el itinerario del CUPO que entrega el vendedor,
+// con las condiciones de contratación. Este es el ticket, y lo ven SOLO Operaciones y administradores
+// (decisión de Nacho): no es una pieza del vendedor.
+// Es SIEMPRE individual: un voucher por pasajero, con su infant asociado si lo tiene.
+async function imprimirVoucherPasajero(vueloId,lugarId){
+  const [{data:v},{data:lugs},{data:infs}]=await Promise.all([
+    sb.from('vuelos').select(VUELO_COLS).eq('id',vueloId).single(),
+    sb.from('lugares').select('id,numero_lugar,pasajeros(*)').eq('vuelo_id',vueloId).eq('es_infant',false),
+    sb.from('infants').select('*').eq('vuelo_id',vueloId)
+  ]);
+  if(!v){alert('No se pudo cargar el cupo');return;}
+  const lug=(lugs||[]).find(l=>l.id===lugarId);
+  const p=lug?.pasajeros?.[0];
+  if(!p){alert('Ese lugar no tiene un pasajero cargado');return;}
+  const inf=(infs||[]).find(x=>x.pasajero_id===p.id);
+  // En el voucher el nombre va como en el documento: nombres primero, después apellidos.
+  // ⚠️ Se descarta toda parte que no tenga ni una letra: hay fichas con el segundo nombre cargado como
+  // "." o "-" para saltear el campo, y en un documento de viaje eso se lee como un nombre real
+  // (caso visto: "CLARA . UMPIÉRREZ"). Los nombres se muestran, no se corrigen: solo se saca la basura.
+  const nomVoucher=x=>[x.primer_nombre,x.segundo_nombre,x.primer_apellido,x.segundo_apellido].filter(t=>t&&/[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]/.test(String(t))).map(t=>String(t).trim()).join(' ').trim().toUpperCase();
+  // El voucher lleva la fecha completa (DD/MM/AAAA), no el "DD Mmm" del itinerario del cupo: es el
+  // documento que el pasajero muestra en el mostrador. Los tramos viejos ("17 ene") se normalizan con
+  // la MISMA función que usa el formulario, así el año sale del cupo y no de una suposición.
+  const anioCupo=v.fecha?+String(v.fecha).slice(0,4):null, mesCupo=v.fecha?+String(v.fecha).slice(5,7):null;
+  const fechaLarga=(txt)=>{const iso=fechaTramoAISO(txt,anioCupo,mesCupo);return /^\d{4}-\d{2}-\d{2}$/.test(iso)?iso.split('-').reverse().join('/'):(txt||'');};
+  const compania=(a)=>{const n=a||v.aerolinea||'';return (CONFIG.VOUCHER_COMPANIA||{})[n]||n||'—';};
+  const punto=(cod)=>{const c=String(cod||'').trim().toUpperCase();if(!c)return '—';const ciu=nombreAeropuerto(c);return ciu?`${esc(ciu.toUpperCase())} <span style="color:#888">(${esc(c)})</span>`:esc(c);};
+  const it=Array.isArray(v.itinerario)?v.itinerario:[];
+  const filas=it.map(t=>{
+    const f=fechaLarga(t.fecha);
+    return `<tr><td>${esc(compania(t.aerolinea))}</td><td style="font-family:'DM Mono',monospace">${esc(t.vuelo)||'—'}</td><td>${punto(t.origen)}</td><td class="hh">${esc(f)} ${esc(t.salida)||''}</td><td>${punto(t.destino)}</td><td class="hh">${esc(f)} ${esc(t.llegada)||''}</td></tr>`;
+  }).join('');
+  const pax=[`${esc(nomVoucher(p))} - Adult`].concat(inf?[`${esc(nomVoucher(inf))} - INF`]:[]).join('<br>');
+  const importante=(CONFIG.VOUCHER_IMPORTANTE||[]).map(t=>`<p>${esc(t)}</p>`).join('');
+  const logoPdf=new URL(GUA_LOGO_BLANCO,location.href).href;
+  const w=window.open('','_blank');
+  if(!w){alert('Permití las ventanas emergentes para imprimir');return;}
+  w.document.write(`<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><title>Voucher ${esc(nomVoucher(p))}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>body{font-family:'Sequel Sans','Montserrat',Arial,Helvetica,sans-serif;color:#1a1a1a;padding:26px;max-width:840px;margin:0 auto}
+  .banda{background:${GUA_PRIMARY};padding:26px;text-align:center;margin-bottom:22px}
+  .banda img{height:52px}
+  table{width:100%;border-collapse:collapse;font-size:12.5px;margin-bottom:22px}
+  th{background:${GUA_PRIMARY};color:#fff;text-align:left;padding:8px 9px;font-weight:600;font-size:11px;letter-spacing:.4px;text-transform:uppercase}
+  td{padding:10px 9px;border-bottom:1px solid #eee;vertical-align:top}
+  tr:nth-child(even) td{background:#faf7f8}
+  .hh{white-space:nowrap;font-variant-numeric:tabular-nums}
+  .sec{background:${GUA_PRIMARY};color:#fff;font-size:11px;font-weight:600;letter-spacing:.8px;text-transform:uppercase;padding:5px 9px;margin:0 0 9px}
+  .cont{font-size:13px;line-height:1.7;margin:0 0 22px;padding:0 2px}
+  .cont p{margin:0 0 9px}
+  .ft{margin-top:8px;font-size:11px;color:#999;border-top:1px solid #eee;padding-top:12px}
+  @media print{.noprint{display:none}}</style></head><body>
+  <div class="banda"><img src="${logoPdf}" alt="Guamatur Viajes"/></div>
+  ${it.length?`<table><thead><tr><th>Compañía</th><th>Vuelo</th><th>Desde</th><th>Salida</th><th>Hasta</th><th>Llegada</th></tr></thead><tbody>${filas}</tbody></table>`:'<p>Sin itinerario cargado.</p>'}
+  <div class="sec">Pasajero</div><div class="cont">${pax}</div>
+  ${v.condiciones_equipaje?`<div class="sec">Equipaje</div><div class="cont">${esc(v.condiciones_equipaje)}</div>`:''}
+  <div class="sec">Importante</div><div class="cont">${importante}</div>
+  <div class="ft">Documento generado por el sistema de Cupos de Guamatur · guamatur.com</div>
+  <div class="noprint" style="margin-top:22px;text-align:center"><button onclick="window.print()" style="background:${GUA_PRIMARY};color:#fff;border:none;padding:11px 22px;border-radius:6px;font-size:14px;font-family:'Montserrat',sans-serif;font-weight:600;cursor:pointer">Imprimir / Guardar PDF</button></div>
+  </body></html>`);
+  w.document.close();
+}
+
 async function imprimirItinerario(vueloId,lugarId){
   const {data:v}=await sb.from('vuelos').select(VUELO_COLS).eq('id',vueloId).single();
   if(!v){alert('No se pudo cargar el cupo');return;}
