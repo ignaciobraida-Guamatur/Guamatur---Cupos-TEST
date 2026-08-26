@@ -707,15 +707,11 @@
       <div class="form-group full"><label class="form-label">Condiciones de equipaje</label><textarea class="form-textarea" id="v-equipaje" placeholder="Ej: 1 carry on + 1 equipaje en bodega 23kg"></textarea></div>
     </div>
     <div style="margin-bottom:14px;border-top:1px solid var(--border);padding-top:12px">
-      <label class="form-label">📅 Agenda de eventos (Google Calendar) <span style="color:var(--muted);font-size:10px">días antes de la salida · dejá vacío el que No aplique</span></label>
-      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:6px">
-        <div><label class="form-label" style="font-size:11px">Pago final</label><input class="form-input" id="v-cal-pago" type="number" min="0" placeholder="No aplica"/></div>
-        <div><label class="form-label" style="font-size:11px">Cancelación sin gastos</label><input class="form-input" id="v-cal-cancel-sin" type="number" min="0" placeholder="No aplica"/></div>
-        <div><label class="form-label" style="font-size:11px">Cancelación con gastos</label><input class="form-input" id="v-cal-cancel-con" type="number" min="0" placeholder="No aplica"/></div>
-      </div>
-      <label class="form-label" style="font-size:11px;margin-top:10px;display:block">Agendar a:</label>
-      <!-- Se puebla desde CONFIG.AGENDA_INVITADOS (Ola 4 #93) -->
-      <div id="v-cal-users" style="display:flex;flex-wrap:wrap;gap:14px;margin-top:4px"></div>
+      <label class="form-label">📅 Agenda de eventos (Google Calendar) <span style="color:var(--muted);font-size:10px">una columna por vencimiento: los días antes de la salida y quién lo recibe</span></label>
+      <!-- b85: la grilla se arma en JS desde CAL_EVENTOS x CONFIG.AGENDA_INVITADOS (Ola 4 #93).
+           Los inputs de días conservan sus IDs históricos (v-cal-pago / v-cal-cancel-sin / v-cal-cancel-con). -->
+      <div id="v-cal-grid" style="margin-top:8px;overflow-x:auto"></div>
+      <div style="font-size:10px;color:var(--muted);margin-top:6px">Un vencimiento se agenda solo si tiene días <b>y</b> al menos una persona marcada. Tocá el nombre del vencimiento para marcar o desmarcar toda la columna.</div>
     </div>
     <div style="margin-bottom:14px">
       <details style="margin-bottom:10px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:8px 10px">
@@ -851,13 +847,46 @@ const sb=supabase.createClient(CONFIG.SUPABASE_URL,CONFIG.SUPABASE_ANON_KEY,{
 // ⚠️ Una sola versión por cadena y CORTA: el detalle va al CHANGELOG.md, no acá. Nacho ve este texto
 // completo en el encabezado (el resto ve solo el "bNN") y si es largo se desborda; además `APP_VERSION_CORTA`
 // saca el número con un match, así que dos "bNN" en la misma cadena confunden cuál es la versión.
-const APP_VERSION='TEST · b84 · ACCIONES COMERCIALES (marca mas visible + filas compactas)';
+const APP_VERSION='TEST · b85 (agenda por vencimiento: cada vencimiento con SUS destinatarios)';
 // Columnas de 'vuelos' legibles por cualquier usuario. EXCLUYE precio_neto: el admin lo lee por RPC admin_get_precio_neto (gateada por es_admin). No usar select('*') sobre vuelos: la columna precio_neto quedó revocada a authenticated.
 // ⚠️ Toda columna que se agregue acá necesita `grant select (col) to authenticated` en la base, si no
 // PostgREST tira 400 y se cae la pantalla entera (gotcha #6). `emitido` viene de la migración 2026-08-06.
 const VUELO_COLS='id,temporada_id,nombre,ciudad_codigo,ciudad_nombre,aerolinea,fecha,fecha_regreso,total_lugares,precio,condiciones_equipaje,creado_en,destino,itinerario,visible,itinerario_historial,cal_dias_pago_final,cal_dias_cancel_sin_gastos,cal_dias_cancel_con_gastos,cal_usuarios,emitido,emitido_en,emitido_por';
 // Calendarización: al crear un cupo, dispara (fire-and-forget) la creación de eventos en Google Calendar vía n8n.
 const N8N_WEBHOOK_AGENDA=CONFIG.N8N_WEBHOOK_AGENDA;
+// b85 (pedido Diego, 23-jul): los tres vencimientos del cupo tienen destinatarios PROPIOS. Antes era una
+// sola lista para los tres, y a Dory le llegaba la cancelación sin gastos, que no le sirve.
+// `clave` = clave dentro de vuelos.cal_usuarios · `campoDias` = columna de vuelos con los días antes de la
+// salida · `inputId` = el input del formulario (IDs históricos, se conservan).
+const CAL_EVENTOS=[
+  {clave:'pago_final',       titulo:'Pago final',            campoDias:'cal_dias_pago_final',        inputId:'v-cal-pago'},
+  {clave:'cancel_sin_gastos',titulo:'Cancelación sin gastos',campoDias:'cal_dias_cancel_sin_gastos', inputId:'v-cal-cancel-sin'},
+  {clave:'cancel_con_gastos',titulo:'Cancelación con gastos',campoDias:'cal_dias_cancel_con_gastos', inputId:'v-cal-cancel-con'}
+];
+// vuelos.cal_usuarios pasó de ser UNA lista de emails a un objeto {clave_evento: [emails]}.
+// Esta función acepta las dos formas: un array viejo significa "esta gente en los tres vencimientos",
+// que es exactamente lo que hacía el sistema hasta b84 → los cupos ya cargados no cambian de comportamiento.
+function calDestinatarios(raw){
+  const out={};CAL_EVENTOS.forEach(e=>{out[e.clave]=[];});
+  if(Array.isArray(raw)){CAL_EVENTOS.forEach(e=>{out[e.clave]=raw.filter(x=>typeof x==='string');});return out;}
+  if(raw&&typeof raw==='object'){CAL_EVENTOS.forEach(e=>{out[e.clave]=Array.isArray(raw[e.clave])?raw[e.clave].filter(x=>typeof x==='string'):[];});return out;}
+  return out;
+}
+// Unión de los tres: "¿este cupo tiene agenda?" y el attendees de compatibilidad del payload a n8n.
+const calTodosLosDestinatarios=d=>[...new Set(CAL_EVENTOS.flatMap(e=>d[e.clave]||[]))];
+// Lo que quedó marcado en la grilla del formulario, listo para guardar en cal_usuarios.
+function calDestinatariosDelForm(){
+  const out={};
+  CAL_EVENTOS.forEach(e=>{out[e.clave]=Array.from(document.querySelectorAll(`.v-cal-u[data-ev="${e.clave}"]:checked`)).map(c=>c.value);});
+  return out;
+}
+// Marcar/desmarcar una columna entera: si ya está toda marcada, la limpia.
+function toggleColumnaCal(clave){
+  const cbs=Array.from(document.querySelectorAll(`.v-cal-u[data-ev="${clave}"]`));
+  if(!cbs.length) return;
+  const todas=cbs.every(c=>c.checked);
+  cbs.forEach(c=>{c.checked=!todas;});
+}
 // Ola 3 #64/#70: secreto compartido con los workflows n8n — va en el BODY (fetch no-cors no deja pasar headers custom).
 const CUPOS_WEBHOOK_SECRET=CONFIG.WEBHOOK_SECRET;
 // #75: v.vuelo_id habilita el UPSERT en n8n (la base guarda los event IDs del cupo en vuelos.agenda_eventos;
@@ -869,24 +898,28 @@ async function agendarEventosCupo(v,opts){
     const esEdicion=!!(opts&&opts.edicion);
     if(!v) return;
     if(esEdicion&&!v.vuelo_id) return; // sin id no hay upsert posible
-    const users=Array.isArray(v.cal_usuarios)?v.cal_usuarios:[];
+    // b85: cada vencimiento lleva SU propia lista de destinatarios (ver CAL_EVENTOS / calDestinatarios).
+    const dest=calDestinatarios(v.cal_usuarios);
     const eventos=[];
-    if(v.fecha&&users.length){
+    if(v.fecha){
       const base=String(v.fecha).slice(0,10);
-      const evDefs=[['Pago final',v.cal_dias_pago_final],['Cancelación sin gastos',v.cal_dias_cancel_sin_gastos],['Cancelación con gastos',v.cal_dias_cancel_con_gastos]];
-      evDefs.forEach(([tipo,dias])=>{
+      CAL_EVENTOS.forEach(ev=>{
+        const dias=v[ev.campoDias];
         if(dias===null||dias===undefined||dias==='') return;
+        const attendees=dest[ev.clave]||[];
+        if(!attendees.length) return; // b85: vencimiento sin nadie marcado = no se agenda (la agenda sigue siendo opt-in)
         const d=new Date(base+'T00:00:00');
         d.setDate(d.getDate()-parseInt(dias));
         // Pedido aéreos (Rodrigo, 29-jun): la agenda solo de lunes a viernes. Si cae finde, mover al VIERNES anterior (un deadline no se corre hacia adelante). Sáb→−1, Dom→−2.
         const dow=d.getDay();
         if(dow===6) d.setDate(d.getDate()-1);
         else if(dow===0) d.setDate(d.getDate()-2);
-        eventos.push({tipo,fecha:`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`});
+        eventos.push({tipo:ev.titulo,fecha:`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`,attendees});
       });
     }
     if(!esEdicion&&!eventos.length) return; // crear: la calendarización es opt-in, sin eventos no hay nada que agendar
-    const payload={secret:CUPOS_WEBHOOK_SECRET,vuelo_id:v.vuelo_id||'',cupo:v.nombre||'',localizador:v.localizador||'',aerolinea:v.aerolinea||'',fecha_salida:v.fecha?String(v.fecha).slice(0,10):'',url:location.origin+location.pathname,attendees:users,eventos};
+    // attendees de nivel superior = la unión. El workflow lo usa como respaldo si un evento viene sin lista propia.
+    const payload={secret:CUPOS_WEBHOOK_SECRET,vuelo_id:v.vuelo_id||'',cupo:v.nombre||'',localizador:v.localizador||'',aerolinea:v.aerolinea||'',fecha_salida:v.fecha?String(v.fecha).slice(0,10):'',url:location.origin+location.pathname,attendees:calTodosLosDestinatarios(dest),eventos};
     await fetch(N8N_WEBHOOK_AGENDA,{method:'POST',mode:'no-cors',body:JSON.stringify(payload)});
   }catch(e){console.warn('[Agenda] no se pudo agendar:',e);}
 }
@@ -946,8 +979,27 @@ const CONDICIONES_ITINERARIO=CONFIG.CONDICIONES_ITINERARIO;
 const CONDICIONES_NOTA=CONFIG.CONDICIONES_NOTA;
 // Escape de HTML para todo dato de usuario interpolado en innerHTML/document.write (anti-XSS)
 function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
-// Ola 4 #93: los invitados de la agenda salen de CONFIG, no del HTML (otra agencia no hereda estos nombres)
-{const _cw=document.getElementById('v-cal-users'); if(_cw) _cw.innerHTML=CONFIG.AGENDA_INVITADOS.map(u=>`<label style="display:flex;align-items:center;gap:5px;font-size:12px;cursor:pointer"><input type="checkbox" class="v-cal-user" value="${esc(u.email)}" style="width:14px;height:14px"/> ${esc(u.nombre)}</label>`).join('');}
+// Ola 4 #93: los invitados de la agenda salen de CONFIG, no del HTML (otra agencia no hereda estos nombres).
+// b85: una COLUMNA por vencimiento (días + destinatarios juntos) y una FILA por persona, para poder decidir
+// caso por caso quién recibe qué. El encabezado de cada columna marca/desmarca toda la columna.
+{const _cw=document.getElementById('v-cal-grid');
+ if(_cw) _cw.innerHTML=`<table style="border-collapse:collapse;font-size:12px;width:100%;min-width:420px">
+  <thead>
+    <tr>
+      <th style="text-align:left;padding:3px 6px;font-size:11px;color:var(--muted);font-weight:600">Vencimiento</th>
+      ${CAL_EVENTOS.map(e=>`<th style="padding:3px 6px;text-align:center;font-size:11px"><span onclick="toggleColumnaCal('${e.clave}')" title="Marcar o desmarcar toda la columna" style="cursor:pointer;border-bottom:1px dotted var(--muted)">${esc(e.titulo)}</span></th>`).join('')}
+    </tr>
+    <tr>
+      <td style="padding:3px 6px;font-size:11px;color:var(--muted)">Días antes de la salida</td>
+      ${CAL_EVENTOS.map(e=>`<td style="padding:3px 6px;text-align:center"><input class="form-input" id="${e.inputId}" type="number" min="0" placeholder="No aplica" style="width:96px;text-align:center;padding:5px 6px;margin:0 auto"/></td>`).join('')}
+    </tr>
+  </thead>
+  <tbody>
+    ${CONFIG.AGENDA_INVITADOS.map(u=>`<tr style="border-top:1px solid var(--border)">
+      <td style="padding:4px 6px">${esc(u.nombre)}</td>
+      ${CAL_EVENTOS.map(e=>`<td style="padding:4px 6px;text-align:center"><input type="checkbox" class="v-cal-u" data-ev="${e.clave}" value="${esc(u.email)}" title="${esc(u.nombre)} — ${esc(e.titulo)}" style="width:15px;height:15px;cursor:pointer"/></td>`).join('')}
+    </tr>`).join('')}
+  </tbody></table>`;}
 // Ola 4 #94: sin Atlas no se muestra el conector (el botón dinámico del detalle se gatea en cargarDetalle)
 if(!CONFIG.ATLAS_ENABLED){const _ba=document.getElementById('p-traer-atlas'); if(_ba) _ba.style.display='none';}
 let currentUser=null,currentRol=null,currentVueloId=null,currentPasajeroId=null,currentLugarId=null,currentVueloFecha=null,currentVueloFechaRegreso=null,sesionIniciada=false,rolEfectivo=null,_pOrig=null;
@@ -3461,7 +3513,7 @@ async function abrirEditarVuelo(vueloId,opts){
       document.getElementById('v-cal-pago').value=v.cal_dias_pago_final??'';
       document.getElementById('v-cal-cancel-sin').value=v.cal_dias_cancel_sin_gastos??'';
       document.getElementById('v-cal-cancel-con').value=v.cal_dias_cancel_con_gastos??'';
-      {const us=Array.isArray(v.cal_usuarios)?v.cal_usuarios:[];document.querySelectorAll('.v-cal-user').forEach(c=>{c.checked=us.includes(c.value);});}
+      {const dest=calDestinatarios(v.cal_usuarios);document.querySelectorAll('.v-cal-u').forEach(c=>{c.checked=(dest[c.dataset.ev]||[]).includes(c.value);});}
       document.getElementById('v-visible').value=(v.visible===false)?'false':'true';
       document.getElementById('v-equipaje').value=v.condiciones_equipaje||'';
       document.getElementById('tramos-wrap').innerHTML='';
@@ -3524,7 +3576,7 @@ async function abrirModalVuelo(){
   {const av=document.getElementById('v-localizador-aviso');if(av){av.style.display='none';av.textContent='';}}  // el aviso de PNR repetido no se arrastra de un cupo al siguiente
   {const hintLug=document.getElementById('v-lugares-hint');if(hintLug)hintLug.style.display='none';}
   ['v-cal-pago','v-cal-cancel-sin','v-cal-cancel-con'].forEach(id=>{const el=document.getElementById(id);if(el)el.value=''});
-  document.querySelectorAll('.v-cal-user').forEach(c=>{c.checked=false;});
+  document.querySelectorAll('.v-cal-u').forEach(c=>{c.checked=false;});
   document.getElementById('v-visible').value='true';
   nombreCupoManual=false;_regresoPrevio=null;
   document.getElementById('tramos-wrap').innerHTML='';
@@ -3571,7 +3623,7 @@ async function guardarVuelo(){
       cal_dias_pago_final:numCalDias('v-cal-pago'),
       cal_dias_cancel_sin_gastos:numCalDias('v-cal-cancel-sin'),
       cal_dias_cancel_con_gastos:numCalDias('v-cal-cancel-con'),
-      cal_usuarios:Array.from(document.querySelectorAll('.v-cal-user:checked')).map(c=>c.value)
+      cal_usuarios:calDestinatariosDelForm()  // b85: objeto {clave_evento:[emails]}, ya no una sola lista
     };
     // Validaciones de carga (aplican a crear / duplicar / editar). Se corren con el itinerario ya validado.
     const btnTxt=editarVueloId?'Guardar cambios':'Crear cupo';
@@ -3645,9 +3697,10 @@ async function guardarVuelo(){
       //    cambia por la hora) → re-agendar sería innecesario y spamearía a los invitados (cancela los eventos
       //    viejos + reinvita). Por eso solo dispara si cambió lo que MUEVE los vencimientos (fecha de salida,
       //    días de pago/cancelación) o los INVITADOS — y aun así, con confirmación explícita.
-      const canonCal=x=>JSON.stringify([String(x.fecha||'').slice(0,10),x.cal_dias_pago_final??null,x.cal_dias_cancel_sin_gastos??null,x.cal_dias_cancel_con_gastos??null,(Array.isArray(x.cal_usuarios)?x.cal_usuarios:[]).slice().sort()]);
-      const teniaAgenda=Array.isArray(vAct?.cal_usuarios)&&vAct.cal_usuarios.length>0;
-      const tieneAgenda=datos.cal_usuarios.length>0;
+      //    b85: los destinatarios se comparan POR VENCIMIENTO — sacar a alguien de un solo evento también reagenda.
+      const canonCal=x=>{const d=calDestinatarios(x.cal_usuarios);return JSON.stringify([String(x.fecha||'').slice(0,10),x.cal_dias_pago_final??null,x.cal_dias_cancel_sin_gastos??null,x.cal_dias_cancel_con_gastos??null,CAL_EVENTOS.map(e=>d[e.clave].slice().sort())]);};
+      const teniaAgenda=calTodosLosDestinatarios(calDestinatarios(vAct?.cal_usuarios)).length>0;
+      const tieneAgenda=calTodosLosDestinatarios(calDestinatarios(datos.cal_usuarios)).length>0;
       if(vAct&&canonCal(vAct)!==canonCal(datos)&&(teniaAgenda||tieneAgenda)){
         const msg=tieneAgenda
           ?'Cambiaste la fecha de salida, los días de pago/cancelación o los invitados de un cupo con agenda.\n\n¿Reagendar los recordatorios de pago y cancelación en Google Calendar?\n\n• Los invitados recibirán la cancelación de los eventos viejos y la invitación a los nuevos.\n• Si solo cambió el HORARIO del vuelo (mismas fechas de pago), NO hace falta: el aviso al equipo ya lo maneja el mail de cambio de itinerario.'
