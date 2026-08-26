@@ -113,7 +113,9 @@
      amarillo (.btn-warning) = precaución reversible (Reducir) · rojo (.btn-danger) = destructiva */
   .btn-danger{background:rgba(255,59,59,0.15);color:var(--red);border:1px solid rgba(255,59,59,0.35)}.btn-danger:hover{background:rgba(255,59,59,0.25)}
   .btn-excel{background:transparent;color:var(--text);border:1px solid var(--border2);font-size:12px;padding:5px 12px}.btn-excel:hover{background:var(--surface2)}
-  .btn-sm{padding:3px 8px;font-size:11px;border-radius:6px;border:1px solid var(--border2);background:transparent;color:var(--text);cursor:pointer;font-family:'DM Sans',sans-serif}
+  /* white-space:nowrap — sin esto "Bloquear Oper" se parte en dos líneas y estira TODAS las filas
+     de la planilla a casi el doble de alto (b83). */
+  .btn-sm{padding:3px 8px;font-size:11px;border-radius:6px;border:1px solid var(--border2);background:transparent;color:var(--text);cursor:pointer;font-family:'DM Sans',sans-serif;white-space:nowrap}
   .btn-sm:hover{background:var(--surface2)}
   /* Toggles sensibles (Ola 2 #51): azul = bloqueo Operaciones por fila · ámbar = visibilidad/estado global */
   .btn-sm-oper{border-color:rgba(96,165,250,0.45);color:var(--blue);background:rgba(96,165,250,0.08)}.btn-sm-oper:hover{background:rgba(96,165,250,0.18)}
@@ -849,7 +851,7 @@ const sb=supabase.createClient(CONFIG.SUPABASE_URL,CONFIG.SUPABASE_ANON_KEY,{
 // ⚠️ Una sola versión por cadena y CORTA: el detalle va al CHANGELOG.md, no acá. Nacho ve este texto
 // completo en el encabezado (el resto ve solo el "bNN") y si es largo se desborda; además `APP_VERSION_CORTA`
 // saca el número con un match, así que dos "bNN" en la misma cadena confunden cuál es la versión.
-const APP_VERSION='TEST · b83 · ACCIONES COMERCIALES (leyenda arriba, fila compacta)';
+const APP_VERSION='TEST · b84 · ACCIONES COMERCIALES (marca mas visible + filas compactas)';
 // Columnas de 'vuelos' legibles por cualquier usuario. EXCLUYE precio_neto: el admin lo lee por RPC admin_get_precio_neto (gateada por es_admin). No usar select('*') sobre vuelos: la columna precio_neto quedó revocada a authenticated.
 // ⚠️ Toda columna que se agregue acá necesita `grant select (col) to authenticated` en la base, si no
 // PostgREST tira 400 y se cae la pantalla entera (gotcha #6). `emitido` viene de la migración 2026-08-06.
@@ -1860,8 +1862,11 @@ async function cargarDetalle(vueloId){
     // El nombre de la acción NO va en la fila: la columna es angosta, el texto se parte en varias
     // líneas y la fila se vuelve altísima. Va la barra de color + el título al pasar el mouse,
     // y el nombre se dice UNA vez en la leyenda de arriba del cupo.
+    // Barra lateral gruesa + fondo tenue del color de la acción. El fondo se pinta SOLO si el lugar
+    // está libre: si ya tiene reserva o venta, manda el color de estado (esa información pesa más)
+    // y la acción se sigue reconociendo por la barra.
     const acc=accionDeLugar(l);
-    const accStyle=acc?` style="box-shadow:inset 5px 0 0 ${esc(acc.color)}" title="Acción comercial: ${esc(acc.nombre)} — se puede reservar normalmente"`:'';
+    const accStyle=acc?` style="box-shadow:inset 7px 0 0 ${esc(acc.color)}${libreSeat&&!cancelado?`;background:${esc(acc.color)}1f`:''}" title="Acción comercial: ${esc(acc.nombre)} — se puede reservar normalmente"`:'';
     let rowCls,statusCell;
     if(modo==='reducido'){rowCls='row-cancelado';statusCell='<span class="badge badge-l">REDUCIDO</span>';}
     else if(cancelado){rowCls='row-cancelado';statusCell='<span class="badge badge-yellow">CANCEL</span>';}
@@ -1881,7 +1886,7 @@ async function cargarDetalle(vueloId){
     const btnBloqueo=((esAdmin||esOper)&&modo==='activo'&&libreSeat&&!l.reducido)?`<button class="btn-sm btn-sm-oper" title="${l.bloqueado_operaciones?'Liberar este lugar para que lo puedan reservar los vendedores':'Reservar este lugar para Operaciones (los vendedores no lo pueden tomar)'}" onclick="toggleBloqueoOper('${l.id}','${vuelo.id}',${l.bloqueado_operaciones?'false':'true'})">${l.bloqueado_operaciones?'🔓 Desbloquear':'🔒 Bloquear Oper'}</button>`:'';
     const accionCell=[(accion&&accion!=='—')?accion:'',btnPdf,btnBloqueo].filter(Boolean).join(' ')||accion;
     let h=`<tr class="${rowCls}"${accStyle}>
-      <td style="font-family:'DM Mono',monospace;font-weight:500"${numVisible!=null&&numVisible!==l.numero_lugar?` title="Lugar interno ${l.numero_lugar} — es el que figura en el historial de actividad"`:''}>${numVisible!=null?numVisible:l.numero_lugar}</td>
+      <td style="font-family:'DM Mono',monospace;font-weight:500"${numVisible!=null&&numVisible!==l.numero_lugar?` title="Lugar interno ${l.numero_lugar} — es el que figura en el historial de actividad"`:''}>${acc?`<span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:${esc(acc.color)};margin-right:6px;vertical-align:middle" title="${esc(acc.nombre)}"></span>`:''}${numVisible!=null?numVisible:l.numero_lugar}</td>
       <td>${esc(p?.primer_apellido)||'—'}</td>
       <td>${esc(p?.segundo_apellido)||'—'}</td>
       <td>${esc(p?.primer_nombre)||'—'}</td>
