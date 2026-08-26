@@ -849,7 +849,7 @@ const sb=supabase.createClient(CONFIG.SUPABASE_URL,CONFIG.SUPABASE_ANON_KEY,{
 // ⚠️ Una sola versión por cadena y CORTA: el detalle va al CHANGELOG.md, no acá. Nacho ve este texto
 // completo en el encabezado (el resto ve solo el "bNN") y si es largo se desborda; además `APP_VERSION_CORTA`
 // saca el número con un match, así que dos "bNN" en la misma cadena confunden cuál es la versión.
-const APP_VERSION='TEST · b82 · ACCIONES COMERCIALES (etiquetas por lugar, sin bloqueo)';
+const APP_VERSION='TEST · b83 · ACCIONES COMERCIALES (leyenda arriba, fila compacta)';
 // Columnas de 'vuelos' legibles por cualquier usuario. EXCLUYE precio_neto: el admin lo lee por RPC admin_get_precio_neto (gateada por es_admin). No usar select('*') sobre vuelos: la columna precio_neto quedó revocada a authenticated.
 // ⚠️ Toda columna que se agregue acá necesita `grant select (col) to authenticated` en la base, si no
 // PostgREST tira 400 y se cae la pantalla entera (gotcha #6). `emitido` viene de la migración 2026-08-06.
@@ -1780,6 +1780,32 @@ async function cargarDetalle(vueloId){
     ${vuelo.condiciones_equipaje?`<div class="info-item"><div class="info-item-label">Equipaje</div><div class="info-item-value" style="font-size:14px">${esc(vuelo.condiciones_equipaje)}</div></div>`:''}
   </div>`;
 
+  // Leyenda de acciones comerciales del cupo (b82). El nombre de la acción se dice UNA vez acá,
+  // no en cada fila: en la planilla el lugar se reconoce por la barra de color de la izquierda.
+  // De paso da el "control de lo vendido" a nivel cupo, sin ir hasta Administración.
+  {
+    const porAccion={};
+    lugaresActivos.forEach(l=>{
+      if(!l.accion_id)return;
+      const a=accionDeLugar(l);if(!a)return;
+      const g=porAccion[a.id]||(porAccion[a.id]={acc:a,total:0,v:0,r:0,libres:0});
+      const pp=l.pasajeros?.[0];
+      g.total++;
+      if(pp&&!pp.cancelado&&pp.status==='V')g.v++;
+      else if(pp&&!pp.cancelado&&pp.status==='R')g.r++;
+      else g.libres++;
+    });
+    const grupos=Object.values(porAccion);
+    if(grupos.length){
+      html+=`<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">${grupos.map(g=>
+        `<div style="display:flex;align-items:center;gap:8px;border:1px solid ${esc(g.acc.color)}55;background:${esc(g.acc.color)}14;border-radius:8px;padding:6px 12px;font-size:12px">
+          <span style="width:10px;height:10px;border-radius:2px;background:${esc(g.acc.color)};flex:none"></span>
+          <b style="color:${esc(g.acc.color)}">${esc(g.acc.nombre)}</b>
+          <span style="color:var(--muted)">${g.total} lugar${g.total===1?'':'es'} · ${g.v} vendido${g.v===1?'':'s'} · ${g.r} reservado${g.r===1?'':'s'} · ${g.libres} libre${g.libres===1?'':'s'}</span>
+        </div>`).join('')}</div>`;
+    }
+  }
+
   html+=`<details style="margin-bottom:16px"><summary style="cursor:pointer;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;padding:4px 0">ⓘ ¿Qué significan los colores y estados?</summary>
     <div style="display:flex;flex-wrap:wrap;gap:8px 16px;padding:8px 0;font-size:12px;color:var(--muted)">
       <span><span class="badge badge-l">L</span> Libre</span>
@@ -1831,9 +1857,11 @@ async function cargarDetalle(vueloId){
     const tpTag=tpNom?` <span class="badge" title="Ficha abierta para el Travel Partner: ${esc(tpNom)}" style="background:rgba(124,111,253,0.18);color:var(--accent2);border:1px solid rgba(124,111,253,0.35)">TP: ${esc(tpNom)}</span>`:'';
     // Acción comercial (b82): el lugar está reservado para una acción (preventa, Black Friday…).
     // NO lo bloquea: el vendedor lo reserva normal. Es una marca visual, con el color de la acción.
+    // El nombre de la acción NO va en la fila: la columna es angosta, el texto se parte en varias
+    // líneas y la fila se vuelve altísima. Va la barra de color + el título al pasar el mouse,
+    // y el nombre se dice UNA vez en la leyenda de arriba del cupo.
     const acc=accionDeLugar(l);
-    const accStyle=acc?` style="box-shadow:inset 5px 0 0 ${esc(acc.color)}"`:'';
-    const accTag=acc?` <span class="badge" title="Acción comercial: ${esc(acc.nombre)} — el lugar se puede reservar normalmente" style="background:${esc(acc.color)}22;color:${esc(acc.color)};border:1px solid ${esc(acc.color)}66">🏷 ${esc(acc.nombre)}</span>`:'';
+    const accStyle=acc?` style="box-shadow:inset 5px 0 0 ${esc(acc.color)}" title="Acción comercial: ${esc(acc.nombre)} — se puede reservar normalmente"`:'';
     let rowCls,statusCell;
     if(modo==='reducido'){rowCls='row-cancelado';statusCell='<span class="badge badge-l">REDUCIDO</span>';}
     else if(cancelado){rowCls='row-cancelado';statusCell='<span class="badge badge-yellow">CANCEL</span>';}
@@ -1860,7 +1888,7 @@ async function cargarDetalle(vueloId){
       <td>${esc(p?.segundo_nombre)||'—'}</td>
       <td style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(p?.hotel)||'—'}</td>
       <td>${esc(p?.vendedor)||'—'}${tpTag}</td>
-      <td>${statusCell}${accTag}</td>
+      <td>${statusCell}</td>
       <td>${esc(p?.factura)||'—'}</td>
       <td>${libreSeat?'—':formatFechaHora(p?.fecha_reserva||p?.creado_en)}</td>
       <td class="${vencCls}">${st==='R'?(l.es_espera?'<span style="color:var(--muted)">sin venc. (espera)</span>':vText):(st==='V'?'<span style="color:var(--green)">Vendida</span>':'—')}</td>
