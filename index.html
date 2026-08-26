@@ -816,6 +816,7 @@ const CONFIG={
   OAUTH_DOMINIO:'guamatur.com',
   N8N_WEBHOOK_AGENDA:'', // TEST: agenda desactivada (no dispara eventos reales)
   N8N_WEBHOOK_ITINERARIO:'', // TEST: aviso de itinerario DESACTIVADO (no manda mails reales al equipo)
+  N8N_WEBHOOK_MEZCLA:'', // TEST: aviso de mezcla DESACTIVADO (no manda mails reales a Operaciones)
   WEBHOOK_SECRET:'5f6a2344303e1643670007a2305c6013f21349abed333db07f4a5013fe4e8970',
   AGENDA_INVITADOS:[
     {email:'diego.busch@guamatur.com',nombre:'Diego Busch'},
@@ -847,7 +848,7 @@ const sb=supabase.createClient(CONFIG.SUPABASE_URL,CONFIG.SUPABASE_ANON_KEY,{
 // ⚠️ Una sola versión por cadena y CORTA: el detalle va al CHANGELOG.md, no acá. Nacho ve este texto
 // completo en el encabezado (el resto ve solo el "bNN") y si es largo se desborda; además `APP_VERSION_CORTA`
 // saca el número con un match, así que dos "bNN" en la misma cadena confunden cuál es la versión.
-const APP_VERSION='TEST · b86 (el aviso al equipo dice QUÉ cambió del cupo)';
+const APP_VERSION='TEST · b87 (preventa: vence en 48h, pastilla en el listado, aviso de mezcla)';
 // Columnas de 'vuelos' legibles por cualquier usuario. EXCLUYE precio_neto: el admin lo lee por RPC admin_get_precio_neto (gateada por es_admin). No usar select('*') sobre vuelos: la columna precio_neto quedó revocada a authenticated.
 // ⚠️ Toda columna que se agregue acá necesita `grant select (col) to authenticated` en la base, si no
 // PostgREST tira 400 y se cae la pantalla entera (gotcha #6). `emitido` viene de la migración 2026-08-06.
@@ -926,6 +927,7 @@ async function agendarEventosCupo(v,opts){
 // Aviso de cambio de itinerario: al editar un cupo que está a la venta (visible) y cambiar el itinerario (horario/vuelo/fecha),
 // avisa por mail —vía n8n → Gmail— a todo el equipo interno (excluye Travel Partners). Fire-and-forget; el envío se confirma antes de disparar (ver guardarVuelo).
 const N8N_WEBHOOK_ITINERARIO=CONFIG.N8N_WEBHOOK_ITINERARIO;
+const N8N_WEBHOOK_MEZCLA=CONFIG.N8N_WEBHOOK_MEZCLA||"";
 // b86 (pedido Rodrigo): antes se llamaba avisarCambioItinerario y el mail decía "cambio de itinerario"
 // pasara lo que pasara. Ahora viaja la LISTA de lo que cambió (`cambios`) y el mail se arma con eso: el
 // asunto y el cuerpo nombran lo que realmente pasó. El itinerario viaja igual, pero solo se muestra si
@@ -1021,6 +1023,9 @@ let _itiAlAbrir=null;
 // (preventa, Black Friday…). Lo lee cualquier usuario: el vendedor tiene que ver el color.
 let accionesComerciales=[];
 const accionDeLugar=l=>(l&&l.accion_id)?(accionesComerciales.find(a=>a.id===l.accion_id)||null):null;
+// b87: {vuelo_id: [acciones con lugares LIBRES]} — alimenta las pastillas del listado de cupos.
+// Se rearma en cada cargarVuelos(); sale de la RPC acciones_libres_por_cupo.
+let accionesPorCupo={};
 
 async function loginGoogle(){await sb.auth.signInWithOAuth({provider:'google',options:{redirectTo:CONFIG.APP_URL,queryParams:{hd:CONFIG.OAUTH_DOMINIO}}})}
 async function cerrarSesion(){try{await sb.auth.signOut({scope:'local'});}catch(e){console.warn('signOut:',e);}window.location.reload()}
@@ -1237,10 +1242,17 @@ function formatFechaHora(s){
 // `extra` = horas concedidas a mano por admin/Operaciones (pasajeros.vencimiento_horas_extra).
 // Se SUMAN al plazo normal; la fecha de reserva no se toca nunca. Tiene que dar lo mismo que
 // vencer_reservas() y avisos_vencimiento_pendientes() en el servidor.
-function vencimientoReserva(s,esC,extra){
+// ⚠️ La regla del vencimiento vive DUPLICADA en 4 lugares y se cambian JUNTOS, o el mail de aviso
+// anuncia una fecha y el cron vence en otra: vencer_reservas(), avisos_vencimiento_pendientes(),
+// esta función y el critMap de "Mis reservas".
+// b87: los lugares de una acción comercial (preventa) vencen en 48 h. **El plazo más corto manda:**
+// en un cupo crítico siguen siendo 24 h — aflojar a 48 justo en el cupo más escaso sería lo contrario
+// de para qué existe esa regla. `esAccion` = el lugar tiene accion_id.
+function plazoHoras(esC,esAccion){ return esC?24:(esAccion?48:72); }
+function vencimientoReserva(s,esC,extra,esAccion){
   if(!s)return{texto:'—',vencido:false};
   const d=new Date(s);if(isNaN(d))return{texto:'—',vencido:false};
-  const venc=new Date(d.getTime()+((esC?24:72)+(Number(extra)||0))*60*60*1000);
+  const venc=new Date(d.getTime()+(plazoHoras(esC,esAccion)+(Number(extra)||0))*60*60*1000);
   const u=new Date(venc.getTime()+(venc.getTimezoneOffset()+(-3*60))*60000);
   return{texto:u.toLocaleDateString('es-UY',{day:'2-digit',month:'2-digit'})+' '+String(u.getHours()).padStart(2,'0')+':'+String(u.getMinutes()).padStart(2,'0'),vencido:ahoraUY()>venc};
 }
@@ -1538,7 +1550,7 @@ async function cargarMisReservas(){
   cont.innerHTML='<div class="loading"><div class="spinner"></div>Cargando...</div>';
   const nombre=vendedores.find(v=>v.email===currentUser?.email)?.nombre||currentUser?.email||'';
   const {data,error}=await sb.from('pasajeros')
-    .select('id,status,fecha_reserva,creado_en,primer_apellido,primer_nombre,ficha,factura,vuelo_id,vencimiento_horas_extra,lugares(id,numero_lugar,es_espera,reducido),vuelos(nombre,destino,fecha)')
+    .select('id,status,fecha_reserva,creado_en,primer_apellido,primer_nombre,ficha,factura,vuelo_id,vencimiento_horas_extra,lugares(id,numero_lugar,es_espera,reducido,accion_id),vuelos(nombre,destino,fecha)')
     .in('vendedor',nombresQuePuedoOperar()).neq('status','L').eq('cancelado',false);
   if(error){console.error('[MisReservas]',error);cont.innerHTML='<div class="loading" style="color:var(--red)">Error al cargar</div>';return;}
   const norm=p=>{const l=Array.isArray(p.lugares)?p.lugares[0]:p.lugares;const v=Array.isArray(p.vuelos)?p.vuelos[0]:p.vuelos;return {...p,lug:l||{},vue:v||{}};};
@@ -1555,7 +1567,8 @@ async function cargarMisReservas(){
     // la planilla y al que aplica el servidor).
     (vv||[]).forEach(v=>{critMap[v.id]=(v.libres||0)<=3;});
   }
-  const vencDe=f=>{if(f.status!=='R'||f.lug.es_espera||!f.fecha_reserva)return null;const esC=!!critMap[f.vuelo_id];const ex=Number(f.vencimiento_horas_extra)||0;return {ms:new Date(f.fecha_reserva).getTime()+((esC?24:72)+ex)*3600000,info:vencimientoReserva(f.fecha_reserva,esC,ex)};};
+  // b87: el lugar de una acción comercial vence en 48 h — misma regla que el servidor (plazoHoras).
+  const vencDe=f=>{if(f.status!=='R'||f.lug.es_espera||!f.fecha_reserva)return null;const esC=!!critMap[f.vuelo_id];const esAcc=!!f.lug.accion_id;const ex=Number(f.vencimiento_horas_extra)||0;return {ms:new Date(f.fecha_reserva).getTime()+(plazoHoras(esC,esAcc)+ex)*3600000,info:vencimientoReserva(f.fecha_reserva,esC,ex,esAcc)};};
   let html=`<div class="kpi-grid" style="margin-bottom:20px">
     <div class="kpi-card"><div class="kpi-label">Mis reservas</div><div class="kpi-value c-orange">${reservas.length}</div></div>
     <div class="kpi-card"><div class="kpi-label">Mis lugares vendidos</div><div class="kpi-value c-green">${vendidos.length}</div></div>
@@ -1621,6 +1634,16 @@ async function cargarVuelos(){
     if(rolEfectivo!=='admin') qv=qv.eq('visible',true);
     ({data:vuelos}=await qv.order('nombre'));
   }
+  // b87 (pedido Nacho): la pastilla de acción comercial en el listado, para que el vendedor sepa desde
+  // afuera que ese cupo tiene lugares de preventa para vender. Sale de una RPC aparte y NO de
+  // vista_vuelos: agregarle columnas a la vista arrastra sus grants por columna (gotcha #6).
+  // La RPC devuelve solo acciones activas CON lugares libres: la pastilla dice "acá todavía hay para
+  // vender", no deja rastro de una acción agotada. El Travel Partner no la ve (no es usuario habilitado).
+  accionesPorCupo={};
+  if(rolEfectivo!=='travel_partner'){
+    const {data:accs}=await sb.rpc('acciones_libres_por_cupo',{p_temporada_id:temporadaActiva});
+    (accs||[]).forEach(a=>{(accionesPorCupo[a.vuelo_id]=accionesPorCupo[a.vuelo_id]||[]).push(a);});
+  }
   vuelosData=vuelos||[];renderVuelos(vuelosData);
 }
 function seleccionarTemporada(id){temporadaActiva=id;cargarVuelos()}
@@ -1640,8 +1663,12 @@ function renderVuelos(lista){
     const oculto=(esAdmin&&d.visible===false)?' <span class="badge badge-l">Oculto</span>':'';
     const redu=(d.reducidos>0)?` <span class="badge badge-l" title="${d.reducidos} lugar(es) reducido(s)">−${d.reducidos}</span>`:'';
     const emit=d.emitido?' <span class="badge badge-yellow" title="Cupo emitido: congelado, no se puede tocar">🎫 EMITIDO</span>':'';
+    // b87: pastilla por acción comercial con lugares libres. Va con el color de la acción y su nombre,
+    // así el vendedor identifica la preventa sin entrar al cupo. El "N libres" evita el malentendido de
+    // creer que TODO el cupo es de la acción.
+    const acc=(accionesPorCupo[d.id]||[]).map(a=>` <span class="badge" style="background:${esc(a.color)}22;color:${esc(a.color)};border:1px solid ${esc(a.color)}66" title="${esc(a.nombre)}: ${a.libres} de ${a.total} lugares todavía libres. Se reservan normalmente; vencen en 48 h.">${esc(a.nombre)} · ${a.libres} libre${a.libres===1?'':'s'}</span>`).join('');
     html+=`<tr style="cursor:pointer" onclick="goToDetalle('${d.id}')">
-      <td style="color:var(--accent2);font-weight:500">${esc(d.nombre)}${oculto}${redu}${emit}</td>
+      <td style="color:var(--accent2);font-weight:500">${esc(d.nombre)}${oculto}${redu}${emit}${acc}</td>
       <td><span class="badge ${regionBadge(d.destino)}">${esc(d.destino)||'—'}</span></td>
       <td>${esc(d.ciudad_nombre)||'—'}</td>
       <td data-sort="${d.fecha||''}">${d.fecha?formatFecha(d.fecha):'—'}</td>
@@ -1780,6 +1807,9 @@ async function cargarDetalle(vueloId){
   // Reservable: admin todos los libres; vendedor excluye los bloqueados para Operaciones
   const reservables=esAdmin?libresArr:libresArr.filter(l=>!l.bloqueado_operaciones);
   const idsLibres=reservables.map(l=>l.id);
+  // b87: cuántos de los lugares que se pueden reservar son de una acción comercial (vencen en 48 h).
+  // Sirve para avisarlo en el modal ANTES de reservar; el detalle exacto lo devuelve la RPC DESPUÉS.
+  const accLibres=reservables.filter(l=>l.accion_id).length;
   const lVReservable=reservables.length;
   const bloqLibres=libresArr.filter(l=>l.bloqueado_operaciones).length;
   const numCols=14;
@@ -1804,7 +1834,7 @@ async function cargarDetalle(vueloId){
     </div>
     <div class="detalle-actions">
       <a href="#" class="link-volver" onclick="event.preventDefault();goTo('vuelos')">← Volver</a>
-      <button class="btn btn-success" onclick="abrirModalReservar('${vueloId}',${lVReservable},'${idsLibres.join(',')}',${bloqLibres},${esVueloC})">+ Reservar lugares</button>
+      <button class="btn btn-success" onclick="abrirModalReservar('${vueloId}',${lVReservable},'${idsLibres.join(',')}',${bloqLibres},${esVueloC},${accLibres})">+ Reservar lugares</button>
       ${(CONFIG.ATLAS_ENABLED&&misRParaCarga>0)?`<button class="btn btn-primary" title="Trae los pasajeros de una ficha de Atlas y los reparte en los lugares Reservados" onclick="abrirModalCargarFicha('${vueloId}')">📥 Cargar ficha en lugares R (${misRParaCarga})</button>`:''}
       <button class="btn btn-excel" onclick="exportarExcel('${vueloId}')">⬇ Excel</button>
       ${((esAdmin||esOper)&&rV>0)?`<button class="btn btn-outline" title="Darle más horas a una reserva para que no se venza sola" onclick="abrirEstirarVencimiento('${vueloId}')">⏱ Estirar vencimiento (${rV})</button>`:''}
@@ -1909,9 +1939,10 @@ async function cargarDetalle(vueloId){
     const cancelado=p?.cancelado;
     const libreSeat=!p||st==='L';
     const hExtra=Number(p?.vencimiento_horas_extra)||0;   // horas estiradas a mano por admin/Operaciones
-    const {texto:vText,vencido}=vencimientoReserva(p?.fecha_reserva,esVueloC,hExtra);
+    const esAccLug=!!l.accion_id;   // b87: los lugares de una accion (preventa) vencen en 48 h
+    const {texto:vText,vencido}=vencimientoReserva(p?.fecha_reserva,esVueloC,hExtra,esAccLug);
   // F4: urgencia visual del vencimiento — rojo <12h, naranja <24h, anticipando (antes solo se pintaba cuando YA había vencido)
-  const vencMs=p?.fecha_reserva?new Date(p.fecha_reserva).getTime()+((esVueloC?24:72)+hExtra)*3600000:null;
+  const vencMs=p?.fecha_reserva?new Date(p.fecha_reserva).getTime()+(plazoHoras(esVueloC,esAccLug)+hExtra)*3600000:null;
   const vencCls=(st!=='R'||l.es_espera||vencMs===null)?'vencimiento-ok':((vencido||(vencMs-Date.now())<12*3600000)?'vencimiento-warn':((vencMs-Date.now())<24*3600000?'vencimiento-soon':'vencimiento-ok'));
     const pJson=esc(JSON.stringify(p||{}));
     const inf=p?.id?infantMap[p.id]:null;
@@ -2489,7 +2520,7 @@ async function guardarPasajero(){
 }
 
 // ── MODAL RESERVAR ───────────────────────────────
-let reservarModoEspera=false,reservarModoEsperaBulk=false,reservarBloqLibres=0,reservarEsC=false;
+let reservarModoEspera=false,reservarModoEsperaBulk=false,reservarBloqLibres=0,reservarEsC=false,reservarAccLibres=0;
 // Selector de vendedor (admin y operaciones): reservar a nombre propio o de otro vendedor.
 // Rama A (Ola 2 #35/#36): la mesa de Operaciones carga reservas a nombre del vendedor real para no romper la atribución comercial.
 // Delegación ("asiste en ventas"): nombres de las titulares que este usuario asiste (puede operar sus fichas).
@@ -2516,8 +2547,9 @@ function prepararSelectorVendedor(){
     rvGroup.style.display='';
   } else { rvGroup.style.display='none'; }
 }
-function abrirModalReservar(vueloId,libres,idsStr,bloq,esC){
+function abrirModalReservar(vueloId,libres,idsStr,bloq,esC,accLibres){
   reservarModoEspera=false;reservarModoEsperaBulk=false;reservarBloqLibres=parseInt(bloq)||0;reservarEsC=!!esC;
+  reservarAccLibres=parseInt(accLibres)||0;   // b87: lugares de acción comercial disponibles en este cupo
   reservarVueloId=vueloId;reservarLugaresLibres=parseInt(libres);
   reservarLugaresIds=idsStr?idsStr.split(',').filter(x=>x):[];
   document.getElementById('r-cantidad').value='';
@@ -2526,7 +2558,12 @@ function abrirModalReservar(vueloId,libres,idsStr,bloq,esC){
   document.getElementById('r-nombre').value='';
   document.getElementById('r-libres-label').textContent=`(${libres} disponibles)`;
   const vi=document.getElementById('r-venc-info');
-  if(vi){vi.style.display='block';vi.textContent=`⏳ Si no se confirma con ficha + factura, esta reserva vence en ${esC?'24 horas':'72 horas'}.`;}
+  if(vi){vi.style.display='block';
+    // b87: el plazo depende del lugar, no solo del cupo. Acá todavía no se sabe cuáles va a tomar el
+    // servidor, así que se anuncian los dos casos posibles en vez de uno que puede quedar corto.
+    vi.textContent=(!esC&&reservarAccLibres>0)
+      ? `⏳ Si no se confirma con ficha + factura, esta reserva vence en 72 horas — salvo los ${reservarAccLibres} lugar${reservarAccLibres===1?'':'es'} de acción comercial de este cupo, que vencen en 48 horas.`
+      : `⏳ Si no se confirma con ficha + factura, esta reserva vence en ${esC?'24 horas':'72 horas'}.`;}
   document.getElementById('modal-r-title').textContent='Reservar lugares';
   document.getElementById('modal-r-alert').innerHTML='';
   document.getElementById('btn-confirmar-reserva').disabled=false;
@@ -2575,14 +2612,63 @@ async function confirmarReserva(){
   let msg=(!reservarModoEspera&&hechos<cantidad)
     ?`Se reservaron ${hechos} de ${cantidad} (el resto ya estaba tomado).`
     :`${hechos} lugar${hechos>1?'es':''} reservado${hechos>1?'s':''} correctamente`;
-  if(!reservarModoEspera){const vinfo=vencimientoReserva(new Date().toISOString(),reservarEsC);msg+=` · Vence el ${vinfo.texto} hs.`;}
+  if(!reservarModoEspera){
+    // b87: con lugares de acción el plazo puede ser distinto dentro de la MISMA reserva (48 h los de la
+    // acción, 72 h el resto). Si hay mezcla se muestran los dos, no un promedio ni el más largo.
+    const accs=Array.isArray(data.acciones)?data.acciones:[];
+    const sinAcc=Number(data.sin_accion)||0;
+    const ahoraISO=new Date().toISOString();
+    if(accs.length&&sinAcc>0){
+      msg+=` · Los de ${accs.map(a=>a.nombre).join(' / ')} vencen el ${vencimientoReserva(ahoraISO,reservarEsC,0,true).texto} hs; los demás, el ${vencimientoReserva(ahoraISO,reservarEsC,0,false).texto} hs.`;
+    }else{
+      msg+=` · Vence el ${vencimientoReserva(ahoraISO,reservarEsC,0,accs.length>0).texto} hs.`;
+    }
+    avisarMezclaAccion(accs,sinAcc,apellido,nombre,vendedorNombre);
+  }
   mostrarAlerta('modal-r-alert',msg,'success');
   setTimeout(()=>{cerrarModal('modal-reservar');cargarDetalle(reservarVueloId)},reservarModoEspera?1200:1500);
 }
 
+// b87 (pedido Nacho): si una misma reserva se llevó lugares de una acción comercial Y lugares comunes,
+// se le avisa al vendedor y se le avisa a Operaciones. NO se bloquea: el vendedor toma los lugares igual.
+//
+// 🔑 El aviso sale DESPUÉS de reservar, no antes, y no es una elección de estilo: la reserva masiva es
+// POR CANTIDAD (el vendedor pide 9 y el servidor elige cuáles con FOR UPDATE SKIP LOCKED). Antes de
+// reservar nadie sabe qué lugares van a tocar; después, la RPC devuelve exactamente cuáles fueron.
+// Un aviso "antes" sería una estimación que puede mentir; este es un hecho.
+function avisarMezclaAccion(accs,sinAcc,apellido,nombre,vendedorNombre){
+  try{
+    if(!Array.isArray(accs)||!accs.length||!(sinAcc>0)) return;  // sin mezcla no hay nada que avisar
+    const cupo=(vuelosData.find(v=>v.id===reservarVueloId)||{}).nombre||'';
+    const detalle=accs.map(a=>`${a.cantidad} de "${a.nombre}" (lugar${a.cantidad>1?'es':''} ${(a.numeros||[]).join(', ')})`).join(' y ');
+    alert(
+      `⚠️ Atención: esta reserva mezcla lugares de una acción comercial con lugares comunes.\n\n`+
+      `• ${detalle}\n`+
+      `• ${sinAcc} lugar${sinAcc>1?'es':''} común${sinAcc>1?'es':''}\n\n`+
+      `Pueden tener condiciones y PRECIOS distintos: tenelo en cuenta al cotizar.\n`+
+      `Si necesitás revisar el precio, consultalo con tu supervisor antes de confirmar con el cliente.\n\n`+
+      `Los lugares ya quedaron reservados a tu nombre. Se le avisó a Operaciones.`
+    );
+    // El aviso a Operaciones va por el mismo camino que los otros avisos de la app (webhook n8n,
+    // fire-and-forget). Si el envío falla, la reserva NO se ve afectada: el vendedor ya fue advertido
+    // en pantalla, que es la parte que no se puede perder.
+    if(!N8N_WEBHOOK_MEZCLA) return;
+    fetch(N8N_WEBHOOK_MEZCLA,{method:'POST',mode:'no-cors',body:JSON.stringify({
+      secret:CUPOS_WEBHOOK_SECRET,
+      cupo,vuelo_id:reservarVueloId,
+      vendedor:vendedorNombre||'',
+      actor:(vendedores.find(x=>x.email===currentUser?.email)?.nombre||currentUser?.email||'?'),
+      pasajero:[apellido,nombre].filter(Boolean).join(', '),
+      acciones:accs.map(a=>({nombre:a.nombre,color:a.color,cantidad:a.cantidad,numeros:a.numeros||[]})),
+      sin_accion:sinAcc,
+      url:location.origin+location.pathname
+    })});
+  }catch(e){console.warn('[MezclaAccion] no se pudo avisar:',e);}
+}
+
 // ── LUGARES: lista de espera / bloqueo Operaciones / reducción ──
 function reservarSlot(lugarId,vueloId){
-  reservarModoEspera=true;reservarModoEsperaBulk=false;reservarBloqLibres=0;
+  reservarModoEspera=true;reservarModoEsperaBulk=false;reservarBloqLibres=0;reservarAccLibres=0;
   reservarVueloId=vueloId;reservarLugaresLibres=1;reservarLugaresIds=[lugarId];
   document.getElementById('r-cantidad').value='1';
   document.getElementById('r-cantidad').disabled=true;
@@ -2602,7 +2688,7 @@ function reservarSlot(lugarId,vueloId){
 }
 // Reservar VARIOS lugares de lista de espera a la vez
 function abrirModalReservarEspera(vueloId,libresEspera){
-  reservarModoEspera=false;reservarModoEsperaBulk=true;reservarBloqLibres=0;
+  reservarModoEspera=false;reservarModoEsperaBulk=true;reservarBloqLibres=0;reservarAccLibres=0;
   reservarVueloId=vueloId;reservarLugaresLibres=parseInt(libresEspera)||0;reservarLugaresIds=[];
   document.getElementById('r-cantidad').value='';
   document.getElementById('r-cantidad').disabled=false;
@@ -3218,14 +3304,14 @@ let _estVueloId=null,_estFilas=[],_estEsC=false;
 async function abrirEstirarVencimiento(vueloId){
   _estVueloId=vueloId;
   const [rLug,rVista]=await Promise.all([
-    sb.from('lugares').select('id,numero_lugar,es_espera,pasajeros(id,status,cancelado,primer_apellido,primer_nombre,vendedor,ficha,fecha_reserva,vencimiento_horas_extra)').eq('vuelo_id',vueloId).order('numero_lugar'),
+    sb.from('lugares').select('id,numero_lugar,es_espera,accion_id,pasajeros(id,status,cancelado,primer_apellido,primer_nombre,vendedor,ficha,fecha_reserva,vencimiento_horas_extra)').eq('vuelo_id',vueloId).order('numero_lugar'),
     sb.from('vista_vuelos').select('id,libres').eq('id',vueloId)
   ]);
   if(rLug.error){alert('No se pudieron traer las reservas: '+rLug.error.message);return;}
   // Mismo criterio que el servidor desde b80: los bloqueados de Operaciones cuentan como stock.
   _estEsC=Number(rVista.data?.[0]?.libres ?? 99)<=3;
   _estFilas=(rLug.data||[]).filter(l=>!l.es_espera)
-    .map(l=>({lugar:l.numero_lugar,p:l.pasajeros?.[0]}))
+    .map(l=>({lugar:l.numero_lugar,p:l.pasajeros?.[0],esAccion:!!l.accion_id}))   // b87: el de acción vence en 48 h
     .filter(x=>x.p&&x.p.status==='R'&&!x.p.cancelado);
   if(!_estFilas.length){alert('Este cupo no tiene reservas para estirar.');return;}
   document.getElementById('est-horas').value=24;
@@ -3238,8 +3324,8 @@ function pintarEstirar(){
   let html='<table><thead><tr><th></th><th>#</th><th>Pasajero</th><th>Vendedor</th><th>Ficha</th><th>Vence ahora</th><th>Quedaría</th></tr></thead><tbody>';
   _estFilas.forEach((f,i)=>{
     const ex=Number(f.p.vencimiento_horas_extra)||0;
-    const ahora=vencimientoReserva(f.p.fecha_reserva,_estEsC,ex);
-    const luego=vencimientoReserva(f.p.fecha_reserva,_estEsC,ex+horas);
+    const ahora=vencimientoReserva(f.p.fecha_reserva,_estEsC,ex,f.esAccion);
+    const luego=vencimientoReserva(f.p.fecha_reserva,_estEsC,ex+horas,f.esAccion);
     html+=`<tr><td><input type="checkbox" class="est-chk" data-i="${i}" checked/></td><td>${f.lugar}</td>
       <td>${esc([f.p.primer_apellido,f.p.primer_nombre].filter(Boolean).join(', '))||'—'}</td>
       <td>${esc(f.p.vendedor)||'—'}</td><td>${esc(f.p.ficha)||'—'}</td>
