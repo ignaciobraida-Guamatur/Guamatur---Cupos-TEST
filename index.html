@@ -873,7 +873,7 @@ const sb=supabase.createClient(CONFIG.SUPABASE_URL,CONFIG.SUPABASE_ANON_KEY,{
 // ⚠️ Una sola versión por cadena y CORTA: el detalle va al CHANGELOG.md, no acá. Nacho ve este texto
 // completo en el encabezado (el resto ve solo el "bNN") y si es largo se desborda; además `APP_VERSION_CORTA`
 // saca el número con un match, así que dos "bNN" en la misma cadena confunden cuál es la versión.
-const APP_VERSION='TEST · 2026-08-27 (b91 · voucher con el logo oficial de la aerolínea)';
+const APP_VERSION='TEST · 2026-08-27 (b92 · la descripción de la versión ya no se desborda: va en el tooltip)';
 // Columnas de 'vuelos' legibles por cualquier usuario. EXCLUYE precio_neto: el admin lo lee por RPC admin_get_precio_neto (gateada por es_admin). No usar select('*') sobre vuelos: la columna precio_neto quedó revocada a authenticated.
 // ⚠️ Toda columna que se agregue acá necesita `grant select (col) to authenticated` en la base, si no
 // PostgREST tira 400 y se cae la pantalla entera (gotcha #6). `emitido` viene de la migración 2026-08-06.
@@ -984,7 +984,14 @@ async function avisarCambioCupo(v,itiViejo,itiNuevo,cambios){
 const APP_VERSION_CORTA=(APP_VERSION.match(/b\d+(?:-[A-Za-z]+)?/)||['—'])[0];
 function mostrarVersionApp(){
   const esNacho=!!(currentUser&&String(currentUser.email||'').toLowerCase()==='ignacio.braida@guamatur.com');
-  document.querySelectorAll('.app-version').forEach(e=>{e.textContent=esNacho?APP_VERSION:APP_VERSION_CORTA;});
+  // b92: la descripción larga va en el TOOLTIP, no en el texto. Antes se escribía entera en el
+  // encabezado y, cuando creció, se desbordó por encima del listado de cupos y lo tapó (le pasó a Nacho
+  // con b91). Ahora en pantalla va siempre el "bNN" y el detalle aparece al pasar el mouse: no hay
+  // largo de texto que pueda romper la pantalla.
+  document.querySelectorAll('.app-version').forEach(e=>{
+    e.textContent=APP_VERSION_CORTA;
+    if(esNacho)e.title=APP_VERSION;
+  });
 }
 document.querySelectorAll('.app-version').forEach(e=>{e.textContent=APP_VERSION_CORTA;});
 {const _cr=document.getElementById('login-copyright'); if(_cr) _cr.textContent=CONFIG.COPYRIGHT+' '+new Date().getFullYear();}
