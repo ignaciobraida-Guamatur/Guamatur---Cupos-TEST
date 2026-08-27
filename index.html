@@ -839,9 +839,9 @@ const CONFIG={
   // Logo de la aerolínea al lado del nombre (lo pidió Mikaela el 27-ago; dijo que no es imprescindible).
   // Va el ARCHIVO OFICIAL de cada aerolínea, subido al repo junto a logo-blanco.svg — no una versión
   // dibujada ni recortada de una captura: es un documento que se le entrega al pasajero.
-  // Mientras el mapa esté vacío, el voucher muestra solo el nombre y no queda ninguna imagen rota.
-  // Para activarlo: subir los archivos y poner, por ejemplo, Azul:'aerolineas/azul.svg'.
-  VOUCHER_LOGO:{},
+  // Si una aerolínea no está en este mapa, el voucher muestra solo el nombre: nunca una imagen rota.
+  // Los archivos y su procedencia están en aerolineas/LEEME.txt.
+  VOUCHER_LOGO:{SKY:'aerolineas/sky.svg',Azul:'aerolineas/azul.svg',GOL:'aerolineas/gol.svg'},
   // Bloque "Importante" del voucher — texto EXACTO que pasó Operaciones. No es el mismo que
   // CONDICIONES_ITINERARIO: aquel son las condiciones de contratación del cupo, este es el ticket manual.
   VOUCHER_IMPORTANTE:[
@@ -873,7 +873,7 @@ const sb=supabase.createClient(CONFIG.SUPABASE_URL,CONFIG.SUPABASE_ANON_KEY,{
 // ⚠️ Una sola versión por cadena y CORTA: el detalle va al CHANGELOG.md, no acá. Nacho ve este texto
 // completo en el encabezado (el resto ve solo el "bNN") y si es largo se desborda; además `APP_VERSION_CORTA`
 // saca el número con un match, así que dos "bNN" en la misma cadena confunden cuál es la versión.
-const APP_VERSION='TEST · 2026-08-26 (b90 · voucher de vuelo por pasajero para SKY, Azul y GOL — solo Operaciones y admin)';
+const APP_VERSION='TEST · 2026-08-27 (b91 · voucher con el logo oficial de la aerolínea)';
 // Columnas de 'vuelos' legibles por cualquier usuario. EXCLUYE precio_neto: el admin lo lee por RPC admin_get_precio_neto (gateada por es_admin). No usar select('*') sobre vuelos: la columna precio_neto quedó revocada a authenticated.
 // ⚠️ Toda columna que se agregue acá necesita `grant select (col) to authenticated` en la base, si no
 // PostgREST tira 400 y se cae la pantalla entera (gotcha #6). `emitido` viene de la migración 2026-08-06.

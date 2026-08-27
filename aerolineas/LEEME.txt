@@ -1,0 +1,16 @@
+Logos oficiales de las aerolineas que aparecen en el voucher de vuelo (b90).
+
+Se usan tal cual, en SVG (vector): no se redibujan, no se recortan de una captura y no se
+reescalan desde un PNG. Es la misma regla que rige para el logo de Guamatur, y aca ademas son
+marcas de terceros que van en un documento que se le entrega al pasajero.
+
+  azul.svg  Azul Linhas Aereas Brasileiras   (IATA AD)
+  gol.svg   Gol Linhas Aereas                (IATA G3, version 2015 sin slogan)
+  sky.svg   Sky Airline                      (IATA H2, version vigente desde 2017)
+
+Origen: Wikimedia Commons, agosto 2026. Son las marcas vigentes, verificadas a ojo antes de
+subirlas. Si alguna aerolinea cambia su identidad, o si Guamatur consigue el archivo del brand
+kit oficial de la aerolinea, se reemplaza el archivo y listo: el voucher lo toma solo.
+
+Que aparezca cada logo se controla desde CONFIG.VOUCHER_LOGO en index.html. Si una aerolinea no
+esta en ese mapa, el voucher muestra solo el nombre: nunca queda una imagen rota.
