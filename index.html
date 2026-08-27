@@ -836,6 +836,12 @@ const CONFIG={
   // Cómo se nombra a la aerolínea EN EL VOUCHER (razón social, como en el que hace Operaciones a mano).
   // Si una no está acá, se usa el nombre corto del cupo.
   VOUCHER_COMPANIA:{SKY:'SKY AIRLINE',Azul:'AZUL LINHAS AEREAS',GOL:'GOL LINHAS AEREAS'},
+  // Logo de la aerolínea al lado del nombre (lo pidió Mikaela el 27-ago; dijo que no es imprescindible).
+  // Va el ARCHIVO OFICIAL de cada aerolínea, subido al repo junto a logo-blanco.svg — no una versión
+  // dibujada ni recortada de una captura: es un documento que se le entrega al pasajero.
+  // Mientras el mapa esté vacío, el voucher muestra solo el nombre y no queda ninguna imagen rota.
+  // Para activarlo: subir los archivos y poner, por ejemplo, Azul:'aerolineas/azul.svg'.
+  VOUCHER_LOGO:{},
   // Bloque "Importante" del voucher — texto EXACTO que pasó Operaciones. No es el mismo que
   // CONDICIONES_ITINERARIO: aquel son las condiciones de contratación del cupo, este es el ticket manual.
   VOUCHER_IMPORTANTE:[
@@ -3198,12 +3204,21 @@ async function imprimirVoucherPasajero(vueloId,lugarId){
   // la MISMA función que usa el formulario, así el año sale del cupo y no de una suposición.
   const anioCupo=v.fecha?+String(v.fecha).slice(0,4):null, mesCupo=v.fecha?+String(v.fecha).slice(5,7):null;
   const fechaLarga=(txt)=>{const iso=fechaTramoAISO(txt,anioCupo,mesCupo);return /^\d{4}-\d{2}-\d{2}$/.test(iso)?iso.split('-').reverse().join('/'):(txt||'');};
-  const compania=(a)=>{const n=a||v.aerolinea||'';return (CONFIG.VOUCHER_COMPANIA||{})[n]||n||'—';};
+  // Compañía = logo oficial arriba + razón social debajo, como el voucher que hace Operaciones a mano.
+  // Si la aerolínea no tiene archivo cargado en CONFIG.VOUCHER_LOGO va solo el nombre: nunca una imagen
+  // rota, y nunca un logo aproximado — es un documento que se le entrega al pasajero.
+  const compania=(a)=>{
+    const n=a||v.aerolinea||'';
+    const nom=esc((CONFIG.VOUCHER_COMPANIA||{})[n]||n||'—');
+    const arch=(CONFIG.VOUCHER_LOGO||{})[n];
+    if(!arch) return nom;
+    return `<div style="text-align:center"><img src="${esc(new URL(arch,location.href).href)}" alt="${nom}" style="height:28px;width:auto;display:block;margin:0 auto 5px"/>${nom}</div>`;
+  };
   const punto=(cod)=>{const c=String(cod||'').trim().toUpperCase();if(!c)return '—';const ciu=nombreAeropuerto(c);return ciu?`${esc(ciu.toUpperCase())} <span style="color:#888">(${esc(c)})</span>`:esc(c);};
   const it=Array.isArray(v.itinerario)?v.itinerario:[];
   const filas=it.map(t=>{
     const f=fechaLarga(t.fecha);
-    return `<tr><td>${esc(compania(t.aerolinea))}</td><td style="font-family:'DM Mono',monospace">${esc(t.vuelo)||'—'}</td><td>${punto(t.origen)}</td><td class="hh">${esc(f)} ${esc(t.salida)||''}</td><td>${punto(t.destino)}</td><td class="hh">${esc(f)} ${esc(t.llegada)||''}</td></tr>`;
+    return `<tr><td>${compania(t.aerolinea)}</td><td style="font-family:'DM Mono',monospace">${esc(t.vuelo)||'—'}</td><td>${punto(t.origen)}</td><td class="hh">${esc(f)} ${esc(t.salida)||''}</td><td>${punto(t.destino)}</td><td class="hh">${esc(f)} ${esc(t.llegada)||''}</td></tr>`;
   }).join('');
   const pax=[`${esc(nomVoucher(p))} - Adult`].concat(inf?[`${esc(nomVoucher(inf))} - INF`]:[]).join('<br>');
   const importante=(CONFIG.VOUCHER_IMPORTANTE||[]).map(t=>`<p>${esc(t)}</p>`).join('');
