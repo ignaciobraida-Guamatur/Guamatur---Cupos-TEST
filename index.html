@@ -873,7 +873,7 @@ const sb=supabase.createClient(CONFIG.SUPABASE_URL,CONFIG.SUPABASE_ANON_KEY,{
 // ⚠️ Una sola versión por cadena y CORTA: el detalle va al CHANGELOG.md, no acá. Nacho ve este texto
 // completo en el encabezado (el resto ve solo el "bNN") y si es largo se desborda; además `APP_VERSION_CORTA`
 // saca el número con un match, así que dos "bNN" en la misma cadena confunden cuál es la versión.
-const APP_VERSION='TEST · 2026-08-27 (b92 · la descripción de la versión ya no se desborda: va en el tooltip)';
+const APP_VERSION='TEST · 2026-08-27 (b93 · el voucher impreso sale con los colores y entra en una hoja)';
 // Columnas de 'vuelos' legibles por cualquier usuario. EXCLUYE precio_neto: el admin lo lee por RPC admin_get_precio_neto (gateada por es_admin). No usar select('*') sobre vuelos: la columna precio_neto quedó revocada a authenticated.
 // ⚠️ Toda columna que se agregue acá necesita `grant select (col) to authenticated` en la base, si no
 // PostgREST tira 400 y se cae la pantalla entera (gotcha #6). `emitido` viene de la migración 2026-08-06.
@@ -3225,7 +3225,7 @@ async function imprimirVoucherPasajero(vueloId,lugarId){
   const it=Array.isArray(v.itinerario)?v.itinerario:[];
   const filas=it.map(t=>{
     const f=fechaLarga(t.fecha);
-    return `<tr><td>${compania(t.aerolinea)}</td><td style="font-family:'DM Mono',monospace">${esc(t.vuelo)||'—'}</td><td>${punto(t.origen)}</td><td class="hh">${esc(f)} ${esc(t.salida)||''}</td><td>${punto(t.destino)}</td><td class="hh">${esc(f)} ${esc(t.llegada)||''}</td></tr>`;
+    return `<tr><td>${compania(t.aerolinea)}</td><td class="vue">${esc(t.vuelo)||'—'}</td><td>${punto(t.origen)}</td><td class="hh">${esc(f)} ${esc(t.salida)||''}</td><td>${punto(t.destino)}</td><td class="hh">${esc(f)} ${esc(t.llegada)||''}</td></tr>`;
   }).join('');
   const pax=[`${esc(nomVoucher(p))} - Adult`].concat(inf?[`${esc(nomVoucher(inf))} - INF`]:[]).join('<br>');
   const importante=(CONFIG.VOUCHER_IMPORTANTE||[]).map(t=>`<p>${esc(t)}</p>`).join('');
@@ -3243,11 +3243,32 @@ async function imprimirVoucherPasajero(vueloId,lugarId){
   td{padding:10px 9px;border-bottom:1px solid #eee;vertical-align:top}
   tr:nth-child(even) td{background:#faf7f8}
   .hh{white-space:nowrap;font-variant-numeric:tabular-nums}
+  .vue{white-space:nowrap;font-family:'DM Mono',monospace}  /* b93: el nº de vuelo no se parte en dos líneas */
   .sec{background:${GUA_PRIMARY};color:#fff;font-size:11px;font-weight:600;letter-spacing:.8px;text-transform:uppercase;padding:5px 9px;margin:0 0 9px}
   .cont{font-size:13px;line-height:1.7;margin:0 0 22px;padding:0 2px}
   .cont p{margin:0 0 9px}
   .ft{margin-top:8px;font-size:11px;color:#999;border-top:1px solid #eee;padding-top:12px}
-  @media print{.noprint{display:none}}</style></head><body>
+  /* b93 — Sin print-color-adjust el navegador NO imprime los fondos: la banda roja desaparece y el logo,
+     que es BLANCO, queda invisible sobre el papel. Lo cazó Nacho bajando el PDF; en pantalla se veía bien. */
+  html,body{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  @page{size:A4;margin:11mm}
+  /* b93 — Impreso: el mismo diseño, más compacto, para que TODO entre en UNA hoja A4. Es un documento de
+     viaje: la segunda hoja se pierde, se traspapela o directamente no se imprime. En pantalla queda como
+     está, que es lo que validó Mikaela. */
+  @media print{
+    .noprint{display:none}
+    body{padding:0;max-width:none}
+    .banda{padding:22px;margin-bottom:20px}
+    .banda img{height:48px}
+    table{font-size:11.5px;margin-bottom:20px}
+    th{padding:8px 9px}
+    td{padding:9px 9px}
+    .sec{margin:0 0 8px}
+    .cont{font-size:12px;line-height:1.6;margin:0 0 20px}
+    .cont p{margin:0 0 8px}
+    .ft{margin-top:6px;font-size:10px;padding-top:10px}
+    .banda,table,.sec,.cont,.ft{page-break-inside:avoid}
+  }</style></head><body>
   <div class="banda"><img src="${logoPdf}" alt="Guamatur Viajes"/></div>
   ${it.length?`<table><thead><tr><th>Compañía</th><th>Vuelo</th><th>Desde</th><th>Salida</th><th>Hasta</th><th>Llegada</th></tr></thead><tbody>${filas}</tbody></table>`:'<p>Sin itinerario cargado.</p>'}
   <div class="sec">Pasajero</div><div class="cont">${pax}</div>
