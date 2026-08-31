@@ -873,7 +873,7 @@ const sb=supabase.createClient(CONFIG.SUPABASE_URL,CONFIG.SUPABASE_ANON_KEY,{
 // ⚠️ Una sola versión por cadena y CORTA: el detalle va al CHANGELOG.md, no acá. Nacho ve este texto
 // completo en el encabezado (el resto ve solo el "bNN") y si es largo se desborda; además `APP_VERSION_CORTA`
 // saca el número con un match, así que dos "bNN" en la misma cadena confunden cuál es la versión.
-const APP_VERSION='TEST · 2026-08-31 (b95 · el voucher distingue MENOR de adulto consultando Atlas)';
+const APP_VERSION='TEST · 2026-08-31 (b96 · los cupos que ya viajaron bajan a una sección aparte)';
 // Columnas de 'vuelos' legibles por cualquier usuario. EXCLUYE precio_neto: el admin lo lee por RPC admin_get_precio_neto (gateada por es_admin). No usar select('*') sobre vuelos: la columna precio_neto quedó revocada a authenticated.
 // ⚠️ Toda columna que se agregue acá necesita `grant select (col) to authenticated` en la base, si no
 // PostgREST tira 400 y se cae la pantalla entera (gotcha #6). `emitido` viene de la migración 2026-08-06.
@@ -1687,6 +1687,13 @@ async function cargarVuelos(){
   vuelosData=vuelos||[];renderVuelos(vuelosData);
 }
 function seleccionarTemporada(id){temporadaActiva=id;cargarVuelos()}
+// b96 — Hoy en formato ISO, armado con la fecha LOCAL y no con toISOString(): este último devuelve UTC,
+// que en Uruguay (UTC-3) ya es el día siguiente a partir de las 21:00. Con toISOString, un cupo que sale
+// hoy se archivaría solo, tres horas antes de medianoche.
+function fechaHoyISO(){
+  const n=new Date();
+  return `${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,'0')}-${String(n.getDate()).padStart(2,'0')}`;
+}
 function renderVuelos(lista){
   const cont=document.getElementById('vuelos-content');
   if(!lista.length){cont.innerHTML='<div class="loading">No hay cupos en esta temporada</div>';return;}
@@ -1698,8 +1705,7 @@ function renderVuelos(lista){
   });
   // #4: primero los cupos CON lugares libres (ordenados por fecha de salida); los completos/cancelados (0 libres) al fondo
   filas.sort((a,b)=>(a.lV>0?0:1)-(b.lV>0?0:1)||String(a.fecha||'9999-99-99').localeCompare(String(b.fecha||'9999-99-99'))||(a.nombre||'').localeCompare(b.nombre||''));
-  let html=`<div class="table-wrap"><table class="sortable"><thead><tr><th>Cupo</th><th>Región</th><th>Ciudad</th><th>Fecha</th><th>Precio</th><th>Total</th><th>Vendidos</th><th>Reservados</th><th>Libres</th><th>Ocup.</th><th>Alerta</th></tr></thead><tbody>`;
-  filas.forEach(d=>{
+  const filaHTML=(d)=>{
     const oculto=(esAdmin&&d.visible===false)?' <span class="badge badge-l">Oculto</span>':'';
     const redu=(d.reducidos>0)?` <span class="badge badge-l" title="${d.reducidos} lugar(es) reducido(s)">−${d.reducidos}</span>`:'';
     const emit=d.emitido?' <span class="badge badge-yellow" title="Cupo emitido: congelado, no se puede tocar">🎫 EMITIDO</span>':'';
@@ -1710,7 +1716,7 @@ function renderVuelos(lista){
     // acento violeta de la UI, así que una pastilla translúcida del mismo tono se confundía con el
     // título (feedback de Nacho). Llena, se lee como una etiqueta y no como parte del nombre.
     const acc=(accionesPorCupo[d.id]||[]).map(a=>` <span class="badge" style="background:${esc(a.color)};color:${textoSobre(a.color)};border:1px solid ${esc(a.color)};font-weight:700;letter-spacing:.2px" title="${esc(a.nombre)}: ${a.libres} de ${a.total} lugares todavía libres. Se reservan normalmente; vencen en 48 h.">${esc(a.nombre)} · ${a.libres} libre${a.libres===1?'':'s'}</span>`).join('');
-    html+=`<tr style="cursor:pointer" onclick="goToDetalle('${d.id}')">
+    return `<tr style="cursor:pointer" onclick="goToDetalle('${d.id}')">
       <td style="color:var(--accent2);font-weight:500">${esc(d.nombre)}${oculto}${redu}${emit}${acc}</td>
       <td><span class="badge ${regionBadge(d.destino)}">${esc(d.destino)||'—'}</span></td>
       <td>${esc(d.ciudad_nombre)||'—'}</td>
@@ -1723,8 +1729,25 @@ function renderVuelos(lista){
       <td>${d.pct}%</td>
       <td><span class="badge ${d.cls}">${d.txt}</span></td>
     </tr>`;
-  });
-  html+='</tbody></table></div>';
+  };
+  const tabla=(arr)=>`<div class="table-wrap"><table class="sortable"><thead><tr><th>Cupo</th><th>Región</th><th>Ciudad</th><th>Fecha</th><th>Precio</th><th>Total</th><th>Vendidos</th><th>Reservados</th><th>Libres</th><th>Ocup.</th><th>Alerta</th></tr></thead><tbody>${arr.map(filaHTML).join('')}</tbody></table></div>`;
+  // b96 (pedido de Nacho): los cupos que YA VIAJARON bajan a una sección aparte, plegada, al fondo.
+  // 🔑 "No está a la venta" y "ya viajó" no son lo mismo: un cupo completo sigue siendo trabajo (hay
+  // pasajeros que gestionar), pero uno que ya despegó no tiene por qué competir por la atención del
+  // vendedor todos los días. Antes quedaban mezclados con los vivos.
+  // El corte es el DÍA SIGUIENTE a la salida (fecha < hoy): el que sale HOY sigue arriba, porque hasta
+  // que despega todavía puede pasar cualquier cosa.
+  // ⚠️ Un cupo SIN fecha nunca se archiva: no se esconde algo que no se puede fechar.
+  const hoy=fechaHoyISO();
+  const yaViajo=d=>!!d.fecha&&String(d.fecha).slice(0,10)<hoy;
+  const vivos=filas.filter(d=>!yaViajo(d)), viajados=filas.filter(yaViajo);
+  let html=vivos.length?tabla(vivos):'<div class="loading">No quedan cupos por salir en esta temporada</div>';
+  if(viajados.length){
+    html+=`<details style="margin-top:20px">
+      <summary style="cursor:pointer;font-size:13px;color:var(--muted);font-weight:600;padding:8px 0;user-select:none">✈ Ya viajaron · ${viajados.length} cupo${viajados.length===1?'':'s'}</summary>
+      <div style="margin-top:8px;opacity:.85">${tabla(viajados)}</div>
+    </details>`;
+  }
   cont.innerHTML=html;
 }
 function filtrarVuelos(q){renderVuelos(vuelosData.filter(v=>v.nombre.toLowerCase().includes(q.toLowerCase())||(v.ciudad_nombre||'').toLowerCase().includes(q.toLowerCase())))}
