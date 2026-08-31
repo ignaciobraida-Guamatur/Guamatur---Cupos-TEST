@@ -873,7 +873,7 @@ const sb=supabase.createClient(CONFIG.SUPABASE_URL,CONFIG.SUPABASE_ANON_KEY,{
 // ⚠️ Una sola versión por cadena y CORTA: el detalle va al CHANGELOG.md, no acá. Nacho ve este texto
 // completo en el encabezado (el resto ve solo el "bNN") y si es largo se desborda; además `APP_VERSION_CORTA`
 // saca el número con un match, así que dos "bNN" en la misma cadena confunden cuál es la versión.
-const APP_VERSION='TEST · 2026-08-31 (b94 · el voucher también sale en los cupos de JetSmart)';
+const APP_VERSION='TEST · 2026-08-31 (b95 · el voucher distingue MENOR de adulto consultando Atlas)';
 // Columnas de 'vuelos' legibles por cualquier usuario. EXCLUYE precio_neto: el admin lo lee por RPC admin_get_precio_neto (gateada por es_admin). No usar select('*') sobre vuelos: la columna precio_neto quedó revocada a authenticated.
 // ⚠️ Toda columna que se agregue acá necesita `grant select (col) to authenticated` en la base, si no
 // PostgREST tira 400 y se cae la pantalla entera (gotcha #6). `emitido` viene de la migración 2026-08-06.
@@ -3181,6 +3181,53 @@ async function exportarTemporada(){
 }
 
 // ── IMPRIMIR / PDF ITINERARIO (con logo) ─────────
+// ── b95 · ¿ADULTO O MENOR? EL DATO NO ESTÁ EN CUPOS ──────────────────────────────────────────────
+// Reportado por Operaciones (Fernanda Olascoaga, 31-ago-2026): un CHILD salía como "Adult" en el
+// voucher y lo estaban corrigiendo a mano sobre el PDF.
+// 🔑 La causa no era el voucher: **`pasajeros` no guarda ni el tipo ni la fecha de nacimiento**. Del
+// pasajero que ocupa un lugar sabemos el nombre, la ficha y poco más; la edad solo la conoce Atlas
+// (los INFANT son la excepción: esos sí viven en la tabla `infants`, con su fecha de nacimiento).
+// Por eso el voucher **le pregunta a Atlas por número de ficha** en el momento de generarse. Así queda
+// bien también en las ventas viejas, sin migrar nada ni volver a cargar a nadie.
+// ⚠️ Nunca miente en silencio: si no puede confirmarlo, dice "Adult" —lo mismo que hoy— pero **avisa
+// en pantalla** por qué no pudo, así el operador lo revisa antes de entregar el documento.
+async function tipoPasajeroAtlas(p){
+  const sinConfirmar=(motivo)=>({etiqueta:'Adult',seguro:false,motivo});
+  if(!p||!p.ficha) return sinConfirmar('la venta no tiene número de ficha');
+  let pax=[];
+  try{
+    const {data,error}=await sb.functions.invoke('atlas-ficha',{body:{ficha:String(p.ficha)}});
+    if(error) throw new Error(error.message||'no se pudo conectar');
+    if(data&&data.error) throw new Error(data.error);
+    pax=(data&&data.pasajeros)||[];
+  }catch(e){ return sinConfirmar('no se pudo consultar Atlas ('+(e.message||e)+')'); }
+  if(!pax.length) return sinConfirmar('la ficha '+p.ficha+' no tiene pasajeros cargados en Atlas');
+  // Comparación tolerante a tildes, espacios y mayúsculas: los nombres se tipean en dos sistemas.
+  const norm=s=>String(s==null?'':s).normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^A-Za-z]/g,'').toUpperCase();
+  const clave=x=>norm(x.primer_apellido)+'|'+norm(x.primer_nombre);
+  const cand=pax.filter(x=>clave(x)===clave(p));
+  if(!cand.length) return sinConfirmar('no se encontró a esta persona en la ficha '+p.ficha);
+  const tipoDe=(x)=>{
+    const t=String(x.tipo||'').toUpperCase();
+    if(t==='CHD') return 'CHILD';
+    if(t==='INF') return 'INF';
+    if(t==='ADT') return 'Adult';
+    // Atlas a veces no manda el código pero sí la edad: es mejor eso que asumir adulto.
+    const e=Number(x.edad);
+    if(Number.isFinite(e)&&e>=0) return e<2?'INF':(e<12?'CHILD':'Adult');
+    return null;
+  };
+  const tipos=[...new Set(cand.map(tipoDe))];
+  // Con homónimos en la misma ficha (caso real: hermanas gemelas) no se puede saber cuál es cuál. Da igual
+  // mientras los dos sean del mismo tipo; si difieren, no se adivina.
+  if(tipos.length!==1||tipos[0]===null){
+    return sinConfirmar(cand.length>1
+      ? 'en la ficha '+p.ficha+' hay '+cand.length+' pasajeros con ese mismo nombre y no todos son del mismo tipo'
+      : 'Atlas no informa el tipo de pasajero ni la edad');
+  }
+  return {etiqueta:tipos[0],seguro:true,motivo:''};
+}
+
 // ── b90 · VOUCHER DE VUELO POR PASAJERO ──────────────────────────────────────────────────────────
 // Pedido de Mikaela Minetti (7 y 10-ago-2026): para SKY, Azul y GOL, Guamatur emite un voucher manual
 // que hoy Operaciones arma a mano. Es un documento DE VUELO y solo eso: **no lleva alojamiento**, ni
@@ -3227,7 +3274,10 @@ async function imprimirVoucherPasajero(vueloId,lugarId){
     const f=fechaLarga(t.fecha);
     return `<tr><td>${compania(t.aerolinea)}</td><td class="vue">${esc(t.vuelo)||'—'}</td><td>${punto(t.origen)}</td><td class="hh">${esc(f)} ${esc(t.salida)||''}</td><td>${punto(t.destino)}</td><td class="hh">${esc(f)} ${esc(t.llegada)||''}</td></tr>`;
   }).join('');
-  const pax=[`${esc(nomVoucher(p))} - Adult`].concat(inf?[`${esc(nomVoucher(inf))} - INF`]:[]).join('<br>');
+  // b95: adulto o menor sale de Atlas (ver tipoPasajeroAtlas). El INFANT no se consulta: ese ya lo sabe
+  // Cupos, porque vive en la tabla `infants` con su fecha de nacimiento.
+  const tipoPax=await tipoPasajeroAtlas(p);
+  const pax=[`${esc(nomVoucher(p))} - ${esc(tipoPax.etiqueta)}`].concat(inf?[`${esc(nomVoucher(inf))} - INF`]:[]).join('<br>');
   const importante=(CONFIG.VOUCHER_IMPORTANTE||[]).map(t=>`<p>${esc(t)}</p>`).join('');
   const logoPdf=new URL(GUA_LOGO_BLANCO,location.href).href;
   const w=window.open('','_blank');
@@ -3278,6 +3328,11 @@ async function imprimirVoucherPasajero(vueloId,lugarId){
   <div class="noprint" style="margin-top:22px;text-align:center"><button onclick="window.print()" style="background:${GUA_PRIMARY};color:#fff;border:none;padding:11px 22px;border-radius:6px;font-size:14px;font-family:'Montserrat',sans-serif;font-weight:600;cursor:pointer">Imprimir / Guardar PDF</button></div>
   </body></html>`);
   w.document.close();
+  // b95: el aviso va DESPUÉS de abrir la ventana. Un alert() en el medio corta la cadena del clic y el
+  // navegador bloquea el popup — el voucher no se abriría.
+  if(!tipoPax.seguro){
+    alert('El voucher dice "Adult" porque '+tipoPax.motivo+'.\n\nSi este pasajero es un MENOR, corregilo en la ficha de Atlas y volvé a generarlo antes de entregarlo.');
+  }
 }
 
 async function imprimirItinerario(vueloId,lugarId){
