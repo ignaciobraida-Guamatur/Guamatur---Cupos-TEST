@@ -7,6 +7,7 @@ marcas de terceros que van en un documento que se le entrega al pasajero.
   azul.svg  Azul Linhas Aereas Brasileiras   (IATA AD)
   gol.svg   Gol Linhas Aereas                (IATA G3, version 2015 sin slogan)
   sky.svg   Sky Airline                      (IATA H2, version vigente desde 2017)
+  jetsmart.svg  JetSMART Airlines            (IATA JA; es el codigo de los vuelos cargados)
 
 Origen: Wikimedia Commons, agosto 2026. Son las marcas vigentes, verificadas a ojo antes de
 subirlas. Si alguna aerolinea cambia su identidad, o si Guamatur consigue el archivo del brand

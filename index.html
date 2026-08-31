@@ -832,16 +832,16 @@ const CONFIG={
   // b90 — VOUCHER DE VUELO POR PASAJERO (pedido de Mikaela Minetti, 7 y 10-ago-2026).
   // Para estas aerolíneas Guamatur emite su propio voucher, porque no llega uno de la línea aérea a
   // nombre del pasajero. Agregar o sacar una aerolínea de esta lista es todo lo que hace falta.
-  VOUCHER_AEROLINEAS:['SKY','Azul','GOL'],
+  VOUCHER_AEROLINEAS:['SKY','Azul','GOL','JetSmart'],
   // Cómo se nombra a la aerolínea EN EL VOUCHER (razón social, como en el que hace Operaciones a mano).
   // Si una no está acá, se usa el nombre corto del cupo.
-  VOUCHER_COMPANIA:{SKY:'SKY AIRLINE',Azul:'AZUL LINHAS AEREAS',GOL:'GOL LINHAS AEREAS'},
+  VOUCHER_COMPANIA:{SKY:'SKY AIRLINE',Azul:'AZUL LINHAS AEREAS',GOL:'GOL LINHAS AEREAS','JetSmart':'JETSMART AIRLINES'},
   // Logo de la aerolínea al lado del nombre (lo pidió Mikaela el 27-ago; dijo que no es imprescindible).
   // Va el ARCHIVO OFICIAL de cada aerolínea, subido al repo junto a logo-blanco.svg — no una versión
   // dibujada ni recortada de una captura: es un documento que se le entrega al pasajero.
   // Si una aerolínea no está en este mapa, el voucher muestra solo el nombre: nunca una imagen rota.
   // Los archivos y su procedencia están en aerolineas/LEEME.txt.
-  VOUCHER_LOGO:{SKY:'aerolineas/sky.svg',Azul:'aerolineas/azul.svg',GOL:'aerolineas/gol.svg'},
+  VOUCHER_LOGO:{SKY:'aerolineas/sky.svg',Azul:'aerolineas/azul.svg',GOL:'aerolineas/gol.svg','JetSmart':'aerolineas/jetsmart.svg'},
   // Bloque "Importante" del voucher — texto EXACTO que pasó Operaciones. No es el mismo que
   // CONDICIONES_ITINERARIO: aquel son las condiciones de contratación del cupo, este es el ticket manual.
   VOUCHER_IMPORTANTE:[
@@ -873,7 +873,7 @@ const sb=supabase.createClient(CONFIG.SUPABASE_URL,CONFIG.SUPABASE_ANON_KEY,{
 // ⚠️ Una sola versión por cadena y CORTA: el detalle va al CHANGELOG.md, no acá. Nacho ve este texto
 // completo en el encabezado (el resto ve solo el "bNN") y si es largo se desborda; además `APP_VERSION_CORTA`
 // saca el número con un match, así que dos "bNN" en la misma cadena confunden cuál es la versión.
-const APP_VERSION='TEST · 2026-08-27 (b93 · el voucher impreso sale con los colores y entra en una hoja)';
+const APP_VERSION='TEST · 2026-08-31 (b94 · el voucher también sale en los cupos de JetSmart)';
 // Columnas de 'vuelos' legibles por cualquier usuario. EXCLUYE precio_neto: el admin lo lee por RPC admin_get_precio_neto (gateada por es_admin). No usar select('*') sobre vuelos: la columna precio_neto quedó revocada a authenticated.
 // ⚠️ Toda columna que se agregue acá necesita `grant select (col) to authenticated` en la base, si no
 // PostgREST tira 400 y se cae la pantalla entera (gotcha #6). `emitido` viene de la migración 2026-08-06.
