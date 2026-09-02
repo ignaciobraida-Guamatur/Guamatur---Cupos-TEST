@@ -687,7 +687,7 @@
       <div class="form-group full"><label class="form-label">Nombre del cupo <span style="color:var(--muted)">(se sugiere solo; podés editarlo)</span></label><input class="form-input" id="v-nombre" placeholder="Ej: Río de Janeiro - Gol - 05/06/2026" oninput="nombreCupoManual=true"/></div>
       <div class="form-group">
         <label class="form-label">Aerolínea</label>
-        <select class="form-select" id="v-aerolinea" onchange="sugerirNombreCupo()">
+        <select class="form-select" id="v-aerolinea" onchange="sugerirNombreCupo();aplicarDefectoSalida()">
           <option value="">Seleccionar...</option>
           <option value="Avianca">Avianca</option><option value="LATAM">LATAM</option>
           <option value="GOL">GOL</option><option value="SKY">SKY</option>
@@ -707,11 +707,11 @@
       <div class="form-group full"><label class="form-label">Condiciones de equipaje</label><textarea class="form-textarea" id="v-equipaje" placeholder="Ej: 1 carry on + 1 equipaje en bodega 23kg"></textarea></div>
     </div>
     <div style="margin-bottom:14px;border-top:1px solid var(--border);padding-top:12px">
-      <label class="form-label">📅 Agenda de eventos (Google Calendar) <span style="color:var(--muted);font-size:10px">una columna por vencimiento: los días antes de la salida y quién lo recibe</span></label>
+      <label class="form-label">📅 Agenda de eventos (Google Calendar) <span style="color:var(--muted);font-size:10px">una columna por recordatorio: los días antes de la salida y quién lo recibe</span></label>
       <!-- b85: la grilla se arma en JS desde CAL_EVENTOS x CONFIG.AGENDA_INVITADOS (Ola 4 #93).
            Los inputs de días conservan sus IDs históricos (v-cal-pago / v-cal-cancel-sin / v-cal-cancel-con). -->
       <div id="v-cal-grid" style="margin-top:8px;overflow-x:auto"></div>
-      <div style="font-size:10px;color:var(--muted);margin-top:6px">Un vencimiento se agenda solo si tiene días <b>y</b> al menos una persona marcada. Tocá el nombre del vencimiento para marcar o desmarcar toda la columna.</div>
+      <div style="font-size:10px;color:var(--muted);margin-top:6px">Un recordatorio se agenda solo si tiene días <b>y</b> al menos una persona marcada. Tocá el nombre de la columna para marcarla o desmarcarla entera. <b>“Sale en 2 semanas”</b> (b98) es para Operaciones y nace prendido en los cupos de SKY, Azul, GOL y JetSmart.</div>
     </div>
     <div style="margin-bottom:14px">
       <details style="margin-bottom:10px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:8px 10px">
@@ -827,7 +827,14 @@ const CONFIG={
     {email:'rodrigo.maulelo@guamatur.com',nombre:'Rodrigo Maulelo',porDefecto:[]},  // pidió recibirlos en la casilla de Producto Aéreo, no en la suya
     {email:'mariana@guamatur.com',nombre:'Mariana Martinez',porDefecto:['cancel_sin_gastos','cancel_con_gastos']},
     {email:'dory@guamatur.com',nombre:'Dory Fazzi',porDefecto:['pago_final']},
-    {email:'productoaereo@guamatur.com',nombre:'Producto Aéreo',porDefecto:['pago_final','cancel_sin_gastos','cancel_con_gastos']}
+    {email:'productoaereo@guamatur.com',nombre:'Producto Aéreo',porDefecto:['pago_final','cancel_sin_gastos','cancel_con_gastos']},
+    // b98 — las cuatro que pidió Mikaela para el aviso de "sale en 2 semanas" (mail del 31-ago-2026).
+    // Reciben SOLO ese evento: los vencimientos de pago y cancelación no son de ellas.
+    // ⚠️ Belén MACARIN (Operaciones), no Belén Larrosa (vendedora): son dos personas distintas.
+    {email:'pilar.dasilva@guamatur.com',nombre:'Pilar Da Silva',porDefecto:['salida']},
+    {email:'fernanda.olascoaga@guamatur.com',nombre:'Fernanda Olascoaga',porDefecto:['salida']},
+    {email:'belen.macarin@guamatur.com',nombre:'Belén Macarin',porDefecto:['salida']},
+    {email:'mikaela.minetti@guamatur.com',nombre:'Mikaela Minetti',porDefecto:['salida']}
   ],
   // b90 — VOUCHER DE VUELO POR PASAJERO (pedido de Mikaela Minetti, 7 y 10-ago-2026).
   // Para estas aerolíneas Guamatur emite su propio voucher, porque no llega uno de la línea aérea a
@@ -876,11 +883,11 @@ const sb=supabase.createClient(CONFIG.SUPABASE_URL,CONFIG.SUPABASE_ANON_KEY,{
 // ⚠️ Una sola versión por cadena y CORTA: el detalle va al CHANGELOG.md, no acá. Nacho ve este texto
 // completo en el encabezado (el resto ve solo el "bNN") y si es largo se desborda; además `APP_VERSION_CORTA`
 // saca el número con un match, así que dos "bNN" en la misma cadena confunden cuál es la versión.
-const APP_VERSION='Fase 2 - TEST (b97 - columna Voucher enviado + aviso a 7 y 2 dias)';
+const APP_VERSION='Fase 2 - TEST (b98 - agenda: sale en 2 semanas)';
 // Columnas de 'vuelos' legibles por cualquier usuario. EXCLUYE precio_neto: el admin lo lee por RPC admin_get_precio_neto (gateada por es_admin). No usar select('*') sobre vuelos: la columna precio_neto quedó revocada a authenticated.
 // ⚠️ Toda columna que se agregue acá necesita `grant select (col) to authenticated` en la base, si no
 // PostgREST tira 400 y se cae la pantalla entera (gotcha #6). `emitido` viene de la migración 2026-08-06.
-const VUELO_COLS='id,temporada_id,nombre,ciudad_codigo,ciudad_nombre,aerolinea,fecha,fecha_regreso,total_lugares,precio,condiciones_equipaje,creado_en,destino,itinerario,visible,itinerario_historial,cal_dias_pago_final,cal_dias_cancel_sin_gastos,cal_dias_cancel_con_gastos,cal_usuarios,emitido,emitido_en,emitido_por';
+const VUELO_COLS='id,temporada_id,nombre,ciudad_codigo,ciudad_nombre,aerolinea,fecha,fecha_regreso,total_lugares,precio,condiciones_equipaje,creado_en,destino,itinerario,visible,itinerario_historial,cal_dias_pago_final,cal_dias_cancel_sin_gastos,cal_dias_cancel_con_gastos,cal_dias_salida,cal_usuarios,emitido,emitido_en,emitido_por';
 // Calendarización: al crear un cupo, dispara (fire-and-forget) la creación de eventos en Google Calendar vía n8n.
 const N8N_WEBHOOK_AGENDA=CONFIG.N8N_WEBHOOK_AGENDA;
 // b85 (pedido Diego, 23-jul): los tres vencimientos del cupo tienen destinatarios PROPIOS. Antes era una
@@ -890,8 +897,16 @@ const N8N_WEBHOOK_AGENDA=CONFIG.N8N_WEBHOOK_AGENDA;
 const CAL_EVENTOS=[
   {clave:'pago_final',       titulo:'Pago final',            campoDias:'cal_dias_pago_final',        inputId:'v-cal-pago'},
   {clave:'cancel_sin_gastos',titulo:'Cancelación sin gastos',campoDias:'cal_dias_cancel_sin_gastos', inputId:'v-cal-cancel-sin'},
-  {clave:'cancel_con_gastos',titulo:'Cancelación con gastos',campoDias:'cal_dias_cancel_con_gastos', inputId:'v-cal-cancel-con'}
+  {clave:'cancel_con_gastos',titulo:'Cancelación con gastos',campoDias:'cal_dias_cancel_con_gastos', inputId:'v-cal-cancel-con'},
+  // b98 (pedido de Mikaela Minetti, 31-ago-2026): recordatorio 2 semanas antes de que salga el cupo,
+  // para Operaciones. El título del evento en Calendar sale de acá en MAYÚSCULAS: "SALE EN 2 SEMANAS — <cupo>".
+  // A diferencia de los otros tres, este no es un vencimiento del cliente sino una alerta de preparación,
+  // y nace marcado solo en los cupos de las aerolíneas con voucher propio (ver DIAS_SALIDA_DEFECTO).
+  {clave:'salida',           titulo:'Sale en 2 semanas',     campoDias:'cal_dias_salida',            inputId:'v-cal-salida'}
 ];
+// b98: días por defecto del evento "Sale en 2 semanas" en un cupo NUEVO de una aerolínea con voucher
+// propio. En el resto de las aerolíneas el campo nace vacío = no se agenda (se puede poner a mano).
+const DIAS_SALIDA_DEFECTO=14;
 // vuelos.cal_usuarios pasó de ser UNA lista de emails a un objeto {clave_evento: [emails]}.
 // Esta función acepta las dos formas: un array viejo significa "esta gente en los tres vencimientos",
 // que es exactamente lo que hacía el sistema hasta b84 → los cupos ya cargados no cambian de comportamiento.
@@ -3852,6 +3867,23 @@ function onRegionChange(){
   sugerirNombreCupo();
 }
 
+// b98: el recordatorio "Sale en 2 semanas" es para los cupos de las aerolíneas que llevan voucher
+// propio (lo que pidió Mikaela: GOL/SKY/Azul/JetSmart), así que al elegir la aerolínea de un cupo
+// NUEVO el campo nace en 14 y con las cuatro personas marcadas — y se apaga si la aerolínea es otra.
+// Se puede cambiar a mano en cualquier cupo: esto es el punto de partida, no un candado.
+// ⚠️ En EDICIÓN no se toca nada: ahí manda lo que el cupo ya tenía guardado (misma regla que b89).
+function aplicarDefectoSalida(){
+  if(editarVueloId) return;
+  const inp=document.getElementById('v-cal-salida'); if(!inp) return;
+  const aero=(document.getElementById('v-aerolinea')||{}).value||'';
+  const conVoucher=(CONFIG.VOUCHER_AEROLINEAS||[]).some(a=>String(a).trim().toLowerCase()===String(aero).trim().toLowerCase());
+  inp.value=conVoucher?DIAS_SALIDA_DEFECTO:'';
+  document.querySelectorAll('.v-cal-u[data-ev="salida"]').forEach(c=>{
+    const inv=(CONFIG.AGENDA_INVITADOS||[]).find(u=>u.email===c.value);
+    c.checked=conVoucher&&Array.isArray(inv?.porDefecto)&&inv.porDefecto.includes('salida');
+  });
+}
+
 // ── EDITAR / DUPLICAR VUELO ──────────────────────
 // Duplicar reusa toda la carga de Editar, con dos diferencias: (1) editarVueloId=null → al guardar entra
 // por la rama de CREACIÓN (crear_cupo) y nace un cupo nuevo con lugares vacíos; (2) NO se heredan los datos
@@ -3898,6 +3930,7 @@ async function abrirEditarVuelo(vueloId,opts){
       document.getElementById('v-cal-pago').value=v.cal_dias_pago_final??'';
       document.getElementById('v-cal-cancel-sin').value=v.cal_dias_cancel_sin_gastos??'';
       document.getElementById('v-cal-cancel-con').value=v.cal_dias_cancel_con_gastos??'';
+      document.getElementById('v-cal-salida').value=v.cal_dias_salida??'';   // b98
       {const dest=calDestinatarios(v.cal_usuarios);document.querySelectorAll('.v-cal-u').forEach(c=>{c.checked=(dest[c.dataset.ev]||[]).includes(c.value);});}
       document.getElementById('v-visible').value=(v.visible===false)?'false':'true';
       document.getElementById('v-equipaje').value=v.condiciones_equipaje||'';
@@ -3963,7 +3996,7 @@ async function abrirModalVuelo(){
   ['v-nombre','v-localizador','v-lugares','v-precio','v-precio-neto','v-equipaje'].forEach(id=>{const el=document.getElementById(id);if(el)el.value=''});
   {const av=document.getElementById('v-localizador-aviso');if(av){av.style.display='none';av.textContent='';}}  // el aviso de PNR repetido no se arrastra de un cupo al siguiente
   {const hintLug=document.getElementById('v-lugares-hint');if(hintLug)hintLug.style.display='none';}
-  ['v-cal-pago','v-cal-cancel-sin','v-cal-cancel-con'].forEach(id=>{const el=document.getElementById(id);if(el)el.value=''});
+  ['v-cal-pago','v-cal-cancel-sin','v-cal-cancel-con','v-cal-salida'].forEach(id=>{const el=document.getElementById(id);if(el)el.value=''});
   // b89: un cupo nuevo nace con la grilla ya marcada (CONFIG.AGENDA_INVITADOS[].porDefecto). Antes nacía
   // vacía y cada uno tildaba lo que se acordaba, así que dos cupos cargados el mismo día avisaban a gente
   // distinta. Se puede desmarcar a mano en el cupo: esto es el punto de partida, no un candado.
@@ -3971,6 +4004,7 @@ async function abrirModalVuelo(){
     const inv=(CONFIG.AGENDA_INVITADOS||[]).find(u=>u.email===c.value);
     c.checked=Array.isArray(inv?.porDefecto)&&inv.porDefecto.includes(c.dataset.ev);
   });
+  aplicarDefectoSalida();  // b98: "sale en 2 semanas" queda apagado hasta que se elija una aerolínea con voucher
   document.getElementById('v-visible').value='true';
   nombreCupoManual=false;_regresoPrevio=null;_itiAlAbrir=null;
   document.getElementById('tramos-wrap').innerHTML='';
@@ -4017,6 +4051,7 @@ async function guardarVuelo(){
       cal_dias_pago_final:numCalDias('v-cal-pago'),
       cal_dias_cancel_sin_gastos:numCalDias('v-cal-cancel-sin'),
       cal_dias_cancel_con_gastos:numCalDias('v-cal-cancel-con'),
+      cal_dias_salida:numCalDias('v-cal-salida'),   // b98
       cal_usuarios:calDestinatariosDelForm()  // b85: objeto {clave_evento:[emails]}, ya no una sola lista
     };
     // Validaciones de carga (aplican a crear / duplicar / editar). Se corren con el itinerario ya validado.
@@ -4120,13 +4155,13 @@ async function guardarVuelo(){
       //    viejos + reinvita). Por eso solo dispara si cambió lo que MUEVE los vencimientos (fecha de salida,
       //    días de pago/cancelación) o los INVITADOS — y aun así, con confirmación explícita.
       //    b85: los destinatarios se comparan POR VENCIMIENTO — sacar a alguien de un solo evento también reagenda.
-      const canonCal=x=>{const d=calDestinatarios(x.cal_usuarios);return JSON.stringify([String(x.fecha||'').slice(0,10),x.cal_dias_pago_final??null,x.cal_dias_cancel_sin_gastos??null,x.cal_dias_cancel_con_gastos??null,CAL_EVENTOS.map(e=>d[e.clave].slice().sort())]);};
+      const canonCal=x=>{const d=calDestinatarios(x.cal_usuarios);return JSON.stringify([String(x.fecha||'').slice(0,10),CAL_EVENTOS.map(e=>x[e.campoDias]??null),CAL_EVENTOS.map(e=>d[e.clave].slice().sort())]);};
       const teniaAgenda=calTodosLosDestinatarios(calDestinatarios(vAct?.cal_usuarios)).length>0;
       const tieneAgenda=calTodosLosDestinatarios(calDestinatarios(datos.cal_usuarios)).length>0;
       if(vAct&&canonCal(vAct)!==canonCal(datos)&&(teniaAgenda||tieneAgenda)){
         const msg=tieneAgenda
-          ?'Cambiaste la fecha de salida, los días de pago/cancelación o los invitados de un cupo con agenda.\n\n¿Reagendar los recordatorios de pago y cancelación en Google Calendar?\n\n• Los invitados recibirán la cancelación de los eventos viejos y la invitación a los nuevos.\n• Si solo cambió el HORARIO del vuelo (mismas fechas de pago), NO hace falta: el aviso al equipo ya lo maneja el mail de cambio de itinerario.'
-          :'Quitaste los invitados de la agenda de este cupo.\n\n¿Borrar del calendario los recordatorios de pago/cancelación que ya estaban? (Los invitados recibirán la cancelación.)';
+          ?'Cambiaste la fecha de salida, los días de la agenda o los invitados de un cupo con agenda.\n\n¿Reagendar los recordatorios en Google Calendar?\n\n• Los invitados recibirán la cancelación de los eventos viejos y la invitación a los nuevos — TODOS los del cupo, no solo el que cambiaste.\n• Si solo cambió el HORARIO del vuelo (mismas fechas de pago), NO hace falta: el aviso al equipo ya lo maneja el mail de cambio de itinerario.'
+          :'Quitaste los invitados de la agenda de este cupo.\n\n¿Borrar del calendario los recordatorios que ya estaban? (Los invitados recibirán la cancelación.)';
         if(confirm(msg)) agendarEventosCupo({...datos,vuelo_id:editarVueloId},{edicion:true});
       }
       mostrarAlerta('modal-v-alert',avisoCambio?'Vuelo actualizado — aviso de cambio enviado al equipo':'Vuelo actualizado','success');
@@ -4142,7 +4177,8 @@ async function guardarVuelo(){
         p_condiciones_equipaje:datos.condiciones_equipaje,p_visible:datos.visible,p_itinerario:datos.itinerario,
         p_total_lugares:total_lugares,p_cal_dias_pago_final:datos.cal_dias_pago_final,
         p_cal_dias_cancel_sin_gastos:datos.cal_dias_cancel_sin_gastos,p_cal_dias_cancel_con_gastos:datos.cal_dias_cancel_con_gastos,
-        p_cal_usuarios:datos.cal_usuarios,p_fecha_regreso:datos.fecha_regreso});
+        p_cal_usuarios:datos.cal_usuarios,p_fecha_regreso:datos.fecha_regreso,
+        p_cal_dias_salida:datos.cal_dias_salida});   // b98
       if(error){setBtnLoading('btn-crear-vuelo',false,'Crear cupo');mostrarAlerta('modal-v-alert',error.message,'error');return;}
       await registrarLog('crear_cupo','vuelo',nuevoId,{nombre:datos.nombre,total:total_lugares});
       agendarEventosCupo({...datos,vuelo_id:nuevoId}); // fire-and-forget: agenda eventos en Google Calendar vía n8n (#75: con vuelo_id para el upsert futuro)
@@ -4419,7 +4455,8 @@ async function crearCuposMasivos(){
         p_localizador:f.localizador,p_fecha:f.fecha,p_precio:f.precio,p_precio_neto:f.precio_neto,
         p_condiciones_equipaje:null,p_visible:true,p_itinerario:f.itinerario.length?f.itinerario:null,
         p_total_lugares:f.total_lugares,p_cal_dias_pago_final:null,p_cal_dias_cancel_sin_gastos:null,
-        p_cal_dias_cancel_con_gastos:null,p_cal_usuarios:null,p_fecha_regreso:null}),'RPC crear_cupo masivo');
+        p_cal_dias_cancel_con_gastos:null,p_cal_usuarios:null,p_fecha_regreso:null,
+        p_cal_dias_salida:null}),'RPC crear_cupo masivo');   // b98: explícito, aunque la RPC lo tenga por defecto
       if(error){errores.push(`${f.nombre}: ${error.message}`);continue;}
       await registrarLog('crear_cupo','vuelo',nuevoId,{nombre:f.nombre,total:f.total_lugares,via:'masivo'});
       ok++;
