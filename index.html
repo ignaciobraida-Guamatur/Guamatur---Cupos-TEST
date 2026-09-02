@@ -832,6 +832,9 @@ const CONFIG={
   // b90 — VOUCHER DE VUELO POR PASAJERO (pedido de Mikaela Minetti, 7 y 10-ago-2026).
   // Para estas aerolíneas Guamatur emite su propio voucher, porque no llega uno de la línea aérea a
   // nombre del pasajero. Agregar o sacar una aerolínea de esta lista es todo lo que hace falta.
+  // ⚠️ b97: esta lista está DUPLICADA en la función vouchers_pendientes() de la base (la que
+  //    dispara el mail de vouchers sin enviar). Si se suma una quinta aerolínea acá y no allá,
+  //    la app va a mostrar el botón y la casilla pero esos cupos nunca van a avisar.
   VOUCHER_AEROLINEAS:['SKY','Azul','GOL','JetSmart'],
   // Cómo se nombra a la aerolínea EN EL VOUCHER (razón social, como en el que hace Operaciones a mano).
   // Si una no está acá, se usa el nombre corto del cupo.
@@ -873,7 +876,7 @@ const sb=supabase.createClient(CONFIG.SUPABASE_URL,CONFIG.SUPABASE_ANON_KEY,{
 // ⚠️ Una sola versión por cadena y CORTA: el detalle va al CHANGELOG.md, no acá. Nacho ve este texto
 // completo en el encabezado (el resto ve solo el "bNN") y si es largo se desborda; además `APP_VERSION_CORTA`
 // saca el número con un match, así que dos "bNN" en la misma cadena confunden cuál es la versión.
-const APP_VERSION='TEST · 2026-08-31 (b96 · los cupos que ya viajaron bajan a una sección aparte)';
+const APP_VERSION='Fase 2 - TEST (b97 - columna Voucher enviado + aviso a 7 y 2 dias)';
 // Columnas de 'vuelos' legibles por cualquier usuario. EXCLUYE precio_neto: el admin lo lee por RPC admin_get_precio_neto (gateada por es_admin). No usar select('*') sobre vuelos: la columna precio_neto quedó revocada a authenticated.
 // ⚠️ Toda columna que se agregue acá necesita `grant select (col) to authenticated` en la base, si no
 // PostgREST tira 400 y se cae la pantalla entera (gotcha #6). `emitido` viene de la migración 2026-08-06.
@@ -1880,7 +1883,12 @@ async function cargarDetalle(vueloId){
   const accLibres=reservables.filter(l=>l.accion_id).length;
   const lVReservable=reservables.length;
   const bloqLibres=libresArr.filter(l=>l.bloqueado_operaciones).length;
-  const numCols=14;
+  // b97 (pedido de Mikaela Minetti, 1-sep-2026): columna "Voucher enviado".
+  // Aparece SOLO donde hay un voucher que enviar (las aerolíneas de CONFIG.VOUCHER_AEROLINEAS,
+  // las mismas del botón 🎫) y SOLO para quien lo manda: admin + Operaciones. El vendedor no la
+  // ve — no es su control, y una casilla que no puede tildar sería ruido.
+  const colVoucher=(esAdmin||esOper)&&aeroConVoucher;
+  const numCols=colVoucher?15:14;
   const vendedorNombreActual=vendedores.find(v=>v.email===currentUser?.email)?.nombre||currentUser?.email||'';
   const nombresOp=nombresQuePuedoOperar(); // propio + titulares que asiste (delegación)
   const misReservas=(!esAdmin)?lugaresActivos.concat(lugaresEspera).filter(l=>{const p=l.pasajeros?.[0];return p&&!p.cancelado&&p.status!=='L'&&nombresOp.includes(p.vendedor);}):[];
@@ -2050,6 +2058,26 @@ async function cargarDetalle(vueloId){
     // documento de viaje de algo que todavía se puede caer.
     const btnVoucher=((esAdmin||esOper)&&aeroConVoucher&&p&&st==='V'&&!cancelado&&modo!=='reducido')?`<button class="btn-sm" title="Voucher de vuelo de este pasajero (el ticket manual de Guamatur)" onclick="event.stopPropagation();imprimirVoucherPasajero('${vuelo.id}','${l.id}')">🎫 Voucher</button>`:'';
     const accionCell=[(accion&&accion!=='—')?accion:'',btnPdf,btnVoucher,btnBloqueo].filter(Boolean).join(' ')||accion;
+    // b97: casilla "Voucher enviado". Solo sobre una venta viva — el voucher de una reserva sin
+    // pagar no existe todavía, y el de una cancelada no hay que mandarlo.
+    // 🔑 Generar el PDF desde el botón 🎫 NO tilda la casilla: generar no es enviar. El tick es el
+    //    acto de quien se lo mandó al cliente; si se marcara solo, el control no controlaría nada.
+    let tdVoucher='';
+    if(colVoucher){
+      if(p&&st==='V'&&!cancelado&&modo!=='reducido'){
+        const enviado=!!p.voucher_enviado_en;
+        const cuando=enviado?formatFechaHora(p.voucher_enviado_en):'';
+        const tip=enviado
+          ?`Voucher enviado${p.voucher_enviado_por?' por '+p.voucher_enviado_por:''} el ${cuando}. Destildar si hay que volver a mandarlo.`
+          :'Pendiente de envío. Tildar cuando se le mandó el voucher al cliente.';
+        tdVoucher=`<td style="text-align:center" title="${esc(tip)}">
+          <input type="checkbox" ${enviado?'checked':''} style="width:16px;height:16px;cursor:pointer;accent-color:var(--green)" onchange="event.stopPropagation();marcarVoucherEnviado('${l.id}','${vuelo.id}',this.checked,this)">
+          <div style="font-size:10px;margin-top:2px" data-vch="${l.id}">${enviado?`<span style="color:var(--muted)">${esc(cuando.split(' ')[0]||'')}</span>`:'<span style="color:var(--orange)">pendiente</span>'}</div>
+        </td>`;
+      } else {
+        tdVoucher='<td style="text-align:center;color:var(--muted)">—</td>';
+      }
+    }
     let h=`<tr class="${rowCls}"${accStyle}>
       <td style="font-family:'DM Mono',monospace;font-weight:500"${numVisible!=null&&numVisible!==l.numero_lugar?` title="Lugar interno ${l.numero_lugar} — es el que figura en el historial de actividad"`:''}>${acc?`<span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:${esc(acc.color)};margin-right:6px;vertical-align:middle" title="${esc(acc.nombre)}"></span>`:''}${numVisible!=null?numVisible:l.numero_lugar}</td>
       <td>${esc(p?.primer_apellido)||'—'}</td>
@@ -2064,6 +2092,7 @@ async function cargarDetalle(vueloId){
       <td class="${vencCls}">${st==='R'?(l.es_espera?'<span style="color:var(--muted)">sin venc. (espera)</span>':vText):(st==='V'?'<span style="color:var(--green)">Vendida</span>':'—')}</td>
       <td>${esc(p?.ficha)||'—'}</td>
       <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(p?.comentarios)}">${esc(p?.comentarios)||'—'}</td>
+      ${tdVoucher}
       ${hasAccion?`<td><div style="display:flex;gap:6px;flex-wrap:wrap">${accionCell}</div></td>`:''}
     </tr>`;
     if(inf){
@@ -2074,7 +2103,8 @@ async function cargarDetalle(vueloId){
     return h;
   }
 
-  const headPlanilla=`<tr><th>#</th><th>Primer apellido</th><th>Segundo apellido</th><th>Primer nombre</th><th>Segundo nombre</th><th>Hotel</th><th>Vendedor</th><th>Status</th><th>Factura</th><th>Fecha reserva</th><th>Vencimiento</th><th>Ficha</th><th>Comentarios</th><th></th></tr>`;
+  const thVoucher=colVoucher?`<th title="Tildar cuando el voucher ya se le envió al cliente. Lo ven y lo marcan Operaciones y los administradores.">🎫 Voucher enviado</th>`:'';
+  const headPlanilla=`<tr><th>#</th><th>Primer apellido</th><th>Segundo apellido</th><th>Primer nombre</th><th>Segundo nombre</th><th>Hotel</th><th>Vendedor</th><th>Status</th><th>Factura</th><th>Fecha reserva</th><th>Vencimiento</th><th>Ficha</th><th>Comentarios</th>${thVoucher}<th></th></tr>`;
   html+=`<div class="table-wrap"><table class="planilla"><thead>${headPlanilla}</thead><tbody>`;
   lugaresActivos.forEach((l,idx)=>{html+=fila(l,'activo',true,numCols-1,idx+1);});
   if(lugaresReducidos.length){
@@ -2084,13 +2114,13 @@ async function cargarDetalle(vueloId){
   html+='</tbody></table></div>';
 
   // ── LISTA DE ESPERA (6 lugares extra, numerada desde 1) ──
-  const esperaCols=14;
+  const esperaCols=numCols;   // b97: si el cupo muestra la columna de voucher, la espera también (o se desalinean)
   if(lugaresEspera.length){
     const ocupEspera=lugaresEspera.filter(l=>l.pasajeros?.[0]&&l.pasajeros[0].status!=='L'&&!l.pasajeros[0].cancelado).length;
     const libresEspera=lugaresEspera.filter(l=>!l.pasajeros?.[0]||l.pasajeros[0].status==='L').length;
     html+=`<details style="margin-bottom:24px"><summary style="cursor:pointer;padding:12px 16px;background:var(--surface);border:1px solid var(--border);border-radius:12px;font-size:13px;font-weight:500;color:var(--accent2);list-style:none">📋 Lista de espera — ${ocupEspera}/${lugaresEspera.length} ocupados <span style="color:var(--muted);font-weight:400">(click para desplegar)</span></summary>
     <div style="margin-top:8px">${libresEspera>0?`<button class="btn btn-success" onclick="abrirModalReservarEspera('${vueloId}',${libresEspera})">+ Reservar en espera</button>`:''}</div>
-    <div class="table-wrap" style="margin-top:8px"><table class="planilla"><thead><tr><th>#</th><th>Primer apellido</th><th>Segundo apellido</th><th>Primer nombre</th><th>Segundo nombre</th><th>Hotel</th><th>Vendedor</th><th>Status</th><th>Factura</th><th>Fecha reserva</th><th>Vencimiento</th><th>Ficha</th><th>Comentarios</th><th></th></tr></thead><tbody>`;
+    <div class="table-wrap" style="margin-top:8px"><table class="planilla"><thead>${headPlanilla}</thead><tbody>`;
     lugaresEspera.forEach(l=>{html+=fila(l,'espera',true,esperaCols-1);});
     html+='</tbody></table></div></details>';
   } else if(esAdmin){
@@ -2801,6 +2831,30 @@ async function toggleBloqueoOper(lugarId,vueloId,bloquear){
   // b59 (Ola 1 #14): el log lo sella la RPC; se quitó el registrarLog del cliente
   cargarDetalle(vueloId);
 }
+// b97: tildar / destildar "Voucher enviado" (admin + Operaciones) vía RPC gateada.
+// 🔑 NO recarga el detalle: esto se usa tildando varias casillas seguidas, y un re-render por
+//    cada tick haría saltar el scroll al principio en un cupo de 40 lugares. Se actualiza solo
+//    la celda; si la RPC falla, la casilla vuelve a como estaba y se avisa.
+async function marcarVoucherEnviado(lugarId,vueloId,enviado,el){
+  if(el)el.disabled=true;
+  await asegurarTokenFresco();
+  const {data,error}=await sb.rpc('set_voucher_enviado',{p_lugar_id:lugarId,p_enviado:!!enviado});
+  if(el)el.disabled=false;
+  if(error){
+    if(el)el.checked=!enviado;
+    alert('No se pudo marcar el voucher: '+error.message);
+    return;
+  }
+  const nota=document.querySelector(`[data-vch="${lugarId}"]`);
+  if(nota){
+    const cuando=data?.voucher_enviado_en?formatFechaHora(data.voucher_enviado_en):'';
+    nota.innerHTML=enviado?`<span style="color:var(--muted)">${esc(cuando.split(' ')[0]||'')}</span>`:'<span style="color:var(--orange)">pendiente</span>';
+    const td=nota.closest('td');
+    if(td)td.title=enviado
+      ?`Voucher enviado${data?.voucher_enviado_por?' por '+data.voucher_enviado_por:''} el ${cuando}. Destildar si hay que volver a mandarlo.`
+      :'Pendiente de envío. Tildar cuando se le mandó el voucher al cliente.';
+  }
+}
 async function restaurarLugar(lugarId,vueloId){
   if(!confirm('¿Restaurar este lugar reducido? Volverá a estar disponible.'))return;
   await asegurarTokenFresco();
@@ -3132,19 +3186,28 @@ async function exportarExcel(vueloId,nombreVuelo){
     const [{data:lugares},{data:infants},{data:vRow}]=await Promise.all([
       sb.from('lugares').select('*,pasajeros(*)').eq('vuelo_id',vueloId).order('numero_lugar'),
       sb.from('infants').select('*').eq('vuelo_id',vueloId),
-      sb.from('vuelos').select('nombre').eq('id',vueloId).single()
+      sb.from('vuelos').select('nombre,aerolinea').eq('id',vueloId).single()
     ]);
     nombreVuelo=nombreVuelo||vRow?.nombre||'Cupo';
     if(!lugares||!lugares.length){alert('No hay datos para exportar');return;}
     const infantMap={};
     (infants||[]).forEach(inf=>{if(inf.pasajero_id)infantMap[inf.pasajero_id]=inf});
-    const rows=[['#','Tipo','Primer Apellido','Segundo Apellido','Primer Nombre','Segundo Nombre','Hotel','Vendedor','Status','Factura','Fecha Reserva','Ficha','Comentarios']];
+    // b97: la columna de voucher enviado viaja al Excel con el mismo criterio que en pantalla
+    // (aerolínea con voucher + admin/Operaciones), para poder repasar los pendientes fuera de la app.
+    const colVch=(rolEfectivo==='admin'||rolEfectivo==='operaciones')&&(CONFIG.VOUCHER_AEROLINEAS||[]).some(a=>String(a).trim().toLowerCase()===String(vRow?.aerolinea||'').trim().toLowerCase());
+    const vchTxt=(p,st)=>{
+      if(!colVch)return [];
+      if(st!=='V')return [''];
+      return [p.voucher_enviado_en?`SÍ · ${formatFechaHora(p.voucher_enviado_en)}${p.voucher_enviado_por?' · '+p.voucher_enviado_por:''}`:'PENDIENTE'];
+    };
+    const rows=[['#','Tipo','Primer Apellido','Segundo Apellido','Primer Nombre','Segundo Nombre','Hotel','Vendedor','Status','Factura','Fecha Reserva','Ficha','Comentarios'].concat(colVch?['Voucher enviado']:[])];
     const pushFila=(num,tipo,p,st)=>{
-      rows.push([num,tipo,p.primer_apellido||'',p.segundo_apellido||'',p.primer_nombre||'',p.segundo_nombre||'',p.hotel||'',p.vendedor||'',st,p.factura||'',formatFechaHora(p.fecha_reserva),p.ficha||'',p.comentarios||'']);
+      rows.push([num,tipo,p.primer_apellido||'',p.segundo_apellido||'',p.primer_nombre||'',p.segundo_nombre||'',p.hotel||'',p.vendedor||'',st,p.factura||'',formatFechaHora(p.fecha_reserva),p.ficha||'',p.comentarios||''].concat(vchTxt(p,st)));
       const inf=p.id?infantMap[p.id]:null;
       if(inf){
         // Infant hereda hotel/vendedor/ficha/factura/status/fecha del adulto
-        rows.push([`${num}.inf`,'Infant',inf.primer_apellido||'',inf.segundo_apellido||'',inf.primer_nombre||'',inf.segundo_nombre||'',p.hotel||'',p.vendedor||'',st,p.factura||'',formatFechaHora(p.fecha_reserva),p.ficha||'','']);
+        // (el voucher del infant va dentro del de su adulto: la celda queda vacía a propósito)
+        rows.push([`${num}.inf`,'Infant',inf.primer_apellido||'',inf.segundo_apellido||'',inf.primer_nombre||'',inf.segundo_nombre||'',p.hotel||'',p.vendedor||'',st,p.factura||'',formatFechaHora(p.fecha_reserva),p.ficha||'',''].concat(colVch?['']:[]));
       }
     };
     // Activos (no infant, no espera, no reducido) primero; luego reducidos; luego lista de espera
