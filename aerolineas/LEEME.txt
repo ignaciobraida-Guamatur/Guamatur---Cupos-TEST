@@ -8,8 +8,11 @@ marcas de terceros que van en un documento que se le entrega al pasajero.
   gol.svg   Gol Linhas Aereas                (IATA G3, version 2015 sin slogan)
   sky.svg   Sky Airline                      (IATA H2, version vigente desde 2017)
   jetsmart.svg  JetSMART Airlines            (IATA JA; es el codigo de los vuelos cargados)
+  avianca.svg   Avianca                      (IATA AV; identidad vigente desde 2023, con el ave.
+                                              Sumado en b100, 14-sep-2026. Se descarto el
+                                              wordmark sin ave y el logo viejo con fondo rojo)
 
-Origen: Wikimedia Commons, agosto 2026. Son las marcas vigentes, verificadas a ojo antes de
+Origen: Wikimedia Commons / Wikipedia, agosto y setiembre 2026. Son las marcas vigentes, verificadas a ojo antes de
 subirlas. Si alguna aerolinea cambia su identidad, o si Guamatur consigue el archivo del brand
 kit oficial de la aerolinea, se reemplaza el archivo y listo: el voucher lo toma solo.
 

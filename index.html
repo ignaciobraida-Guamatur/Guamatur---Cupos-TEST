@@ -711,7 +711,7 @@
       <!-- b85: la grilla se arma en JS desde CAL_EVENTOS x CONFIG.AGENDA_INVITADOS (Ola 4 #93).
            Los inputs de días conservan sus IDs históricos (v-cal-pago / v-cal-cancel-sin / v-cal-cancel-con). -->
       <div id="v-cal-grid" style="margin-top:8px;overflow-x:auto"></div>
-      <div style="font-size:10px;color:var(--muted);margin-top:6px">Un recordatorio se agenda solo si tiene días <b>y</b> al menos una persona marcada. Tocá el nombre de la columna para marcarla o desmarcarla entera. <b>“Sale en 2 semanas”</b> (b98) es para Operaciones y nace prendido en los cupos de SKY, Azul, GOL y JetSmart.</div>
+      <div style="font-size:10px;color:var(--muted);margin-top:6px">Un recordatorio se agenda solo si tiene días <b>y</b> al menos una persona marcada. Tocá el nombre de la columna para marcarla o desmarcarla entera. <b>“Sale en 2 semanas”</b> (b98) es para Operaciones y nace prendido en los cupos de SKY, Azul, GOL, JetSmart y Avianca.</div>
     </div>
     <div style="margin-bottom:14px">
       <details style="margin-bottom:10px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:8px 10px">
@@ -840,18 +840,19 @@ const CONFIG={
   // Para estas aerolíneas Guamatur emite su propio voucher, porque no llega uno de la línea aérea a
   // nombre del pasajero. Agregar o sacar una aerolínea de esta lista es todo lo que hace falta.
   // ⚠️ b97: esta lista está DUPLICADA en la función vouchers_pendientes() de la base (la que
-  //    dispara el mail de vouchers sin enviar). Si se suma una quinta aerolínea acá y no allá,
+  //    dispara el mail de vouchers sin enviar). Si se suma una aerolínea acá y no allá,
   //    la app va a mostrar el botón y la casilla pero esos cupos nunca van a avisar.
-  VOUCHER_AEROLINEAS:['SKY','Azul','GOL','JetSmart'],
+  // b100: Avianca, la quinta (pedido de Nacho, 14-sep).
+  VOUCHER_AEROLINEAS:['SKY','Azul','GOL','JetSmart','Avianca'],
   // Cómo se nombra a la aerolínea EN EL VOUCHER (razón social, como en el que hace Operaciones a mano).
   // Si una no está acá, se usa el nombre corto del cupo.
-  VOUCHER_COMPANIA:{SKY:'SKY AIRLINE',Azul:'AZUL LINHAS AEREAS',GOL:'GOL LINHAS AEREAS','JetSmart':'JETSMART AIRLINES'},
+  VOUCHER_COMPANIA:{SKY:'SKY AIRLINE',Azul:'AZUL LINHAS AEREAS',GOL:'GOL LINHAS AEREAS','JetSmart':'JETSMART AIRLINES','Avianca':'AVIANCA'},
   // Logo de la aerolínea al lado del nombre (lo pidió Mikaela el 27-ago; dijo que no es imprescindible).
   // Va el ARCHIVO OFICIAL de cada aerolínea, subido al repo junto a logo-blanco.svg — no una versión
   // dibujada ni recortada de una captura: es un documento que se le entrega al pasajero.
   // Si una aerolínea no está en este mapa, el voucher muestra solo el nombre: nunca una imagen rota.
   // Los archivos y su procedencia están en aerolineas/LEEME.txt.
-  VOUCHER_LOGO:{SKY:'aerolineas/sky.svg',Azul:'aerolineas/azul.svg',GOL:'aerolineas/gol.svg','JetSmart':'aerolineas/jetsmart.svg'},
+  VOUCHER_LOGO:{SKY:'aerolineas/sky.svg',Azul:'aerolineas/azul.svg',GOL:'aerolineas/gol.svg','JetSmart':'aerolineas/jetsmart.svg','Avianca':'aerolineas/avianca.svg'},
   // Bloque "Importante" del voucher — texto EXACTO que pasó Operaciones. No es el mismo que
   // CONDICIONES_ITINERARIO: aquel son las condiciones de contratación del cupo, este es el ticket manual.
   VOUCHER_IMPORTANTE:[
@@ -883,7 +884,7 @@ const sb=supabase.createClient(CONFIG.SUPABASE_URL,CONFIG.SUPABASE_ANON_KEY,{
 // ⚠️ Una sola versión por cadena y CORTA: el detalle va al CHANGELOG.md, no acá. Nacho ve este texto
 // completo en el encabezado (el resto ve solo el "bNN") y si es largo se desborda; además `APP_VERSION_CORTA`
 // saca el número con un match, así que dos "bNN" en la misma cadena confunden cuál es la versión.
-const APP_VERSION='Fase 2 - TEST (b99 - voucher enviado en cupo emitido)';
+const APP_VERSION='TEST · b100 · Avianca con voucher propio';
 // Columnas de 'vuelos' legibles por cualquier usuario. EXCLUYE precio_neto: el admin lo lee por RPC admin_get_precio_neto (gateada por es_admin). No usar select('*') sobre vuelos: la columna precio_neto quedó revocada a authenticated.
 // ⚠️ Toda columna que se agregue acá necesita `grant select (col) to authenticated` en la base, si no
 // PostgREST tira 400 y se cae la pantalla entera (gotcha #6). `emitido` viene de la migración 2026-08-06.
@@ -3871,7 +3872,7 @@ function onRegionChange(){
 }
 
 // b98: el recordatorio "Sale en 2 semanas" es para los cupos de las aerolíneas que llevan voucher
-// propio (lo que pidió Mikaela: GOL/SKY/Azul/JetSmart), así que al elegir la aerolínea de un cupo
+// propio (lo que pidió Mikaela: GOL/SKY/Azul/JetSmart; b100 suma Avianca), así que al elegir la aerolínea de un cupo
 // NUEVO el campo nace en 14 y con las cuatro personas marcadas — y se apaga si la aerolínea es otra.
 // Se puede cambiar a mano en cualquier cupo: esto es el punto de partida, no un candado.
 // ⚠️ En EDICIÓN no se toca nada: ahí manda lo que el cupo ya tenía guardado (misma regla que b89).
