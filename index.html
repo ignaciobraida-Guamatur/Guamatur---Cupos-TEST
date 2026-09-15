@@ -674,6 +674,12 @@
     <div id="modal-v-alert"></div>
     <div class="form-grid">
       <div class="form-group full"><label class="form-label">Temporada</label><select class="form-select" id="v-temporada"></select></div>
+      <!-- b101: tandas. Visible al crear una tanda y al editar un cupo; oculto en el alta normal y en Duplicar. -->
+      <div class="form-group full" id="v-tanda-wrap" style="display:none">
+        <label class="form-label">🔗 Tanda de <span style="color:var(--muted);font-size:10px">misma salida, otro PNR / neto / precio · el vendedor ve una sola tanda por vez</span></label>
+        <select class="form-select" id="v-tanda-de"></select>
+        <div id="v-tanda-hint" style="font-size:11px;color:var(--muted);margin-top:4px"></div>
+      </div>
       <div class="form-group">
         <label class="form-label">Región</label>
         <select class="form-select" id="v-destino" onchange="onRegionChange()"><option value="">Seleccionar...</option><option value="Argentina">Argentina</option><option value="Brasil">Brasil</option><option value="Caribe">Caribe</option><option value="Chile">Chile</option><option value="Otros">Otros</option></select>
@@ -754,6 +760,8 @@
     <div class="modal-title">Duplicar cupo</div>
     <div style="font-size:13px;color:var(--muted);margin-bottom:14px">Elegí el cupo a copiar. Se duplican itinerario, aerolínea, ciudad, precios, equipaje, cantidad de lugares y agenda; vos completás las <b>fechas nuevas</b> y el <b>PNR</b>. No se copian pasajeros ni la agenda de Calendar del original.</div>
     <div class="form-group full"><label class="form-label">Cupo a duplicar</label><select class="form-select" id="dup-vuelo"></select></div>
+    <!-- b101: tanda = misma salida (se conservan las fechas), otro PNR, otro neto y otro precio -->
+    <label style="display:flex;gap:8px;align-items:flex-start;font-size:13px;margin:4px 0 10px;cursor:pointer"><input type="checkbox" id="dup-tanda" style="margin-top:3px"/><span>Es una <b>tanda más</b> de este cupo: <b>misma salida</b>, pero otro PNR, otro neto y otro precio. El vendedor va a ver una sola tanda por vez.</span></label>
     <div class="modal-actions">
       <button class="btn btn-outline" onclick="cerrarModal('modal-duplicar')">Cerrar</button>
       <button class="btn btn-primary" id="btn-dup-confirmar" onclick="confirmarDuplicar()">Duplicar →</button>
@@ -884,11 +892,12 @@ const sb=supabase.createClient(CONFIG.SUPABASE_URL,CONFIG.SUPABASE_ANON_KEY,{
 // ⚠️ Una sola versión por cadena y CORTA: el detalle va al CHANGELOG.md, no acá. Nacho ve este texto
 // completo en el encabezado (el resto ve solo el "bNN") y si es largo se desborda; además `APP_VERSION_CORTA`
 // saca el número con un match, así que dos "bNN" en la misma cadena confunden cuál es la versión.
-const APP_VERSION='TEST · b100 · Avianca con voucher propio';
+const APP_VERSION='TEST · b101 · tandas';
 // Columnas de 'vuelos' legibles por cualquier usuario. EXCLUYE precio_neto: el admin lo lee por RPC admin_get_precio_neto (gateada por es_admin). No usar select('*') sobre vuelos: la columna precio_neto quedó revocada a authenticated.
 // ⚠️ Toda columna que se agregue acá necesita `grant select (col) to authenticated` en la base, si no
 // PostgREST tira 400 y se cae la pantalla entera (gotcha #6). `emitido` viene de la migración 2026-08-06.
-const VUELO_COLS='id,temporada_id,nombre,ciudad_codigo,ciudad_nombre,aerolinea,fecha,fecha_regreso,total_lugares,precio,condiciones_equipaje,creado_en,destino,itinerario,visible,itinerario_historial,cal_dias_pago_final,cal_dias_cancel_sin_gastos,cal_dias_cancel_con_gastos,cal_dias_salida,cal_usuarios,emitido,emitido_en,emitido_por';
+// `continua_de` (b101, tandas) viene de db/2026-09-15-b101-tandas.sql.
+const VUELO_COLS='id,temporada_id,nombre,ciudad_codigo,ciudad_nombre,aerolinea,fecha,fecha_regreso,total_lugares,precio,condiciones_equipaje,creado_en,destino,itinerario,visible,itinerario_historial,cal_dias_pago_final,cal_dias_cancel_sin_gastos,cal_dias_cancel_con_gastos,cal_dias_salida,cal_usuarios,emitido,emitido_en,emitido_por,continua_de';
 // Calendarización: al crear un cupo, dispara (fire-and-forget) la creación de eventos en Google Calendar vía n8n.
 const N8N_WEBHOOK_AGENDA=CONFIG.N8N_WEBHOOK_AGENDA;
 // b85 (pedido Diego, 23-jul): los tres vencimientos del cupo tienen destinatarios PROPIOS. Antes era una
@@ -1062,6 +1071,10 @@ function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;',
 if(!CONFIG.ATLAS_ENABLED){const _ba=document.getElementById('p-traer-atlas'); if(_ba) _ba.style.display='none';}
 let currentUser=null,currentRol=null,currentVueloId=null,currentPasajeroId=null,currentLugarId=null,currentVueloFecha=null,currentVueloFechaRegreso=null,sesionIniciada=false,rolEfectivo=null,_pOrig=null;
 let temporadas=[],temporadaActiva=null,vuelosData=[],tramosCount=0,dashFiltro='todos';
+// b101 — tandas del listado: número de tanda por cupo y los que el vendedor no ve (ver tandasDeCupos)
+let tandasInfo={},tandasOcultas=new Set();
+// b101 — estado del formulario de cupo: ¿se está creando una tanda? y a qué cupo apuntaba al abrir (edición)
+let _modoTanda=false,_tandaDeAlAbrir='';
 let reservarVueloId=null,reservarLugaresLibres=0,reservarLugaresIds=[];
 let cancelarLugarId=null,cancelarPasajeroId=null,cancelarVueloId=null;
 let editarVueloId=null,vendedores=[],guardandoVuelo=false,nombreCupoManual=false,_regresoPrevio=null;
@@ -1703,6 +1716,15 @@ async function cargarVuelos(){
     const {data:accs}=await sb.rpc('acciones_libres_por_cupo',{p_temporada_id:temporadaActiva});
     (accs||[]).forEach(a=>{(accionesPorCupo[a.vuelo_id]=accionesPorCupo[a.vuelo_id]||[]).push(a);});
   }
+  // b101: tandas. Si la consulta falla, no se oculta nada (se ve como antes de b101), nunca se cae el listado.
+  // El Travel Partner queda afuera: su RPC no trae continua_de (y hoy no hay TP en uso).
+  tandasInfo={};tandasOcultas=new Set();
+  if(rolEfectivo!=='travel_partner'){
+    const {data:meta}=await sb.from('vuelos').select('id,nombre,continua_de,creado_en,emitido').eq('temporada_id',temporadaActiva);
+    const t=tandasDeCupos(vuelos||[],meta||[]);
+    tandasInfo=t.info;
+    if(rolEfectivo!=='admin'&&rolEfectivo!=='operaciones') tandasOcultas=t.ocultos;
+  }
   vuelosData=vuelos||[];renderVuelos(vuelosData);
 }
 function seleccionarTemporada(id){temporadaActiva=id;cargarVuelos()}
@@ -1713,10 +1735,46 @@ function fechaHoyISO(){
   const n=new Date();
   return `${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,'0')}-${String(n.getDate()).padStart(2,'0')}`;
 }
+// b101 — TANDAS (pedido de Aéreos vía Nacho, 15-sep-2026). Un cupo puede ser la TANDA 2, 3… de otro:
+// misma salida, pero otro PNR, otro neto y otro precio de venta. `vuelos.continua_de` apunta SIEMPRE al
+// cupo ORIGINAL; el original es la tanda 1 y las demás se numeran por orden de creación.
+// 🔑 El vendedor ve UN SOLO cupo por cadena: el primero que todavía tiene lugares para vender. Cuando se
+// agota, en su lugar aparece la tanda siguiente con su precio; si se libera un lugar del original, vuelve
+// el original. Así nunca ve dos precios para la misma salida. Si ninguno tiene lugares, ve el ÚLTIMO.
+// "Para vender" = libres no bloqueados para Operaciones, en un cupo NO emitido (emitido congela el cupo:
+// ahí no se puede reservar aunque haya libres).
+// ⚠️ Es un filtro de PANTALLA, no una barrera de seguridad: la tanda oculta es un cupo legítimo. Admin y
+// Operaciones ven todos, con la etiqueta de tanda.
+// `lista` = filas de vista_vuelos (libres/bloqueados); `meta` = {id,nombre,continua_de,creado_en,emitido}.
+function tandasDeCupos(lista,meta){
+  const m={};(meta||[]).forEach(x=>{m[x.id]=x;});
+  const grupos={};
+  (meta||[]).forEach(x=>{const raiz=x.continua_de||x.id;(grupos[raiz]=grupos[raiz]||[]).push(x);});
+  const info={};
+  Object.entries(grupos).forEach(([raiz,arr])=>{
+    if(arr.length<2) return;
+    const orden=arr.slice().sort((a,b)=>a.id===raiz?-1:b.id===raiz?1:String(a.creado_en||'').localeCompare(String(b.creado_en||'')));
+    orden.forEach((x,i)=>{info[x.id]={raiz,n:i+1,total:orden.length,nombreOriginal:(m[raiz]||{}).nombre||''};});
+  });
+  const ocultos=new Set(), enLista={};
+  (lista||[]).forEach(v=>{const t=info[v.id];if(t)(enLista[t.raiz]=enLista[t.raiz]||[]).push(v);});
+  Object.values(enLista).forEach(arr=>{
+    if(arr.length<2) return;
+    arr.sort((a,b)=>info[a.id].n-info[b.id].n);
+    const paraVender=v=>!(m[v.id]||{}).emitido&&((Number(v.libres)||0)-(Number(v.bloqueados)||0))>0;
+    const elegido=arr.find(paraVender)||arr[arr.length-1];
+    arr.forEach(v=>{if(v.id!==elegido.id)ocultos.add(v.id);});
+  });
+  return {info,ocultos};
+}
 function renderVuelos(lista){
   const cont=document.getElementById('vuelos-content');
+  // b101: el vendedor ve una sola tanda por salida (tandasDeCupos). Se filtra acá y no en vuelosData para
+  // que el resto de la app (buscador de pasajeros, nombres del cupo) siga conociendo todos los cupos.
+  lista=(lista||[]).filter(v=>!tandasOcultas.has(v.id));
   if(!lista.length){cont.innerHTML='<div class="loading">No hay cupos en esta temporada</div>';return;}
   const esAdmin=rolEfectivo==='admin';
+  const verTandas=esAdmin||rolEfectivo==='operaciones';
   const filas=lista.map(v=>{
     const vV=v.vendidos||0,rV=v.reservados||0,lV=v.libres||0,tot=v.total||0;
     const alerta=estadoCupo(tot,lV);const [cls,txt]=alertaMap[alerta];
@@ -1735,8 +1793,11 @@ function renderVuelos(lista){
     // acento violeta de la UI, así que una pastilla translúcida del mismo tono se confundía con el
     // título (feedback de Nacho). Llena, se lee como una etiqueta y no como parte del nombre.
     const acc=(accionesPorCupo[d.id]||[]).map(a=>` <span class="badge" style="background:${esc(a.color)};color:${textoSobre(a.color)};border:1px solid ${esc(a.color)};font-weight:700;letter-spacing:.2px" title="${esc(a.nombre)}: ${a.libres} de ${a.total} lugares todavía libres. Se reservan normalmente; vencen en 48 h.">${esc(a.nombre)} · ${a.libres} libre${a.libres===1?'':'s'}</span>`).join('');
+    // b101: etiqueta de tanda, solo para admin/Operaciones (el vendedor ve una sola tanda por vez).
+    const ti=tandasInfo[d.id];
+    const tanda=(verTandas&&ti)?` <span class="badge badge-l" title="${ti.n===1?`Cupo original · tiene ${ti.total-1} tanda(s) más`:`Tanda ${ti.n} de ${ti.total} · original: ${esc(ti.nombreOriginal)}`}">🔗 Tanda ${ti.n}/${ti.total}</span>`:'';
     return `<tr style="cursor:pointer" onclick="goToDetalle('${d.id}')">
-      <td style="color:var(--accent2);font-weight:500">${esc(d.nombre)}${oculto}${redu}${emit}${acc}</td>
+      <td style="color:var(--accent2);font-weight:500">${esc(d.nombre)}${oculto}${tanda}${redu}${emit}${acc}</td>
       <td><span class="badge ${regionBadge(d.destino)}">${esc(d.destino)||'—'}</span></td>
       <td>${esc(d.ciudad_nombre)||'—'}</td>
       <td data-sort="${d.fecha||''}">${d.fecha?formatFecha(d.fecha):'—'}</td>
@@ -1862,6 +1923,14 @@ async function cargarDetalle(vueloId){
   // El localizador (PNR del operador) tampoco viaja en el select (revocado a authenticated); se trae por RPC gateada (excluye Travel Partner).
   let localizadorCupo=null;
   if(vuelo){const {data:loc}=await sb.rpc('get_localizador',{p_vuelo_id:vueloId});localizadorCupo=loc;}
+  // b101: las tandas de esta salida (original + continuaciones), en orden. Solo admin/Operaciones: el
+  // vendedor ve una sola tanda por vez y no necesita saber que hay otra.
+  let cadenaTandas=[];
+  if(vuelo&&(rolEfectivo==='admin'||rolEfectivo==='operaciones')){
+    const raiz=vuelo.continua_de||vuelo.id;
+    const {data:cad}=await sb.from('vuelos').select('id,nombre,creado_en,continua_de').or(`id.eq.${raiz},continua_de.eq.${raiz}`);
+    if((cad||[]).length>1) cadenaTandas=cad.sort((a,b)=>a.id===raiz?-1:b.id===raiz?1:String(a.creado_en||'').localeCompare(String(b.creado_en||'')));
+  }
   if(!vuelo||!lugares){cont.innerHTML='<div class="loading" style="color:var(--red)">Error</div>';return;}
   currentVueloFecha=vuelo.fecha||null;
   currentVueloFechaRegreso=vuelo.fecha_regreso||vuelo.fecha||null;
@@ -1922,6 +1991,7 @@ async function cargarDetalle(vueloId){
         ${localizadorCupo?`<span style="color:var(--accent2)">🔑 ${esc(localizadorCupo)}</span>`:''}
         ${vuelo.precio?`<span style="color:var(--green);font-weight:500">Precio de Venta: USD ${Number(vuelo.precio).toLocaleString('es-UY')}</span>`:''}
         ${(esAdmin||esOper)&&precioNetoAdmin?`<span style="color:var(--yellow);font-weight:500">Neto: USD ${Number(precioNetoAdmin).toLocaleString('es-UY')}</span>`:''}
+        ${cadenaTandas.length?`<span title="Misma salida, otro PNR / neto / precio. El vendedor ve una sola tanda por vez: la primera que tiene lugares para vender.">🔗 ${cadenaTandas.map((t,i)=>t.id===vueloId?`<b>Tanda ${i+1}</b>`:`<a href="#" style="color:var(--accent2)" onclick="event.preventDefault();goToDetalle('${t.id}')">Tanda ${i+1}</a>`).join(' · ')}</span>`:''}
       </div>
     </div>
     <div class="detalle-actions">
@@ -1934,6 +2004,7 @@ async function cargarDetalle(vueloId){
       ${esAdmin?`<details class="menu-gestionar"><summary>⚙ Gestionar cupo ▾</summary><div class="menu-panel">
         <div class="menu-label">Gestión</div>
         <button class="menu-item" onclick="this.closest('details').removeAttribute('open');abrirEditarVuelo('${vueloId}')">✏ Editar cupo</button>
+        <button class="menu-item" title="Más lugares para esta misma salida, con otro PNR, otro neto y otro precio. El vendedor ve una sola tanda por vez." onclick="this.closest('details').removeAttribute('open');abrirNuevaTanda('${vueloId}')">➕ Nueva tanda (otro precio)</button>
         <button class="menu-item" onclick="this.closest('details').removeAttribute('open');marcarEmitido('${vueloId}',${vuelo.emitido?'false':'true'})">${vuelo.emitido?'🔓 Sacar la marca de EMITIDO':'🎫 Marcar como EMITIDO (congela el cupo)'}</button>
         <button class="menu-item" onclick="this.closest('details').removeAttribute('open');imprimirItinerario('${vueloId}')">🖨 Imprimir / PDF</button>
         <button class="menu-item" onclick="this.closest('details').removeAttribute('open');abrirModalReducir('${vueloId}')">▾ Reducir plazas</button>
@@ -3893,16 +3964,57 @@ function aplicarDefectoSalida(){
 // por la rama de CREACIÓN (crear_cupo) y nace un cupo nuevo con lugares vacíos; (2) NO se heredan los datos
 // que son propios de cada salida: fecha de salida/regreso, PNR y la fecha de cada tramo (se repreguntan).
 function abrirDuplicarVuelo(vueloId){ return abrirEditarVuelo(vueloId,{duplicar:true}); }
+// b101 — NUEVA TANDA: es un Duplicar con tres diferencias. (1) CONSERVA las fechas y el itinerario: es la
+// misma salida. (2) Deja VACÍOS PNR, precio de venta, valor neto y cantidad de lugares, y los exige: son
+// justamente lo que cambia en una tanda. (3) Los recordatorios de Calendar arrancan destildados, para no
+// duplicarle a Operaciones los avisos de una salida que ya los tiene. Al guardar se vincula al ORIGINAL.
+function abrirNuevaTanda(vueloId){ return abrirEditarVuelo(vueloId,{duplicar:true,tanda:true}); }
+// b101: arma el campo "Tanda de". modo 'tanda' = creando una tanda de `v` · 'editar' = editando `v` · null = oculto.
+async function prepararCampoTanda(v,modo){
+  const wrap=document.getElementById('v-tanda-wrap'),sel=document.getElementById('v-tanda-de'),hint=document.getElementById('v-tanda-hint');
+  _tandaDeAlAbrir='';
+  if(!wrap||!sel) return null;
+  sel.disabled=false;
+  if(!modo||!v||!v.fecha){wrap.style.display='none';sel.innerHTML='';if(hint)hint.textContent='';return null;}
+  const raiz=v.continua_de||v.id;
+  const {data:mismos}=await sb.from('vuelos').select('id,nombre,continua_de').eq('temporada_id',v.temporada_id).eq('fecha',v.fecha);
+  const arr=mismos||[];
+  if(modo==='editar'){
+    const propias=arr.filter(x=>x.continua_de===v.id).length;
+    _tandaDeAlAbrir=v.continua_de||'';
+    if(propias){
+      sel.innerHTML='<option value="">— Es el cupo original —</option>';sel.disabled=true;
+      hint.textContent=`Este cupo es el original de ${propias} tanda(s): no puede ser a la vez tanda de otro.`;
+      wrap.style.display='block';return null;
+    }
+    // Solo cupos de la misma temporada que salen el mismo día y que no son tandas ellos mismos.
+    const candidatos=arr.filter(x=>x.id!==v.id&&!x.continua_de);
+    if(!candidatos.length){wrap.style.display='none';sel.innerHTML='';hint.textContent='';return null;}
+    sel.innerHTML='<option value="">— No es una tanda —</option>'+candidatos.map(x=>`<option value="${x.id}">${esc(x.nombre)}</option>`).join('');
+    sel.value=_tandaDeAlAbrir;
+    hint.textContent='Aparecen solo los cupos de la misma temporada que salen el mismo día.';
+    wrap.style.display='block';return null;
+  }
+  // modo 'tanda': nace atada al original del cupo desde el que se creó (si se eligió una tanda, a su original)
+  const orig=arr.find(x=>x.id===raiz)||{id:raiz,nombre:v.nombre};
+  const n=arr.filter(x=>x.continua_de===raiz).length+2;
+  sel.innerHTML=`<option value="${raiz}">${esc(orig.nombre)}</option>`;sel.value=raiz;sel.disabled=true;
+  hint.textContent=`Va a ser la tanda ${n}. Completá el PNR, el precio de venta, el valor neto y los lugares de esta tanda. Los recordatorios de Calendar arrancan destildados.`;
+  wrap.style.display='block';
+  return {raiz,n,nombreOriginal:orig.nombre};
+}
 async function abrirEditarVuelo(vueloId,opts){
   const duplicar=!!(opts&&opts.duplicar);
+  const tanda=duplicar&&!!(opts&&opts.tanda);   // b101
+  _modoTanda=tanda;
   editarVueloId=duplicar?null:vueloId;   // duplicar = alta nueva, NO edición
   const {data:temps}=await sb.from('temporadas').select('*').order('creado_en',{ascending:false});
   document.getElementById('v-temporada').innerHTML=(temps||[]).map(t=>`<option value="${t.id}">${esc(t.nombre)}</option>`).join('');
   if(vueloId){
     const {data:v}=await sb.from('vuelos').select(VUELO_COLS).eq('id',vueloId).single();
     if(v){
-      document.getElementById('modal-vuelo-title').textContent=duplicar?'Duplicar cupo':'Editar cupo';
-      document.getElementById('btn-crear-vuelo').textContent=duplicar?'Crear cupo':'Guardar cambios';
+      document.getElementById('modal-vuelo-title').textContent=tanda?'Nueva tanda (otro precio)':duplicar?'Duplicar cupo':'Editar cupo';
+      document.getElementById('btn-crear-vuelo').textContent=tanda?'Crear tanda':duplicar?'Crear cupo':'Guardar cambios';
       document.getElementById('v-temporada').value=v.temporada_id||'';
       document.getElementById('v-destino').value=v.destino||'';
       renderCiudadesOpciones(v.destino||'',`${v.ciudad_codigo}|${v.ciudad_nombre}`);
@@ -3915,7 +4027,8 @@ async function abrirEditarVuelo(vueloId,opts){
       const hintLug=document.getElementById('v-lugares-hint');
       if(duplicar){
         // Cupo nuevo: hereda el total nominal del modelo; el hint de edición (activos/ocupados) no aplica.
-        document.getElementById('v-lugares').value=v.total_lugares||'';
+        // b101: una tanda NO hereda la cantidad — la tanda nueva casi nunca trae los mismos lugares.
+        document.getElementById('v-lugares').value=tanda?'':(v.total_lugares||'');
         if(hintLug)hintLug.style.display='none';
       }else{
         // Precargar "Total lugares" con el conteo REAL de lugares activos (no el total_lugares almacenado,
@@ -3928,14 +4041,16 @@ async function abrirEditarVuelo(vueloId,opts){
         const ocupadosCount=activosArr.filter(l=>{const p=l.pasajeros?.[0];return p&&p.status&&p.status!=='L';}).length;
         if(hintLug){hintLug.style.display='block';hintLug.textContent=`Hoy: ${activosCount} activos, ${ocupadosCount} ocupados. Subir agrega lugares nuevos; bajar elimina vacíos del final y no puede tocar ocupados — para sacar lugares de la venta usá "Reducir lugares".`;}
       }
-      document.getElementById('v-precio').value=v.precio||'';
-      const {data:pnEdit}=await sb.rpc('admin_get_precio_neto',{p_vuelo_id:vueloId});
+      // b101: en una tanda, precio y neto van VACÍOS a propósito: son lo que cambia, y heredarlos invita a
+      // guardar la tanda con el precio de la anterior sin darse cuenta.
+      document.getElementById('v-precio').value=tanda?'':(v.precio||'');
+      const {data:pnEdit}=tanda?{data:null}:await sb.rpc('admin_get_precio_neto',{p_vuelo_id:vueloId});
       document.getElementById('v-precio-neto').value=pnEdit||'';
       document.getElementById('v-cal-pago').value=v.cal_dias_pago_final??'';
       document.getElementById('v-cal-cancel-sin').value=v.cal_dias_cancel_sin_gastos??'';
       document.getElementById('v-cal-cancel-con').value=v.cal_dias_cancel_con_gastos??'';
       document.getElementById('v-cal-salida').value=v.cal_dias_salida??'';   // b98
-      {const dest=calDestinatarios(v.cal_usuarios);document.querySelectorAll('.v-cal-u').forEach(c=>{c.checked=(dest[c.dataset.ev]||[]).includes(c.value);});}
+      {const dest=calDestinatarios(v.cal_usuarios);document.querySelectorAll('.v-cal-u').forEach(c=>{c.checked=!tanda&&(dest[c.dataset.ev]||[]).includes(c.value);});}   // b101: tanda = agenda destildada
       document.getElementById('v-visible').value=(v.visible===false)?'false':'true';
       document.getElementById('v-equipaje').value=v.condiciones_equipaje||'';
       document.getElementById('tramos-wrap').innerHTML='';
@@ -3943,16 +4058,21 @@ async function abrirEditarVuelo(vueloId,opts){
       // Año/mes del cupo, para migrar las fechas de tramo VIEJAS ("DD Mmm" sin año) a calendario al abrir a editar.
       const _anioCupo=v.fecha?+v.fecha.slice(0,4):null, _mesCupo=v.fecha?+v.fecha.slice(5,7):null;
       // b75: recordar el regreso previo para no perderlo si el itinerario no tiene tramo de vuelta cargado.
-      _regresoPrevio=duplicar?null:(v.fecha_regreso?String(v.fecha_regreso).slice(0,10):null);
-      if(v.itinerario){v.itinerario.forEach(t=>{agregarTramo();const i=tramosCount-1;const selTipo=document.getElementById(`t-t-${i}`);if(selTipo)selTipo.value=t.tipo||'Ida';document.getElementById(`t-f-${i}`).value=duplicar?'':fechaTramoAISO(t.fecha,_anioCupo,_mesCupo);setTramoAerolinea(i,t.aerolinea);document.getElementById(`t-v-${i}`).value=t.vuelo||'';document.getElementById(`t-o-${i}`).value=t.origen||'';document.getElementById(`t-d-${i}`).value=t.destino||'';document.getElementById(`t-s-${i}`).value=t.salida||'';document.getElementById(`t-l-${i}`).value=t.llegada||'';});}
+      // b101: la tanda es la MISMA salida → conserva regreso y fechas de tramo (Duplicar las borra).
+      const _borraFechas=duplicar&&!tanda;
+      _regresoPrevio=_borraFechas?null:(v.fecha_regreso?String(v.fecha_regreso).slice(0,10):null);
+      if(v.itinerario){v.itinerario.forEach(t=>{agregarTramo();const i=tramosCount-1;const selTipo=document.getElementById(`t-t-${i}`);if(selTipo)selTipo.value=t.tipo||'Ida';document.getElementById(`t-f-${i}`).value=_borraFechas?'':fechaTramoAISO(t.fecha,_anioCupo,_mesCupo);setTramoAerolinea(i,t.aerolinea);document.getElementById(`t-v-${i}`).value=t.vuelo||'';document.getElementById(`t-o-${i}`).value=t.origen||'';document.getElementById(`t-d-${i}`).value=t.destino||'';document.getElementById(`t-s-${i}`).value=t.salida||'';document.getElementById(`t-l-${i}`).value=t.llegada||'';});}
       // Nombre: al EDITAR se respeta el guardado (manual); al DUPLICAR se re-sugiere (queda "Ciudad - Aerolínea"
       // sin fecha, y se completa solo al elegir la fecha nueva) para no arrastrar la fecha vieja en el nombre.
-      if(duplicar){nombreCupoManual=false;}
+      if(duplicar&&!tanda){nombreCupoManual=false;}
       else{nombreCupoManual=true;}
       onCambioItinerarioFechas();  // b75: pobla el resumen de fechas del cupo (y re-sugiere el nombre si corresponde)
       // b86: foto del itinerario YA CARGADO en el formulario. Es contra esto que se compara al guardar,
       // así la migración de fechas de b75 ("10 ene" → ISO) no cuenta como cambio de itinerario.
       _itiAlAbrir=duplicar?null:obtenerItinerario();
+      // b101: campo "Tanda de". En una tanda nueva, el nombre sigue la convención que ya usaba Aéreos: "- G2".
+      const infoTanda=await prepararCampoTanda(v,tanda?'tanda':(duplicar?null:'editar'));
+      if(tanda&&infoTanda){document.getElementById('v-nombre').value=`${infoTanda.nombreOriginal} - G${infoTanda.n}`;}
     }
   }
   document.getElementById('modal-v-alert').innerHTML='';
@@ -3967,6 +4087,7 @@ async function abrirEditarVuelo(vueloId,opts){
 async function abrirSelectorDuplicar(){
   const sel=document.getElementById('dup-vuelo');
   sel.innerHTML='<option value="">Cargando…</option>';
+  {const chk=document.getElementById('dup-tanda');if(chk)chk.checked=false;}
   document.getElementById('modal-duplicar').style.display='flex';
   const [{data:vlist},{data:temps}]=await Promise.all([
     sb.from('vuelos').select('id,nombre,fecha,temporada_id').order('fecha',{ascending:false}),
@@ -3986,7 +4107,8 @@ function confirmarDuplicar(){
   const id=document.getElementById('dup-vuelo').value;
   if(!id){alert('Elegí un cupo para duplicar.');return;}
   cerrarModal('modal-duplicar');
-  abrirDuplicarVuelo(id);
+  if(document.getElementById('dup-tanda')?.checked) abrirNuevaTanda(id);
+  else abrirDuplicarVuelo(id);
 }
 
 async function abrirModalVuelo(){
@@ -4011,6 +4133,7 @@ async function abrirModalVuelo(){
   aplicarDefectoSalida();  // b98: "sale en 2 semanas" queda apagado hasta que se elija una aerolínea con voucher
   document.getElementById('v-visible').value='true';
   nombreCupoManual=false;_regresoPrevio=null;_itiAlAbrir=null;
+  _modoTanda=false;prepararCampoTanda(null,null);   // b101: el alta normal no es tanda
   document.getElementById('tramos-wrap').innerHTML='';
   tramosCount=0;
   onCambioItinerarioFechas();  // b75: resetea el resumen de fechas del cupo (sin tramos → hint)
@@ -4060,6 +4183,12 @@ async function guardarVuelo(){
     };
     // Validaciones de carga (aplican a crear / duplicar / editar). Se corren con el itinerario ya validado.
     const btnTxt=editarVueloId?'Guardar cambios':'Crear cupo';
+    // b101: una tanda sin PNR, precio y neto PROPIOS sería una copia del original con otro nombre — y el
+    // vendedor la vería con el precio viejo. Se exige antes de cualquier otra pregunta.
+    if(!editarVueloId&&_modoTanda&&(!datos.localizador||datos.precio==null||datos.precio_neto==null)){
+      mostrarAlerta('modal-v-alert','Una tanda nueva necesita su propio PNR, su precio de venta y su valor neto: es justamente lo que la diferencia del cupo original.','error');
+      setBtnLoading('btn-crear-vuelo',false,'Crear tanda');return;
+    }
     // (a) BLOQUEANTE: la fecha de regreso no puede ser anterior a la de salida (rompe la clasificación de infantes).
     if(datos.fecha&&datos.fecha_regreso&&datos.fecha_regreso<datos.fecha){
       mostrarAlerta('modal-v-alert','La fecha de regreso no puede ser anterior a la de salida.','error');
@@ -4134,6 +4263,13 @@ async function guardarVuelo(){
       const {error}=await sb.from('vuelos').update(datos).eq('id',editarVueloId);
       if(error){setBtnLoading('btn-crear-vuelo',false,'Guardar cambios');mostrarAlerta('modal-v-alert',error.message,'error');return;}
       await registrarLog('editar_cupo','vuelo',editarVueloId,{itinerario_cambio:itinerarioCambio});
+      // b101: cambio en "Tanda de" (vincular o desvincular). Va DESPUÉS del update porque la RPC valida
+      // contra la fecha ya guardada. Si falla, lo demás ya quedó guardado: se dice exactamente eso.
+      {const wrapT=document.getElementById('v-tanda-wrap'),selT=document.getElementById('v-tanda-de');
+       if(wrapT&&wrapT.style.display!=='none'&&selT&&!selT.disabled&&selT.value!==_tandaDeAlAbrir){
+         const {error:eT}=await sb.rpc('set_tanda_de',{p_vuelo_id:editarVueloId,p_continua_de:selT.value||null});
+         if(eT) alert('Los cambios del cupo se guardaron, pero no se pudo cambiar la tanda:\n\n'+eT.message);
+       }}
       setBtnLoading('btn-crear-vuelo',false,'Guardar cambios');
       // 1) Aviso al equipo si cambió algo del cupo que está a la venta. Un cambio de horario de unas horas
       //    puede cambiarle el viaje al pasajero, y que aparezcan lugares nuevos es una oportunidad de venta:
@@ -4185,9 +4321,16 @@ async function guardarVuelo(){
         p_cal_dias_salida:datos.cal_dias_salida});   // b98
       if(error){setBtnLoading('btn-crear-vuelo',false,'Crear cupo');mostrarAlerta('modal-v-alert',error.message,'error');return;}
       await registrarLog('crear_cupo','vuelo',nuevoId,{nombre:datos.nombre,total:total_lugares});
+      // b101: vincular la tanda a su original. Si falla, el cupo YA existe (crear_cupo es otra transacción):
+      // se avisa sin vueltas y se puede vincular después desde "Editar cupo" → "Tanda de".
+      if(_modoTanda){
+        const raizT=document.getElementById('v-tanda-de')?.value;
+        const {error:eT}=raizT?await sb.rpc('set_tanda_de',{p_vuelo_id:nuevoId,p_continua_de:raizT}):{error:{message:'no se encontró el cupo original'}};
+        if(eT) alert(`El cupo "${datos.nombre}" se creó, pero NO quedó marcado como tanda:\n\n${eT.message}\n\nMientras no se vincule, el vendedor lo ve como un cupo más, con su precio. Vinculalo desde "Editar cupo" → "Tanda de".`);
+      }
       agendarEventosCupo({...datos,vuelo_id:nuevoId}); // fire-and-forget: agenda eventos en Google Calendar vía n8n (#75: con vuelo_id para el upsert futuro)
-      setBtnLoading('btn-crear-vuelo',false,'Crear cupo');
-      mostrarAlerta('modal-v-alert',`Vuelo creado con ${total_lugares} lugares`,'success');
+      setBtnLoading('btn-crear-vuelo',false,_modoTanda?'Crear tanda':'Crear cupo');
+      mostrarAlerta('modal-v-alert',_modoTanda?`Tanda creada con ${total_lugares} lugares`:`Vuelo creado con ${total_lugares} lugares`,'success');
       setTimeout(()=>{cerrarModal('modal-vuelo')},1200);
     }
   } finally {
