@@ -892,7 +892,7 @@ const sb=supabase.createClient(CONFIG.SUPABASE_URL,CONFIG.SUPABASE_ANON_KEY,{
 // ⚠️ Una sola versión por cadena y CORTA: el detalle va al CHANGELOG.md, no acá. Nacho ve este texto
 // completo en el encabezado (el resto ve solo el "bNN") y si es largo se desborda; además `APP_VERSION_CORTA`
 // saca el número con un match, así que dos "bNN" en la misma cadena confunden cuál es la versión.
-const APP_VERSION='TEST · b102 · buscadores sin tildes';
+const APP_VERSION='TEST · b103 · el vendedor ve la tanda que sigue';
 // Columnas de 'vuelos' legibles por cualquier usuario. EXCLUYE precio_neto: el admin lo lee por RPC admin_get_precio_neto (gateada por es_admin). No usar select('*') sobre vuelos: la columna precio_neto quedó revocada a authenticated.
 // ⚠️ Toda columna que se agregue acá necesita `grant select (col) to authenticated` en la base, si no
 // PostgREST tira 400 y se cae la pantalla entera (gotcha #6). `emitido` viene de la migración 2026-08-06.
@@ -1077,7 +1077,10 @@ if(!CONFIG.ATLAS_ENABLED){const _ba=document.getElementById('p-traer-atlas'); if
 let currentUser=null,currentRol=null,currentVueloId=null,currentPasajeroId=null,currentLugarId=null,currentVueloFecha=null,currentVueloFechaRegreso=null,sesionIniciada=false,rolEfectivo=null,_pOrig=null;
 let temporadas=[],temporadaActiva=null,vuelosData=[],tramosCount=0,dashFiltro='todos';
 // b101 — tandas del listado: número de tanda por cupo y los que el vendedor no ve (ver tandasDeCupos)
-let tandasInfo={},tandasOcultas=new Set();
+// b103 — tandasSiguiente: por cupo visible, qué tanda sigue y con cuántos lugares y a qué precio
+let tandasInfo={},tandasOcultas=new Set(),tandasSiguiente={};
+// b103 — la tanda que sigue al cupo ABIERTO (con stock y precio): la usa el aviso al reservar de más
+let tandaSiguienteDetalle=null;
 // b101 — estado del formulario de cupo: ¿se está creando una tanda? y a qué cupo apuntaba al abrir (edición)
 let _modoTanda=false,_tandaDeAlAbrir='';
 let reservarVueloId=null,reservarLugaresLibres=0,reservarLugaresIds=[];
@@ -1723,11 +1726,11 @@ async function cargarVuelos(){
   }
   // b101: tandas. Si la consulta falla, no se oculta nada (se ve como antes de b101), nunca se cae el listado.
   // El Travel Partner queda afuera: su RPC no trae continua_de (y hoy no hay TP en uso).
-  tandasInfo={};tandasOcultas=new Set();
+  tandasInfo={};tandasOcultas=new Set();tandasSiguiente={};
   if(rolEfectivo!=='travel_partner'){
     const {data:meta}=await sb.from('vuelos').select('id,nombre,continua_de,creado_en,emitido').eq('temporada_id',temporadaActiva);
     const t=tandasDeCupos(vuelos||[],meta||[]);
-    tandasInfo=t.info;
+    tandasInfo=t.info;tandasSiguiente=t.siguiente;
     if(rolEfectivo!=='admin'&&rolEfectivo!=='operaciones') tandasOcultas=t.ocultos;
   }
   vuelosData=vuelos||[];renderVuelos(vuelosData);
@@ -1761,7 +1764,7 @@ function tandasDeCupos(lista,meta){
     const orden=arr.slice().sort((a,b)=>a.id===raiz?-1:b.id===raiz?1:String(a.creado_en||'').localeCompare(String(b.creado_en||'')));
     orden.forEach((x,i)=>{info[x.id]={raiz,n:i+1,total:orden.length,nombreOriginal:(m[raiz]||{}).nombre||''};});
   });
-  const ocultos=new Set(), enLista={};
+  const ocultos=new Set(), enLista={}, siguiente={};
   (lista||[]).forEach(v=>{const t=info[v.id];if(t)(enLista[t.raiz]=enLista[t.raiz]||[]).push(v);});
   Object.values(enLista).forEach(arr=>{
     if(arr.length<2) return;
@@ -1769,8 +1772,16 @@ function tandasDeCupos(lista,meta){
     const paraVender=v=>!(m[v.id]||{}).emitido&&((Number(v.libres)||0)-(Number(v.bloqueados)||0))>0;
     const elegido=arr.find(paraVender)||arr[arr.length-1];
     arr.forEach(v=>{if(v.id!==elegido.id)ocultos.add(v.id);});
+    // b103 (pedido de Nacho): el vendedor tiene que SABER que hay más lugares y a qué precio, aunque no
+    // los vea en la lista. Acá se resuelve cuál es la tanda que sigue y con qué stock queda.
+    const post=arr.filter(v=>info[v.id].n>info[elegido.id].n&&paraVender(v));
+    if(post.length) siguiente[elegido.id]={
+      id:post[0].id, nombre:(m[post[0].id]||{}).nombre||'', n:info[post[0].id].n,
+      lugares:(Number(post[0].libres)||0)-(Number(post[0].bloqueados)||0), precio:post[0].precio,
+      hayMas:post.length>1
+    };
   });
-  return {info,ocultos};
+  return {info,ocultos,siguiente};
 }
 function renderVuelos(lista){
   const cont=document.getElementById('vuelos-content');
@@ -1801,8 +1812,12 @@ function renderVuelos(lista){
     // b101: etiqueta de tanda, solo para admin/Operaciones (el vendedor ve una sola tanda por vez).
     const ti=tandasInfo[d.id];
     const tanda=(verTandas&&ti)?` <span class="badge badge-l" title="${ti.n===1?`Cupo original · tiene ${ti.total-1} tanda(s) más`:`Tanda ${ti.n} de ${ti.total} · original: ${esc(ti.nombreOriginal)}`}">🔗 Tanda ${ti.n}/${ti.total}</span>`:'';
+    // b103: al vendedor, que no ve la otra tanda en la lista, se le dice cuánto stock más hay y a qué precio.
+    // Es el dato que necesita para decirle al cliente "quedan 3 a este precio y después sube".
+    const sig=(!verTandas)?tandasSiguiente[d.id]:null;
+    const masStock=sig?` <span class="badge badge-l" style="border-color:var(--accent2);color:var(--accent2)" title="Cuando se agote este cupo, siguen ${sig.lugares} lugar(es) a USD ${Number(sig.precio||0).toLocaleString('es-UY')}${sig.hayMas?' (y todavía otra tanda más)':''}">🔁 +${sig.lugares} a USD ${Number(sig.precio||0).toLocaleString('es-UY')}</span>`:'';
     return `<tr style="cursor:pointer" onclick="goToDetalle('${d.id}')">
-      <td style="color:var(--accent2);font-weight:500">${esc(d.nombre)}${oculto}${tanda}${redu}${emit}${acc}</td>
+      <td style="color:var(--accent2);font-weight:500">${esc(d.nombre)}${oculto}${tanda}${masStock}${redu}${emit}${acc}</td>
       <td><span class="badge ${regionBadge(d.destino)}">${esc(d.destino)||'—'}</span></td>
       <td>${esc(d.ciudad_nombre)||'—'}</td>
       <td data-sort="${d.fecha||''}">${d.fecha?formatFecha(d.fecha):'—'}</td>
@@ -1928,13 +1943,26 @@ async function cargarDetalle(vueloId){
   // El localizador (PNR del operador) tampoco viaja en el select (revocado a authenticated); se trae por RPC gateada (excluye Travel Partner).
   let localizadorCupo=null;
   if(vuelo){const {data:loc}=await sb.rpc('get_localizador',{p_vuelo_id:vueloId});localizadorCupo=loc;}
-  // b101: las tandas de esta salida (original + continuaciones), en orden. Solo admin/Operaciones: el
-  // vendedor ve una sola tanda por vez y no necesita saber que hay otra.
-  let cadenaTandas=[];
-  if(vuelo&&(rolEfectivo==='admin'||rolEfectivo==='operaciones')){
+  // b101: las tandas de esta salida (original + continuaciones), en orden.
+  // b103: se cargan para TODOS los roles, con el stock y el precio de cada una. El vendedor sigue viendo
+  // un solo cupo en la lista, pero acá adentro —donde cotiza— tiene que saber que hay más lugares y a
+  // qué precio (pedido de Nacho, 16-sep).
+  let cadenaTandas=[],tandaMiPos=0;
+  tandaSiguienteDetalle=null;
+  if(vuelo){
     const raiz=vuelo.continua_de||vuelo.id;
-    const {data:cad}=await sb.from('vuelos').select('id,nombre,creado_en,continua_de').or(`id.eq.${raiz},continua_de.eq.${raiz}`);
-    if((cad||[]).length>1) cadenaTandas=cad.sort((a,b)=>a.id===raiz?-1:b.id===raiz?1:String(a.creado_en||'').localeCompare(String(b.creado_en||'')));
+    const {data:cad}=await sb.from('vuelos').select('id,nombre,creado_en,continua_de,precio,emitido').or(`id.eq.${raiz},continua_de.eq.${raiz}`);
+    if((cad||[]).length>1){
+      cadenaTandas=cad.sort((a,b)=>a.id===raiz?-1:b.id===raiz?1:String(a.creado_en||'').localeCompare(String(b.creado_en||'')));
+      tandaMiPos=cadenaTandas.findIndex(t=>t.id===vueloId)+1;
+      // El stock de las otras tandas sale de vista_vuelos (los contadores del listado), no de sus lugares:
+      // una consulta y no una por cupo.
+      const {data:cnt}=await sb.from('vista_vuelos').select('id,libres,bloqueados').in('id',cadenaTandas.map(t=>t.id));
+      const porId={};(cnt||[]).forEach(c=>{porId[c.id]=c;});
+      cadenaTandas.forEach(t=>{const c=porId[t.id]||{};t.disponibles=Math.max(0,(Number(c.libres)||0)-(Number(c.bloqueados)||0));});
+      const sig=cadenaTandas.slice(tandaMiPos).find(t=>!t.emitido&&t.disponibles>0);
+      if(sig) tandaSiguienteDetalle={id:sig.id,nombre:sig.nombre,precio:sig.precio,lugares:sig.disponibles,n:cadenaTandas.indexOf(sig)+1};
+    }
   }
   if(!vuelo||!lugares){cont.innerHTML='<div class="loading" style="color:var(--red)">Error</div>';return;}
   currentVueloFecha=vuelo.fecha||null;
@@ -2041,6 +2069,23 @@ async function cargarDetalle(vueloId){
     ${lugaresReducidos.length>0?`<div class="info-item"><div class="info-item-label">Reducidos</div><div class="info-item-value" style="font-size:14px;color:var(--muted)">${lugaresReducidos.length}</div></div>`:''}
     ${vuelo.condiciones_equipaje?`<div class="info-item"><div class="info-item-label">Equipaje</div><div class="info-item-value" style="font-size:14px">${esc(vuelo.condiciones_equipaje)}</div></div>`:''}
   </div>`;
+
+  // b103 — "cuánto queda a este precio y qué sigue". Es lo que el vendedor le dice al cliente: cuántos
+  // lugares quedan a este valor y a cuánto salen los siguientes. Va acá, en el cupo, que es donde cotiza
+  // — y no en la lista, para no mezclarle dos precios mientras la recorre.
+  if(cadenaTandas.length>1){
+    const p=vuelo.precio?`USD ${Number(vuelo.precio).toLocaleString('es-UY')}`:'este precio';
+    const sig=tandaSiguienteDetalle;
+    const restoSinStock=!sig&&cadenaTandas.some(t=>t.id!==vueloId&&t.disponibles===0);
+    const quedan=Math.max(0,lV-bloqLibres);
+    html+=`<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;border:1px solid var(--border2);border-left:3px solid var(--accent2);border-radius:8px;padding:10px 14px;margin-bottom:16px;font-size:13px">
+      <span>Esta salida se vende en <b>${cadenaTandas.length} tandas</b> — esta es la <b>${tandaMiPos}</b>.</span>
+      <span>Quedan <b>${quedan}</b> lugar${quedan===1?'':'es'} a <b>${p}</b>.</span>
+      ${sig?`<span>Después siguen <b>${sig.lugares}</b> a <b>USD ${Number(sig.precio||0).toLocaleString('es-UY')}</b>.</span>
+        <button class="btn-sm" onclick="goToDetalle('${sig.id}')">Ver tanda ${sig.n} →</button>`
+       :`<span style="color:var(--muted)">${restoSinStock?'Las otras tandas de esta salida ya están completas.':''}</span>`}
+    </div>`;
+  }
 
   // Leyenda de acciones comerciales del cupo (b82). El nombre de la acción se dice UNA vez acá,
   // no en cada fila: en la planilla el lugar se reconoce por la barra de color de la izquierda.
@@ -2776,7 +2821,21 @@ async function confirmarReserva(){
   if(!reservarModoEspera&&cantidad>reservarLugaresLibres){
     let m=`Solo hay ${reservarLugaresLibres} lugar${reservarLugaresLibres===1?'':'es'} disponible${reservarLugaresLibres===1?'':'s'} para reservar`;
     if(!reservarModoEsperaBulk&&reservarBloqLibres>0) m+=`. Hay ${reservarBloqLibres} lugar${reservarBloqLibres===1?'':'es'} más reservado${reservarBloqLibres===1?'':'s'} para Operaciones — ${rolEfectivo==='operaciones'?'desbloquealos desde el detalle del cupo para poder tomarlos':'solicitalos a un administrador'}.`;
-    mostrarAlerta('modal-r-alert',m,'error');return;
+    mostrarAlerta('modal-r-alert',m,'error');
+    // b103: es el momento exacto en que el vendedor se entera de que le faltan lugares. Si esta salida
+    // sigue en otra tanda, se le dice a qué precio y se lo lleva — antes de que le cotice al cliente un
+    // precio que no va a poder sostener.
+    const sig=(!reservarModoEsperaBulk&&!reservarModoEspera)?tandaSiguienteDetalle:null;
+    if(sig&&sig.id!==reservarVueloId){
+      const faltan=cantidad-reservarLugaresLibres;
+      const precioSig=Number(sig.precio||0).toLocaleString('es-UY');
+      setTimeout(()=>{
+        if(confirm(`Te faltan ${faltan} lugar${faltan===1?'':'es'}.\n\nEsta salida sigue en la tanda ${sig.n}: ${sig.lugares} lugar${sig.lugares===1?'':'es'} a USD ${precioSig} (${sig.nombre}).\n\n⚠️ Es OTRO precio: los que reserves ahí salen USD ${precioSig}.\n\n¿Ir a esa tanda?`)){
+          cerrarModal('modal-reservar');goToDetalle(sig.id);
+        }
+      },50);   // después de pintar el cartel rojo: un confirm() en el medio lo tapa
+    }
+    return;
   }
   setBtnLoading('btn-confirmar-reserva',true,'Confirmar reserva');
   await asegurarTokenFresco();
