@@ -892,7 +892,7 @@ const sb=supabase.createClient(CONFIG.SUPABASE_URL,CONFIG.SUPABASE_ANON_KEY,{
 // ⚠️ Una sola versión por cadena y CORTA: el detalle va al CHANGELOG.md, no acá. Nacho ve este texto
 // completo en el encabezado (el resto ve solo el "bNN") y si es largo se desborda; además `APP_VERSION_CORTA`
 // saca el número con un match, así que dos "bNN" en la misma cadena confunden cuál es la versión.
-const APP_VERSION='TEST · b103 · el vendedor ve la tanda que sigue';
+const APP_VERSION='TEST · b103 · total de la salida + tanda que sigue';
 // Columnas de 'vuelos' legibles por cualquier usuario. EXCLUYE precio_neto: el admin lo lee por RPC admin_get_precio_neto (gateada por es_admin). No usar select('*') sobre vuelos: la columna precio_neto quedó revocada a authenticated.
 // ⚠️ Toda columna que se agregue acá necesita `grant select (col) to authenticated` en la base, si no
 // PostgREST tira 400 y se cae la pantalla entera (gotcha #6). `emitido` viene de la migración 2026-08-06.
@@ -1783,6 +1783,22 @@ function tandasDeCupos(lista,meta){
   });
   return {info,ocultos,siguiente};
 }
+// b103 — Para quien ve UNA sola tanda por salida, la fila del listado representa LA SALIDA y no el cupo:
+// los contadores suman toda la cadena (pedido de Nacho: "en el total deberíamos ver el total de las 2
+// tandas"). Si mostrara solo los del cupo abierto, el vendedor vería menos stock del que hay para vender.
+// Devuelve null si ese cupo no es parte de una cadena: ahí la fila es el cupo y no hay nada que sumar.
+// ⚠️ Admin y Operaciones NO pasan por acá: ellos ven una fila por tanda, cada una con lo suyo.
+function totalesDeLaSalida(v,info,todos){
+  const mi=info&&info[v.id];
+  if(!mi) return null;
+  const cadena=(todos||[]).filter(x=>info[x.id]&&info[x.id].raiz===mi.raiz);
+  if(cadena.length<2) return null;
+  const s={total:0,vendidos:0,reservados:0,libres:0};
+  cadena.forEach(x=>{s.total+=x.total||0;s.vendidos+=x.vendidos||0;s.reservados+=x.reservados||0;s.libres+=x.libres||0;});
+  s.detalle=`Suma de las ${cadena.length} tandas de esta salida: `+
+    cadena.slice().sort((a,b)=>info[a.id].n-info[b.id].n).map(x=>`${x.total||0} en la tanda ${info[x.id].n}`).join(' + ');
+  return s;
+}
 function renderVuelos(lista){
   const cont=document.getElementById('vuelos-content');
   // b101: el vendedor ve una sola tanda por salida (tandasDeCupos). Se filtra acá y no en vuelosData para
@@ -1792,9 +1808,15 @@ function renderVuelos(lista){
   const esAdmin=rolEfectivo==='admin';
   const verTandas=esAdmin||rolEfectivo==='operaciones';
   const filas=lista.map(v=>{
-    const vV=v.vendidos||0,rV=v.reservados||0,lV=v.libres||0,tot=v.total||0;
+    // b103 (pedido de Nacho): para quien ve UNA sola tanda por salida, esa fila ya no representa un cupo
+    // sino LA SALIDA: los contadores suman toda la cadena. Si dijeran 12 cuando entre las dos tandas hay
+    // 14, el número le mentiría al vendedor justo donde mira cuánto tiene para vender.
+    // Admin y Operaciones ven una fila por tanda, así que cada una sigue mostrando lo suyo.
+    const t=verTandas?null:totalesDeLaSalida(v,tandasInfo,vuelosData);
+    const vV=t?t.vendidos:(v.vendidos||0), rV=t?t.reservados:(v.reservados||0),
+          lV=t?t.libres:(v.libres||0),     tot=t?t.total:(v.total||0), sumaTandas=t?t.detalle:null;
     const alerta=estadoCupo(tot,lV);const [cls,txt]=alertaMap[alerta];
-    return {...v,vV,rV,lV,tot,pct:tot>0?Math.round(vV/tot*100):0,cls,txt,orden:alertaOrden[alerta]};
+    return {...v,vV,rV,lV,tot,sumaTandas,pct:tot>0?Math.round(vV/tot*100):0,cls,txt,orden:alertaOrden[alerta]};
   });
   // #4: primero los cupos CON lugares libres (ordenados por fecha de salida); los completos/cancelados (0 libres) al fondo
   filas.sort((a,b)=>(a.lV>0?0:1)-(b.lV>0?0:1)||String(a.fecha||'9999-99-99').localeCompare(String(b.fecha||'9999-99-99'))||(a.nombre||'').localeCompare(b.nombre||''));
@@ -1822,7 +1844,7 @@ function renderVuelos(lista){
       <td>${esc(d.ciudad_nombre)||'—'}</td>
       <td data-sort="${d.fecha||''}">${d.fecha?formatFecha(d.fecha):'—'}</td>
       <td style="color:var(--green)">${d.precio?'USD '+Number(d.precio).toLocaleString('es-UY'):'—'}</td>
-      <td>${d.tot}</td>
+      <td${d.sumaTandas?` title="${esc(d.sumaTandas)}" style="border-bottom:1px dotted var(--border2)"`:''}>${d.tot}</td>
       <td class="c-red">${d.vV}</td>
       <td class="c-orange">${d.rV}</td>
       <td class="c-green">${d.lV}</td>
