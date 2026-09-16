@@ -892,7 +892,7 @@ const sb=supabase.createClient(CONFIG.SUPABASE_URL,CONFIG.SUPABASE_ANON_KEY,{
 // ⚠️ Una sola versión por cadena y CORTA: el detalle va al CHANGELOG.md, no acá. Nacho ve este texto
 // completo en el encabezado (el resto ve solo el "bNN") y si es largo se desborda; además `APP_VERSION_CORTA`
 // saca el número con un match, así que dos "bNN" en la misma cadena confunden cuál es la versión.
-const APP_VERSION='TEST · b101 · tandas';
+const APP_VERSION='TEST · b102 · buscadores sin tildes';
 // Columnas de 'vuelos' legibles por cualquier usuario. EXCLUYE precio_neto: el admin lo lee por RPC admin_get_precio_neto (gateada por es_admin). No usar select('*') sobre vuelos: la columna precio_neto quedó revocada a authenticated.
 // ⚠️ Toda columna que se agregue acá necesita `grant select (col) to authenticated` en la base, si no
 // PostgREST tira 400 y se cae la pantalla entera (gotcha #6). `emitido` viene de la migración 2026-08-06.
@@ -1044,6 +1044,11 @@ function nombreAeropuerto(cod){if(!cod)return '';return AEROPUERTOS[String(cod).
 // Condiciones generales del PDF del itinerario (valores en CONFIG; texto definido con Operaciones)
 const CONDICIONES_ITINERARIO=CONFIG.CONDICIONES_ITINERARIO;
 const CONDICIONES_NOTA=CONFIG.CONDICIONES_NOTA;
+// b102 — Texto comparable para buscar: sin tildes y en minúsculas. "Maceió" y "maceio" son la misma
+// palabra para quien busca, y los nombres vienen de Atlas con el tilde que tengan.
+// 🔑 La Ñ también queda sin virgulilla (NFD la separa): "Peña" y "Pena" se encuentran igual. Es lo que se
+// quiere en un buscador — no se usa para mostrar ni para guardar, solo para comparar.
+function sinTildes(s){return String(s==null?'':s).normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase();}
 // Escape de HTML para todo dato de usuario interpolado en innerHTML/document.write (anti-XSS)
 function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 // Ola 4 #93: los invitados de la agenda salen de CONFIG, no del HTML (otra agencia no hereda estos nombres).
@@ -1830,7 +1835,8 @@ function renderVuelos(lista){
   }
   cont.innerHTML=html;
 }
-function filtrarVuelos(q){renderVuelos(vuelosData.filter(v=>v.nombre.toLowerCase().includes(q.toLowerCase())||(v.ciudad_nombre||'').toLowerCase().includes(q.toLowerCase())))}
+// b102: sin tildes de los dos lados — "maceio" encuentra "Maceió" y al revés.
+function filtrarVuelos(q){const t=sinTildes(q);renderVuelos(vuelosData.filter(v=>sinTildes(v.nombre).includes(t)||sinTildes(v.ciudad_nombre).includes(t)))}
 
 // ── BÚSQUEDA DE PASAJEROS ────────────────────────
 let busqPasajerosTimer=null;
@@ -1844,11 +1850,10 @@ async function ejecutarBusquedaPasajeros(q){
   const cont=document.getElementById('vuelos-content');
   cont.innerHTML='<div class="loading"><div class="spinner"></div>Buscando pasajero...</div>';
   const term=q.replace(/[(),]/g,' ').trim();
-  const like=`%${term}%`;
-  const {data,error}=await sb.from('pasajeros')
-    .select('vuelo_id,primer_apellido,segundo_apellido,primer_nombre,segundo_nombre,status,vendedor,cancelado,ficha,factura,lugares(numero_lugar),vuelos(nombre)')
-    .or(`primer_apellido.ilike.${like},segundo_apellido.ilike.${like},primer_nombre.ilike.${like},segundo_nombre.ilike.${like},ficha.ilike.${like},factura.ilike.${like}`)
-    .limit(50);
+  // b102: la búsqueda pasó a una RPC (buscar_pasajeros) que compara SIN TILDES. Un `ilike` de PostgREST no
+  // sabe de tildes: "Peña" no aparecía buscando "Pena" ni al revés, y el nombre viene de Atlas como viene.
+  // La RPC es SECURITY INVOKER: sigue viendo lo mismo que vería el usuario (policy de `pasajeros`).
+  const {data,error}=await sb.rpc('buscar_pasajeros',{p_q:term});
   if(error){console.error('[BuscarPasajero]',error);cont.innerHTML='<div class="loading" style="color:var(--red)">Error en la búsqueda</div>';return;}
   const rows=(data||[]).filter(p=>p.primer_apellido||p.primer_nombre);
   if(!rows.length){cont.innerHTML=`<div class="loading">Sin resultados para "${esc(q)}"</div>`;return;}
@@ -1856,7 +1861,7 @@ async function ejecutarBusquedaPasajeros(q){
   rows.forEach(p=>{
     const nombre=esc([p.primer_apellido,p.segundo_apellido,p.primer_nombre,p.segundo_nombre].filter(Boolean).join(' '));
     const st=p.cancelado?'<span class="badge badge-yellow">CANCEL</span>':`<span class="badge badge-${p.status==='V'?'v':p.status==='R'?'r':'l'}">${esc(p.status)||'L'}</span>`;
-    html+=`<tr style="cursor:pointer" onclick="goToDetalle('${p.vuelo_id}')"><td>${nombre}</td><td style="color:var(--accent2)">${esc(p.vuelos?.nombre)||'—'}</td><td style="font-family:'DM Mono',monospace">${p.lugares?.numero_lugar??'—'}</td><td>${st}</td><td>${esc(p.vendedor)||'—'}</td><td style="font-family:'DM Mono',monospace">${esc(p.ficha)||'—'}</td><td style="font-family:'DM Mono',monospace">${esc(p.factura)||'—'}</td></tr>`;
+    html+=`<tr style="cursor:pointer" onclick="goToDetalle('${p.vuelo_id}')"><td>${nombre}</td><td style="color:var(--accent2)">${esc(p.cupo)||'—'}</td><td style="font-family:'DM Mono',monospace">${p.numero_lugar??'—'}</td><td>${st}</td><td>${esc(p.vendedor)||'—'}</td><td style="font-family:'DM Mono',monospace">${esc(p.ficha)||'—'}</td><td style="font-family:'DM Mono',monospace">${esc(p.factura)||'—'}</td></tr>`;
   });
   html+='</tbody></table></div>';
   cont.innerHTML=html;
