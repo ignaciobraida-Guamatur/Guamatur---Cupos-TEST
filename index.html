@@ -200,9 +200,9 @@
 <body>
 <div class="test-banner">🧪 Ambiente de PRUEBAS — los datos no son reales</div>
 
-<!-- 🔴 b117 — Se subió una versión nueva y esta pestaña tiene la vieja. Va ARRIBA DE TODO porque lo que
-     está en juego no es una molestia: es reservar, cobrar o mandarle un paquete a un pasajero con un
-     bug que ya está corregido. Mismo mecanismo que el cotizador (pedido de Nacho, 23-set). -->
+<!-- 🔴 b119 — Se subió una versión nueva y esta pestaña tiene la vieja. Va ARRIBA DE TODO porque lo que
+     está en juego no es una molestia: es reservar, cobrar o cerrar una venta con un bug ya corregido.
+     Pedido de Nacho el 23-set, después de que le pasara a él mismo probando. -->
 <div id="aviso-version" style="display:none;background:#3a2a00;border-bottom:1px solid var(--yellow);color:var(--yellow);padding:10px 16px;font-size:13px;align-items:center;gap:12px;flex-wrap:wrap;position:sticky;top:0;z-index:200"></div>
 
 <nav class="nav">
@@ -225,7 +225,9 @@
       <div class="avatar" id="user-avatar" title="Tu cuenta" onclick="toggleUserMenu(event)"></div>
       <div class="user-menu-pop" id="user-menu-pop">
         <div class="user-menu-mail" id="user-menu-mail"></div>
-        <button class="user-menu-btn" onclick="abrirModalFirma()">✍️ Mi firma en los paquetes</button>
+        <!-- b118: se esconde con la llave de paquetes (abajo, en `aplicarLlavePaquetes`): sin paquetes
+             a la vista, "Mi firma en los paquetes" no significa nada. -->
+        <button class="user-menu-btn" id="btn-mi-firma" onclick="abrirModalFirma()">✍️ Mi firma en los paquetes</button>
         <button class="user-menu-btn" style="color:var(--red)" onclick="cerrarSesion()">Cerrar sesión</button>
       </div>
     </div>
@@ -242,7 +244,7 @@
     <button class="mobile-menu-btn" onclick="goTo('vuelos');toggleMobileMenu()">✈ Cupos</button>
     <button class="mobile-menu-btn" id="mobile-misreservas" onclick="goTo('misreservas');toggleMobileMenu()">🎫 Mis reservas</button>
     <button class="mobile-menu-btn" id="mobile-admin" style="display:none" onclick="goTo('admin');toggleMobileMenu()">⚙️ Administración</button>
-    <button class="mobile-menu-btn" onclick="toggleMobileMenu();abrirModalFirma()">✍️ Mi firma en los paquetes</button>
+    <button class="mobile-menu-btn" id="btn-mi-firma-mobile" onclick="toggleMobileMenu();abrirModalFirma()">✍️ Mi firma en los paquetes</button>
     <button class="mobile-menu-btn" onclick="cerrarSesion()" style="color:var(--red)">Cerrar sesión</button>
   </div>
 </div>
@@ -639,34 +641,28 @@
   <div class="modal">
     <div class="modal-title">📦 Agregar paquete al cupo</div>
     <div id="modal-paq-alert"></div>
-    <!-- b117 — el camino principal es UN SOLO PASO: elegir los PDFs. El nombre y el código los pone la
-         IA leyendo el PDF (Atlas ya los nombra parejo), así que pedirlos adelante era hacer tipear algo
-         que el sistema ya sabe. Quedan atrás del desplegable, para el caso raro. -->
     <div class="form-group">
-      <label class="form-label">PDF de Atlas <span style="color:var(--muted);font-size:10px">podés elegir varios de una</span></label>
-      <input class="form-input" type="file" id="paq-pdf" accept="application/pdf,.pdf" multiple onchange="avisoPdfPaquete()"/>
-      <div id="paq-pdf-msg" style="font-size:11px;color:var(--muted);margin-top:4px"></div>
-      <div style="font-size:11px;color:var(--muted);margin-top:6px">La IA los lee y les pone <b>nombre y código</b> sola. Quedan en <b>borrador</b> hasta que los revises.</div>
+      <label class="form-label">Nombre del paquete <span style="color:var(--muted);font-size:10px">obligatorio — lo ve el vendedor, y es el nombre del archivo que recibe el pasajero</span></label>
+      <input class="form-input" id="paq-nombre" placeholder="Ej: Búzios - Salida 07 de enero"/>
     </div>
-    <details style="margin-bottom:14px">
-      <summary style="cursor:pointer;font-size:12px;color:var(--muted)">Ponerle un nombre o un código a mano</summary>
-      <div class="form-group" style="margin-top:10px">
-        <label class="form-label">Nombre del paquete <span style="color:var(--muted);font-size:10px">lo ve el vendedor, y es el nombre del archivo que recibe el pasajero</span></label>
-        <input class="form-input" id="paq-nombre" placeholder="Ej: Búzios - Salida 07 de enero"/>
-        <div style="font-size:11px;color:var(--muted);margin-top:4px">Solo si querés uno distinto del que pone la IA. Con varios PDFs no se usa.</div>
-      </div>
-      <div class="form-group">
-        <label class="form-label">Código de Atlas <span style="color:var(--muted);font-size:10px">lo saca del PDF si no lo ponés</span></label>
-        <input class="form-input" id="paq-codigo" placeholder="Ej: PAQ2185"/>
-      </div>
-    </details>
     <!-- El campo "Link" se sacó el 23-set: venía de b105, cuando un paquete ERA un link a la web.
          Hoy un paquete es el PDF de Atlas. La columna `paquetes.url` sigue existiendo y la RPC sigue
          aceptando el parámetro, dormidos a propósito: los links vuelven en otra etapa (decisión de
          Nacho) y borrarlos sería tener que crearlos de nuevo. -->
+    <div class="form-group">
+      <label class="form-label">Código de Atlas <span style="color:var(--muted);font-size:10px">opcional</span></label>
+      <input class="form-input" id="paq-codigo" placeholder="Ej: PAQ2185"/>
+    </div>
+    <!-- b108 — el PDF tal cual sale de Atlas. Hasta 10 MB y solo PDF: lo impone el bucket, así que un
+         archivo que no cumpla lo rechaza el servidor aunque se saltee el `accept` del input. -->
+    <div class="form-group">
+      <label class="form-label">PDF de Atlas <span style="color:var(--muted);font-size:10px">opcional — el paquete tal cual sale de Atlas, hasta 10 MB</span></label>
+      <input class="form-input" type="file" id="paq-pdf" accept="application/pdf,.pdf" onchange="avisoPdfPaquete()"/>
+      <div id="paq-pdf-msg" style="font-size:11px;color:var(--muted);margin-top:4px"></div>
+    </div>
     <div class="modal-actions">
       <button class="btn btn-outline" onclick="cerrarModal('modal-paquete')">Cerrar</button>
-      <button class="btn btn-primary" id="btn-guardar-paquete" onclick="guardarPaquete()">Agregar y procesar</button>
+      <button class="btn btn-primary" id="btn-guardar-paquete" onclick="guardarPaquete()">Agregar paquete</button>
     </div>
   </div>
 </div>
@@ -959,6 +955,15 @@ const CONFIG={
     'La presentación en los aeropuertos debe ser de 3 horas antes de cada salida de vuelo.'
   ],
   ATLAS_ENABLED:true,
+  // b118 — LLAVE MAESTRA DE PAQUETES. En false NO se dibuja NADA de paquetes: ni el "📦 Agregar
+  // paquetes" del menú de gestión, ni el bloque del detalle del cupo, ni la firma del menú del usuario.
+  // 🔑 Está en FALSE a propósito (pedido de Nacho, 23-set, antes de irse de licencia): el circuito
+  //    funciona y está probado por script, pero NADIE lo recorrió a mano dentro de la app, y el único
+  //    que puede validarlo está de licencia hasta el 3-oct. Con esto apagado, producción no ofrece un
+  //    camino que nadie usó todavía.
+  // ⚠️ Apagar la llave NO borra nada: las tablas, el bucket y los paquetes cargados siguen intactos.
+  //    Se prende y vuelve todo tal cual estaba.
+  PAQUETES_ENABLED:false,
   // b112 — condiciones que van SIEMPRE en la pieza del paquete, las traiga o no el PDF de Atlas.
   // 🔑 Un cupo es un lugar PRE-COMPRADO: esto es verdad para todos, y dejarlo librado a que la IA lo
   //    encuentre en el PDF significa que a algún pasajero no le va a llegar. Es condición comercial,
@@ -970,7 +975,7 @@ const CONFIG={
   // no vea el botón a que lo vea y falle siempre. Se prende cuando la ANTHROPIC_API_KEY está cargada
   // como secreto del proyecto de Supabase (y después de correr los 6 PDFs del set de prueba).
   // El resto del circuito —subir el PDF, verlo, publicar— anda igual con esto apagado.
-  PAQUETES_IA_ENABLED:true,
+  PAQUETES_IA_ENABLED:false,
   BRAND_PRIMARY:'#cd0039',BRAND_SECONDARY:'#981632',BRAND_COMP:'#fcf6eb',BRAND_COMP2:'#efefef',
   LOGO_COLOR:'logo-color.svg',   // logo color institucional (#cd0039) — para fondos claros (PDF)
   LOGO_BLANCO:'logo-blanco.svg', // logo blanco — para fondos oscuros (app)
@@ -993,7 +998,7 @@ const sb=supabase.createClient(CONFIG.SUPABASE_URL,CONFIG.SUPABASE_ANON_KEY,{
 // ⚠️ Una sola versión por cadena y CORTA: el detalle va al CHANGELOG.md, no acá. Nacho ve este texto
 // completo en el encabezado (el resto ve solo el "bNN") y si es largo se desborda; además `APP_VERSION_CORTA`
 // saca el número con un match, así que dos "bNN" en la misma cadena confunden cuál es la versión.
-const APP_VERSION='Fase 2 · 2026-09-23 (b117-TEST · Agregar paquete es elegir los PDFs y listo: varios de una, la IA les pone nombre y código. Y avisa cuando hay una versión nueva.)';
+const APP_VERSION='Fase 2 · 2026-09-23 (b119-TEST · Si se subió una versión nueva, un cartel arriba le avisa al vendedor que su pestaña tiene la vieja y cuál debería estar viendo.)';
 // Columnas de 'vuelos' legibles por cualquier usuario. EXCLUYE precio_neto: el admin lo lee por RPC admin_get_precio_neto (gateada por es_admin). No usar select('*') sobre vuelos: la columna precio_neto quedó revocada a authenticated.
 // ⚠️ Toda columna que se agregue acá necesita `grant select (col) to authenticated` en la base, si no
 // PostgREST tira 400 y se cae la pantalla entera (gotcha #6). `emitido` viene de la migración 2026-08-06.
@@ -1126,19 +1131,21 @@ function mostrarVersionApp(){
 }
 document.querySelectorAll('.app-version').forEach(e=>{e.textContent=APP_VERSION_CORTA;});
 
-// ═══════ ¿ESTA PESTAÑA TIENE LA VERSIÓN VIEJA? (b117, pedido de Nacho) ═══════
-// 🔴 La app queda abierta todo el día y nadie recarga. Y GitHub Pages manda `Cache-Control: max-age=600`,
-//    así que el navegador tiene DERECHO a servir la versión vieja aunque ya se haya subido otra.
-//    Le pasó al propio Nacho probando en TEST: seguía en b115 con b116 publicada hacía rato.
-//    Lo que está en juego no es una molestia: es reservar, cobrar o mandarle un paquete a un pasajero
-//    con un bug que ya está corregido. Mismo mecanismo que el cotizador (09), que lo tiene desde el
-//    22-set después de que Gabriela reportara dos veces un bug ya arreglado.
+// ═══════ ¿ESTA PESTAÑA TIENE LA VERSIÓN VIEJA? (b119, pedido de Nacho) ═══════
+// 🔴 El problema real: la app queda abierta todo el día y nadie recarga. Y GitHub Pages manda
+//    `Cache-Control: max-age=600`, así que el navegador tiene DERECHO a servir la versión vieja aunque
+//    ya se haya subido otra. Le pasó al propio Nacho probando: seguía en b115 con la b116 publicada
+//    hacía rato, y me marcó cosas que ya estaban resueltas.
+//    En el cotizador el mismo problema costó caro: Gabriela reportó DOS VECES un bug arreglado hacía un
+//    día, y Fiorella publicó cuatro propuestas después de un deploy, con el código anterior.
 //
-// 🔑 Se pregunta por `version.txt`, no por el ETag: el ETag de Pages es `mtime-tamaño`, no un hash del
-//    contenido, así que un rebuild sin cambios diría "hay versión nueva" sin haberla. Un aviso que
-//    miente se ignora a la semana. Y no se pide el index.html entero: pesa 420 KB.
+// 🔑 Se pregunta por `version.txt`, NO por el ETag de Pages: el ETag es `mtime-tamaño` (lo medí:
+//    "6ab42d55-67996" = fecha en hex + Content-Length), no un hash del contenido. Un rebuild sin
+//    cambios diría "hay versión nueva" sin haberla, y un aviso que miente se ignora a la semana —
+//    justo el día que importa. Tampoco se pide el index.html entero: pesa 420 KB, y con una pestaña
+//    abierta todo el día serían 2,5 MB por hora por vendedor para leer cuatro caracteres.
 //
-// ⚠️ NO recarga solo: puede estar en la mitad de una carga de pasajeros.
+// ⚠️ NO recarga solo: el vendedor puede estar en la mitad de cargar 40 pasajeros.
 let _versionAlAbrir=null,_avisoVersionPospuesto=false;
 async function chequearVersion(){
   let v='';
@@ -1147,23 +1154,34 @@ async function chequearVersion(){
     if(!r.ok) return;                       // sin version.txt no se dice nada (falla del lado seguro)
     v=(await r.text()).trim();
   }catch(e){ return; }                      // sin red: se calla y reintenta en el próximo ciclo
-  if(!v) return;
+  if(!v||v.length>30) return;               // si devolvió una página de error, no es una versión
   if(_versionAlAbrir===null){_versionAlAbrir=v;return;}   // primera lectura: es la referencia
   if(v===_versionAlAbrir||_avisoVersionPospuesto) return;
   const caja=document.getElementById('aviso-version'); if(!caja) return;
-  caja.innerHTML=`<span><b>Hay una versión nueva (${esc(v)}).</b> Esta pestaña está corriendo la ${esc(_versionAlAbrir)} — actualizá antes de seguir.</span>`
+  caja.innerHTML=`<span>⚠️ <b>Hay una versión nueva: ${esc(v)}.</b> Esta pestaña está corriendo la <b>${esc(_versionAlAbrir)}</b> — actualizá antes de seguir trabajando.</span>`
     +`<button class="btn-sm" id="aviso-ver-recargar">Actualizar ahora</button>`
     +`<button class="btn-sm" id="aviso-ver-luego">Ahora no</button>`;
   caja.style.display='flex';
-  document.getElementById('aviso-ver-recargar').onclick=()=>location.reload(true);
-  // "Ahora no" esconde el cartel hasta que se recargue. La pestaña SIGUE teniendo el código viejo, pero
-  // un cartel que vuelve cada 10 minutos mientras alguien carga 40 pasajeros se vuelve un estorbo y se
-  // termina ignorando todo, incluido el que importa.
+  document.getElementById('aviso-ver-recargar').onclick=()=>location.reload();
+  // "Ahora no" lo esconde hasta que recargue. La pestaña SIGUE teniendo el código viejo, pero un cartel
+  // que vuelve cada 10 minutos mientras alguien carga pasajeros se vuelve un estorbo, y ahí se empieza
+  // a ignorar todo lo que aparece arriba — incluido el que sí importa.
   document.getElementById('aviso-ver-luego').onclick=()=>{caja.style.display='none';_avisoVersionPospuesto=true;};
 }
-setInterval(chequearVersion,600000);                       // cada 10 minutos
+setInterval(chequearVersion,600000);                        // cada 10 minutos
+// Y al volver a la pestaña: la app convive con Atlas, Chatwoot y el mail, se cambia de ventana todo el
+// tiempo. Así el aviso aparece cuando vuelve a mirar, no diez minutos después.
 document.addEventListener('visibilitychange',()=>{ if(!document.hidden) chequearVersion(); });
 chequearVersion();                                          // al abrir, para fijar la referencia
+
+// b118 — la llave de paquetes también esconde "Mi firma en los paquetes" de los dos menús. Con la llave
+// apagada no hay paquetes a la vista y ese ítem no significa nada. Se corre al cargar el archivo: los
+// botones están en el HTML estático, no se re-dibujan.
+{
+  if(!CONFIG.PAQUETES_ENABLED){
+    ['btn-mi-firma','btn-mi-firma-mobile'].forEach(id=>{const e=document.getElementById(id);if(e)e.style.display='none';});
+  }
+}
 {const _cr=document.getElementById('login-copyright'); if(_cr) _cr.textContent=CONFIG.COPYRIGHT+' '+new Date().getFullYear();}
 // Identidad de marca (valores en CONFIG; manual oficial — ver 00 - Sistema/referencias/marca-guamatur/)
 const GUA_PRIMARY=CONFIG.BRAND_PRIMARY, GUA_SECONDARY=CONFIG.BRAND_SECONDARY, GUA_COMP=CONFIG.BRAND_COMP, GUA_COMP2=CONFIG.BRAND_COMP2;
@@ -2226,7 +2244,7 @@ async function cargarDetalle(vueloId){
         <div class="menu-label">Gestión</div>
         <!-- b105/M3: el único ítem del menú que también ve OPERACIONES. Está acá y no en "Editar cupo"
              para que puedan cargar paquetes sin acceso al precio, los lugares ni el itinerario. -->
-        <button class="menu-item" title="Asociar un paquete a este cupo: el PDF de Atlas, un link de la web, o los dos" onclick="this.closest('details').removeAttribute('open');abrirModalPaquete('${vueloId}')">📦 Agregar paquetes</button>
+        ${CONFIG.PAQUETES_ENABLED?`<button class="menu-item" title="Asociar un paquete a este cupo: el PDF de Atlas, un link de la web, o los dos" onclick="this.closest('details').removeAttribute('open');abrirModalPaquete('${vueloId}')">📦 Agregar paquetes</button>`:''}
         ${esAdmin?`<button class="menu-item" onclick="this.closest('details').removeAttribute('open');abrirEditarVuelo('${vueloId}')">✏ Editar cupo</button>
         <button class="menu-item" title="Más lugares para esta misma salida, con otro PNR, otro neto y otro precio. El vendedor ve una sola tanda por vez." onclick="this.closest('details').removeAttribute('open');abrirNuevaTanda('${vueloId}')">➕ Nueva tanda (otro precio)</button>
         <button class="menu-item" onclick="this.closest('details').removeAttribute('open');marcarEmitido('${vueloId}',${vuelo.emitido?'false':'true'})">${vuelo.emitido?'🔓 Sacar la marca de EMITIDO':'🎫 Marcar como EMITIDO (congela el cupo)'}</button>
@@ -2322,7 +2340,7 @@ async function cargarDetalle(vueloId){
   //   · con `url`             → link para abrirlo en la web
   // ⚠️ El ✕ va APARTE, no sobre la pastilla entera: si el click borrara, no habría forma de abrir el
   //    paquete, que es para lo que existe. Quitar pregunta antes; abrir y descargar no.
-  {const paqs=_paqsDetalle;
+  {const paqs=CONFIG.PAQUETES_ENABLED?_paqsDetalle:[];   // b118: llave maestra apagada = ni se dibuja
    const puedeQuitar=esAdmin||esOper;
    if(paqs.length){
      html+=`<div class="itinerario-wrap" style="margin-bottom:12px"><div class="itinerario-title" style="margin:0 0 8px">📦 Paquetes con este cupo</div><div style="display:flex;flex-direction:column;gap:8px">`
@@ -2334,12 +2352,9 @@ async function cargarDetalle(vueloId){
             // b108: el PDF tal cual sale de Atlas. Feo, pero es lo que hoy el vendedor busca a mano en
             // su correo — hasta que la IA llene `datos`, es lo único que hay. Y en borrador es contra
             // lo que Operaciones compara: la revisión es PDF original vs pieza.
-            // b117 — el original de Atlas lo ven SOLO admin y Operaciones. Es el PDF feo que esta
-            // pieza vino a reemplazar: al vendedor no le suma, y le daría para mandar al pasajero
-            // justo lo que queremos sacar de circulación (decisión de Nacho, 23-set).
-            // 🔑 No lo deja sin nada: publicar exige que el paquete tenga hoteles, así que todo
-            //    paquete que el vendedor ve tiene su pieza armada.
-            (puedeQuitar&&p.pdf_origen)?`<button class="btn-sm" title="${tieneDatos?'El PDF original de Atlas, para comparar contra la pieza antes de publicar':'El PDF que se subió'}" onclick="verPdfDeAtlas('${p.id}',this)">📄 ${tieneDatos?'Original de Atlas':'Ver PDF'}</button>`:'',
+            // Mientras no hay pieza armada hay UN solo PDF: aclarar "de Atlas" no aporta nada. Recién
+            // cuando la IA arma la pieza conviven los dos y ahí sí hay que distinguirlos.
+            p.pdf_origen?`<button class="btn-sm" title="${tieneDatos?'El PDF original de Atlas, tal cual lo subió Operaciones':'El PDF que subió Operaciones'}" onclick="verPdfDeAtlas('${p.id}',this)">📄 ${tieneDatos?'Original de Atlas':'Ver PDF'}</button>`:'',
             // b109 — procesar con IA. Solo con PDF cargado, y solo para quien puede gastar tokens.
             (puedeQuitar&&p.pdf_origen&&CONFIG.PAQUETES_IA_ENABLED)?`<button class="btn-sm" title="${tieneDatos?'Volver a leer el PDF. El paquete vuelve a borrador y el vendedor deja de verlo hasta que lo publiques.':'Leer el PDF con IA y armar la pieza. Queda en borrador hasta que lo revises.'}" onclick="procesarPaqueteIA('${vueloId}','${p.id}',this)">✨ ${tieneDatos?'Volver a procesar':'Procesar con IA'}</button>`:'',
             (puedeQuitar&&esBorrador&&tieneDatos)?`<button class="btn-sm" style="border-color:var(--green);color:var(--green)" title="Publicarlo: recién ahí el vendedor lo ve y lo puede mandar" onclick="publicarPaquete('${vueloId}','${p.id}',true,this)">✓ Publicar</button>`:'',
@@ -4633,19 +4648,12 @@ const PAQ_PDF_TOPE=10*1024*1024;
 function avisoPdfPaquete(){
   const f=document.getElementById('paq-pdf').files[0];
   const msg=document.getElementById('paq-pdf-msg');
-  const files=[...document.getElementById('paq-pdf').files];
-  if(!files.length){msg.textContent='';msg.style.color='var(--muted)';return;}
-  const malos=files.filter(f=>f.size>PAQ_PDF_TOPE||(!/\.pdf$/i.test(f.name)&&f.type!=='application/pdf'));
-  if(malos.length){
-    msg.textContent=malos.length===1
-      ? `"${malos[0].name}" no sirve: tiene que ser un PDF de hasta 10 MB.`
-      : `${malos.length} de los ${files.length} no sirven: tienen que ser PDF de hasta 10 MB.`;
-    msg.style.color='var(--red)';return;
-  }
-  const mb=(files.reduce((s,f)=>s+f.size,0)/1024/1024).toFixed(1);
-  msg.textContent=files.length===1?`${files[0].name} · ${mb} MB`
-    : `${files.length} PDFs · ${mb} MB · tarda ~${Math.ceil(files.length/PAQ_EN_PARALELO)*35} segundos`;
-  msg.style.color='var(--muted)';
+  if(!f){msg.textContent='';msg.style.color='var(--muted)';return;}
+  const mb=(f.size/1024/1024).toFixed(1);
+  if(f.size>PAQ_PDF_TOPE){msg.textContent=`Ese archivo pesa ${mb} MB y el tope son 10 MB.`;msg.style.color='var(--red)';return;}
+  if(!/\.pdf$/i.test(f.name)&&f.type!=='application/pdf'){
+    msg.textContent='Tiene que ser un PDF.';msg.style.color='var(--red)';return;}
+  msg.textContent=`${f.name} · ${mb} MB`;msg.style.color='var(--muted)';
 }
 function abrirModalPaquete(vueloId){
   _paqVueloId=vueloId;
@@ -4655,67 +4663,38 @@ function abrirModalPaquete(vueloId){
   document.getElementById('modal-paquete').style.display='flex';
   setTimeout(()=>{const e=document.getElementById('paq-nombre');if(e)e.focus();},60);
 }
-// b117 — se pueden subir VARIOS PDFs de una. Se procesan de a PAQ_EN_PARALELO.
-// 🔑 El 4 está MEDIDO, no elegido: los 4 PDFs del set en paralelo tardaron 44,8 s contra 120 s de a
-//    uno, sin que el modelo rechazara ninguno. Más arriba no se probó; si alguna vez rebota por
-//    límite de la API, el paquete queda creado con su PDF y se reprocesa desde la pantalla.
-const PAQ_EN_PARALELO=4;
-const paqEstado=(txt)=>{const e=document.getElementById('paq-pdf-msg');if(e){e.textContent=txt;e.style.color='var(--muted)';}};
-
 async function guardarPaquete(){
   const nombre=document.getElementById('paq-nombre').value.trim();
   const codigo=document.getElementById('paq-codigo').value.trim();
-  const files=[...document.getElementById('paq-pdf').files];
-  // Sin PDF hace falta un nombre: no hay de dónde sacarlo.
-  if(!files.length&&!nombre){mostrarAlerta('modal-paq-alert','Elegí el PDF de Atlas. O, si no tenés el PDF, ponele un nombre a mano.','error');return;}
-  const malos=files.filter(f=>f.size>PAQ_PDF_TOPE||(!/\.pdf$/i.test(f.name)&&f.type!=='application/pdf'));
-  if(malos.length){mostrarAlerta('modal-paq-alert','Hay archivos que no sirven: tienen que ser PDF de hasta 10 MB.','error');return;}
-  // Con varios, un nombre a mano no se puede aplicar a todos.
-  if(files.length>1&&(nombre||codigo)){
-    if(!confirm(`Elegiste ${files.length} PDFs, así que el nombre y el código que escribiste a mano NO se usan: los pone la IA leyendo cada uno.\n\n¿Seguir?`))return;
-  }
-  setBtnLoading('btn-guardar-paquete',true,'Agregar y procesar');
-  const unoSolo=files.length<=1;
-  const lista=files.length?files:[null];
-  const creados=[],problemas=[];
-
-  // ── 1 · Crear y subir ────────────────────────────────────────────────────────────────────────
+  const pdf=document.getElementById('paq-pdf').files[0]||null;
+  // El nombre es obligatorio: es lo que ve el vendedor Y el nombre del archivo que le llega al pasajero.
+  if(!nombre){mostrarAlerta('modal-paq-alert','Poné un nombre. Es el que va a ver el vendedor y el nombre del archivo que recibe el pasajero.','error');return;}
+  if(pdf&&pdf.size>PAQ_PDF_TOPE){
+    mostrarAlerta('modal-paq-alert','El PDF pesa más de 10 MB. Ese es el tope.','error');return;}
+  if(pdf&&!/\.pdf$/i.test(pdf.name)&&pdf.type!=='application/pdf'){
+    mostrarAlerta('modal-paq-alert','El archivo tiene que ser un PDF.','error');return;}
+  setBtnLoading('btn-guardar-paquete',true,'Agregar paquete');
   // 🔑 Primero el paquete, después el archivo. Si falla la subida queda un paquete SIN PDF —visible en
   //    la pantalla, se reintenta o se borra—. Al revés quedaría un archivo que no aparece en ningún lado.
-  for(let i=0;i<lista.length;i++){
-    const pdf=lista[i];
-    paqEstado(`Subiendo ${i+1} de ${lista.length}…`);
-    const nombreProvisional=(unoSolo&&nombre)||('Sin procesar · '+(pdf?pdf.name.replace(/\.pdf$/i,'').slice(0,50):'sin PDF'));
-    const {data:id,error}=await sb.rpc('agregar_paquete_cupo',{p_vuelo_id:_paqVueloId,p_nombre:nombreProvisional,p_url:null,p_codigo:(unoSolo&&codigo)||null});
-    if(error){problemas.push((pdf?pdf.name:'el paquete')+': '+error.message);continue;}
-    if(!pdf){creados.push({id,pdf:null});continue;}
-    const {error:eUp}=await sb.storage.from('paquetes').upload(`${id}.pdf`,pdf,{contentType:'application/pdf',upsert:true});
-    if(eUp){problemas.push(pdf.name+': no se pudo subir ('+eUp.message+')');creados.push({id,pdf:null});continue;}
-    const {error:eSet}=await sb.rpc('set_paquete_pdf',{p_paquete_id:id,p_path:`${id}.pdf`});
-    if(eSet){problemas.push(pdf.name+': se subió pero no quedó registrado ('+eSet.message+')');}
-    creados.push({id,pdf:pdf.name,nombreManual:!!(unoSolo&&nombre)});
+  const {data:nuevoId,error}=await sb.rpc('agregar_paquete_cupo',{p_vuelo_id:_paqVueloId,p_nombre:nombre,p_url:null,p_codigo:codigo||null});
+  if(error){setBtnLoading('btn-guardar-paquete',false,'Agregar paquete');mostrarAlerta('modal-paq-alert',error.message,'error');return;}
+  let avisoPdf='';
+  if(pdf&&nuevoId){
+    // El path lo valida la RPC: siempre `<id>.pdf`. `upsert` para que volver a subir pise el anterior
+    // en vez de dejar dos archivos.
+    const path=`${nuevoId}.pdf`;
+    const {error:eUp}=await sb.storage.from('paquetes').upload(path,pdf,{contentType:'application/pdf',upsert:true});
+    if(eUp){
+      avisoPdf='El paquete quedó creado, pero el PDF no se pudo subir: '+eUp.message+'\n\nProbá de nuevo entrando al paquete.';
+    }else{
+      const {error:eSet}=await sb.rpc('set_paquete_pdf',{p_paquete_id:nuevoId,p_path:path});
+      if(eSet)avisoPdf='El PDF se subió pero no quedó registrado en el paquete: '+eSet.message;
+    }
   }
-
-  // ── 2 · Procesar con IA, de a tandas ─────────────────────────────────────────────────────────
-  const aProcesar=CONFIG.PAQUETES_IA_ENABLED?creados.filter(c=>c.pdf):[];
-  let listos=0;
-  for(let i=0;i<aProcesar.length;i+=PAQ_EN_PARALELO){
-    const tanda=aProcesar.slice(i,i+PAQ_EN_PARALELO);
-    paqEstado(`Leyendo con IA ${listos+1}-${Math.min(listos+tanda.length,aProcesar.length)} de ${aProcesar.length}… (esto tarda)`);
-    await Promise.all(tanda.map(async c=>{
-      try{
-        const r=await invocarFuncion('paquete-extraer',{paquete_id:c.id,renombrar:!c.nombreManual});
-        await registrarLog('procesar_paquete_ia','paquete',c.id,{modelo:r?.modelo,tokens_in:r?.tokens_in,tokens_out:r?.tokens_out,costo_usd:r?.costo_usd});
-      }catch(e){ problemas.push(c.pdf+': se subió pero la IA no pudo leerlo ('+e.message+'). Reprocesalo desde el cupo.'); }
-    }));
-    listos+=tanda.length;
-  }
-
-  setBtnLoading('btn-guardar-paquete',false,'Agregar y procesar');
-  await registrarLog('agregar_paquete','vuelo',_paqVueloId,{cantidad:creados.length,con_pdf:creados.filter(c=>c.pdf).length});
+  setBtnLoading('btn-guardar-paquete',false,'Agregar paquete');
+  await registrarLog('agregar_paquete','vuelo',_paqVueloId,{nombre,codigo,con_pdf:!!pdf});
   cerrarModal('modal-paquete');
-  if(problemas.length)alert(`${creados.length-problemas.length} de ${lista.length} quedaron bien.\n\nCon problemas:\n· ${problemas.join('\n· ')}`);
-  else if(aProcesar.length)alert(`${aProcesar.length} paquete${aProcesar.length===1?'':'s'} cargado${aProcesar.length===1?'':'s'} y leído${aProcesar.length===1?'':'s'}.\n\nQuedaron en BORRADOR: revisalos contra el PDF de Atlas y publicá los que estén bien.`);
+  if(avisoPdf)alert(avisoPdf);
   cargarDetalle(_paqVueloId);
 }
 // Ver el PDF original de Atlas. El bucket es PRIVADO: se abre con una URL firmada de 5 minutos, que
@@ -4761,14 +4740,10 @@ async function procesarPaqueteIA(vueloId,paqueteId,btn){
   const txt=btn?btn.innerHTML:'';
   if(btn){btn.disabled=true;btn.innerHTML='⏳ Leyendo el PDF…';}
   try{
-    // b116 — se renombra solo si el nombre es el provisional que puso la app. Si Operaciones escribió
-    // uno a propósito, no se le pisa.
-    const esProvisional=/^Sin procesar · /.test(p.nombre_visible||'');
-    const r=await invocarFuncion('paquete-extraer',{paquete_id:paqueteId,renombrar:esProvisional});
-    await registrarLog('procesar_paquete_ia','paquete',paqueteId,{nombre:p.nombre_visible,modelo:r?.modelo,tokens_in:r?.tokens_in,tokens_out:r?.tokens_out,costo_usd:r?.costo_usd,renombrado:r?.renombrado});
+    const r=await invocarFuncion('paquete-extraer',{paquete_id:paqueteId});
+    await registrarLog('procesar_paquete_ia','paquete',paqueteId,{nombre:p.nombre_visible,modelo:r?.modelo,tokens_in:r?.tokens_in,tokens_out:r?.tokens_out,costo_usd:r?.costo_usd});
     const d=r&&r.datos||{};
-    const comoQueda=r?.renombrado?`\n\nQuedó nombrado "${r.nombre_sugerido}".`:'';
-    alert(`Listo: ${(d.hoteles||[]).length} hotel${(d.hoteles||[]).length===1?'':'es'} y ${(d.vuelos||[]).length} tramo${(d.vuelos||[]).length===1?'':'s'}.${comoQueda}\n\nEstá en BORRADOR. Miralo con "Vista previa", comparalo contra el PDF de Atlas y publicalo.`);
+    alert(`Listo: ${(d.hoteles||[]).length} hotel${(d.hoteles||[]).length===1?'':'es'}, ${(d.vuelos||[]).length} tramo${(d.vuelos||[]).length===1?'':'s'} y ${(d.itinerario||[]).length} día${(d.itinerario||[]).length===1?'':'s'} de itinerario.\n\nQuedó en BORRADOR. Miralo con "Vista previa", comparalo contra el PDF de Atlas y publicalo.`);
   }catch(e){
     alert('No se pudo procesar el paquete:\n\n'+e.message);
   }finally{
