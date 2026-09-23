@@ -946,6 +946,11 @@ const CONFIG={
     'La presentación en los aeropuertos debe ser de 3 horas antes de cada salida de vuelo.'
   ],
   ATLAS_ENABLED:true,
+  // b109 — el botón "Procesar con IA" de los paquetes. En false NO se dibuja: mejor que Operaciones
+  // no vea el botón a que lo vea y falle siempre. Se prende cuando la ANTHROPIC_API_KEY está cargada
+  // como secreto del proyecto de Supabase (y después de correr los 6 PDFs del set de prueba).
+  // El resto del circuito —subir el PDF, verlo, publicar— anda igual con esto apagado.
+  PAQUETES_IA_ENABLED:false,
   BRAND_PRIMARY:'#cd0039',BRAND_SECONDARY:'#981632',BRAND_COMP:'#fcf6eb',BRAND_COMP2:'#efefef',
   LOGO_COLOR:'logo-color.svg',   // logo color institucional (#cd0039) — para fondos claros (PDF)
   LOGO_BLANCO:'logo-blanco.svg', // logo blanco — para fondos oscuros (app)
@@ -968,7 +973,7 @@ const sb=supabase.createClient(CONFIG.SUPABASE_URL,CONFIG.SUPABASE_ANON_KEY,{
 // ⚠️ Una sola versión por cadena y CORTA: el detalle va al CHANGELOG.md, no acá. Nacho ve este texto
 // completo en el encabezado (el resto ve solo el "bNN") y si es largo se desborda; además `APP_VERSION_CORTA`
 // saca el número con un match, así que dos "bNN" en la misma cadena confunden cuál es la versión.
-const APP_VERSION='Fase 2 · 2026-09-23 (b109-TEST · El circuito completo del paquete: Operaciones sube el PDF de Atlas, lo procesa con IA, lo revisa en borrador y lo publica; recién ahí el vendedor lo ve.)';
+const APP_VERSION='Fase 2 · 2026-09-23 (b109b-TEST · El circuito completo del paquete: Operaciones sube el PDF de Atlas, lo revisa en borrador y lo publica. El procesado con IA queda detrás de PAQUETES_IA_ENABLED.)';
 // Columnas de 'vuelos' legibles por cualquier usuario. EXCLUYE precio_neto: el admin lo lee por RPC admin_get_precio_neto (gateada por es_admin). No usar select('*') sobre vuelos: la columna precio_neto quedó revocada a authenticated.
 // ⚠️ Toda columna que se agregue acá necesita `grant select (col) to authenticated` en la base, si no
 // PostgREST tira 400 y se cae la pantalla entera (gotcha #6). `emitido` viene de la migración 2026-08-06.
@@ -2272,7 +2277,7 @@ async function cargarDetalle(vueloId){
             // lo que Operaciones compara: la revisión es PDF original vs pieza.
             p.pdf_origen?`<button class="btn-sm" title="El PDF original de Atlas, tal cual lo subió Operaciones" onclick="verPdfDeAtlas('${p.id}',this)">📄 ${tieneDatos?'Original de Atlas':'Ver el PDF de Atlas'}</button>`:'',
             // b109 — procesar con IA. Solo con PDF cargado, y solo para quien puede gastar tokens.
-            (puedeQuitar&&p.pdf_origen)?`<button class="btn-sm" title="${tieneDatos?'Volver a leer el PDF. El paquete vuelve a borrador y el vendedor deja de verlo hasta que lo publiques.':'Leer el PDF con IA y armar la pieza. Queda en borrador hasta que lo revises.'}" onclick="procesarPaqueteIA('${vueloId}','${p.id}',this)">✨ ${tieneDatos?'Volver a procesar':'Procesar con IA'}</button>`:'',
+            (puedeQuitar&&p.pdf_origen&&CONFIG.PAQUETES_IA_ENABLED)?`<button class="btn-sm" title="${tieneDatos?'Volver a leer el PDF. El paquete vuelve a borrador y el vendedor deja de verlo hasta que lo publiques.':'Leer el PDF con IA y armar la pieza. Queda en borrador hasta que lo revises.'}" onclick="procesarPaqueteIA('${vueloId}','${p.id}',this)">✨ ${tieneDatos?'Volver a procesar':'Procesar con IA'}</button>`:'',
             (puedeQuitar&&esBorrador&&tieneDatos)?`<button class="btn-sm" style="border-color:var(--green);color:var(--green)" title="Publicarlo: recién ahí el vendedor lo ve y lo puede mandar" onclick="publicarPaquete('${vueloId}','${p.id}',true,this)">✓ Publicar</button>`:'',
             (puedeQuitar&&!esBorrador&&tieneDatos)?`<button class="btn-sm" title="Sacarlo de circulación: vuelve a borrador y el vendedor deja de verlo" onclick="publicarPaquete('${vueloId}','${p.id}',false,this)">↩ Despublicar</button>`:'',
             (p.url&&/^https?:\/\//i.test(p.url))?`<a class="btn-sm" href="${esc(p.url)}" target="_blank" rel="noopener noreferrer" title="${esc(p.url)}" style="text-decoration:none">🔗 Abrir</a>`:'',
