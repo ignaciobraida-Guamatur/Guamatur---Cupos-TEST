@@ -620,12 +620,16 @@
     <div class="modal-title">📦 Agregar paquete al cupo</div>
     <div id="modal-paq-alert"></div>
     <div class="form-group">
-      <label class="form-label">Link del paquete <span style="color:var(--muted);font-size:10px">copialo de la barra del navegador</span></label>
+      <label class="form-label">Nombre del paquete <span style="color:var(--muted);font-size:10px">obligatorio — lo ve el vendedor, y es el nombre del archivo que recibe el pasajero</span></label>
+      <input class="form-input" id="paq-nombre" placeholder="Ej: Búzios - Salida 07 de enero"/>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Link <span style="color:var(--muted);font-size:10px">opcional — el paquete en la web</span></label>
       <input class="form-input" id="paq-url" placeholder="https://www.guamatur.com/…"/>
     </div>
     <div class="form-group">
-      <label class="form-label">Nombre <span style="color:var(--muted);font-size:10px">opcional — es lo que ve el vendedor en el cupo</span></label>
-      <input class="form-input" id="paq-etiqueta" placeholder="Ej: Cancún 7 noches con hotel"/>
+      <label class="form-label">Código de Atlas <span style="color:var(--muted);font-size:10px">opcional</span></label>
+      <input class="form-input" id="paq-codigo" placeholder="Ej: PAQ2185"/>
     </div>
     <div class="modal-actions">
       <button class="btn btn-outline" onclick="cerrarModal('modal-paquete')">Cerrar</button>
@@ -913,13 +917,14 @@ const sb=supabase.createClient(CONFIG.SUPABASE_URL,CONFIG.SUPABASE_ANON_KEY,{
 // ⚠️ Una sola versión por cadena y CORTA: el detalle va al CHANGELOG.md, no acá. Nacho ve este texto
 // completo en el encabezado (el resto ve solo el "bNN") y si es largo se desborda; además `APP_VERSION_CORTA`
 // saca el número con un match, así que dos "bNN" en la misma cadena confunden cuál es la versión.
-const APP_VERSION='TEST · 2026-09-23 (b105 · Paquetes del cupo cargados por Operaciones, y el itinerario se copia como imagen para WhatsApp.)';
+const APP_VERSION='TEST · 2026-09-23 (b106 · Paquetes como entidad: Operaciones los asocia al cupo y el vendedor descarga la pieza del pasajero.)';
 // Columnas de 'vuelos' legibles por cualquier usuario. EXCLUYE precio_neto: el admin lo lee por RPC admin_get_precio_neto (gateada por es_admin). No usar select('*') sobre vuelos: la columna precio_neto quedó revocada a authenticated.
 // ⚠️ Toda columna que se agregue acá necesita `grant select (col) to authenticated` en la base, si no
 // PostgREST tira 400 y se cae la pantalla entera (gotcha #6). `emitido` viene de la migración 2026-08-06.
 // `continua_de` (b101, tandas) viene de db/2026-09-15-b101-tandas.sql.
-// `paquetes` (b105, M3) viene de db/2026-09-23-b105-paquetes-del-cupo.sql — con su grant de columna.
-const VUELO_COLS='id,temporada_id,nombre,ciudad_codigo,ciudad_nombre,aerolinea,fecha,fecha_regreso,total_lugares,precio,condiciones_equipaje,creado_en,destino,itinerario,visible,itinerario_historial,cal_dias_pago_final,cal_dias_cancel_sin_gastos,cal_dias_cancel_con_gastos,cal_dias_salida,cal_usuarios,emitido,emitido_en,emitido_por,continua_de,paquetes';
+// b106: los paquetes YA NO son una columna de `vuelos` — son una tabla propia (`paquetes` +
+// `cupo_paquetes`). Ver db/2026-09-23-b106-paquetes-entidad.sql y PROGRAMA-PAQUETES.md.
+const VUELO_COLS='id,temporada_id,nombre,ciudad_codigo,ciudad_nombre,aerolinea,fecha,fecha_regreso,total_lugares,precio,condiciones_equipaje,creado_en,destino,itinerario,visible,itinerario_historial,cal_dias_pago_final,cal_dias_cancel_sin_gastos,cal_dias_cancel_con_gastos,cal_dias_salida,cal_usuarios,emitido,emitido_en,emitido_por,continua_de';
 // Calendarización: al crear un cupo, dispara (fire-and-forget) la creación de eventos en Google Calendar vía n8n.
 const N8N_WEBHOOK_AGENDA=CONFIG.N8N_WEBHOOK_AGENDA;
 // b85 (pedido Diego, 23-jul): los tres vencimientos del cupo tienen destinatarios PROPIOS. Antes era una
@@ -1976,11 +1981,16 @@ async function cargarDetalle(vueloId){
   if(rolEfectivo==='travel_partner') return cargarDetalleTP(vueloId);
   const cont=document.getElementById('detalle-content');
   cont.innerHTML='<div class="loading"><div class="spinner"></div>Cargando...</div>';
-  const [{data:vuelo},{data:lugares},{data:infants}]=await Promise.all([
+  const [{data:vuelo},{data:lugares},{data:infants},{data:paqRel}]=await Promise.all([
     sb.from('vuelos').select(VUELO_COLS).eq('id',vueloId).single(),
     sb.from('lugares').select('*,pasajeros(*)').eq('vuelo_id',vueloId).order('numero_lugar'),
-    sb.from('infants').select('*').eq('vuelo_id',vueloId)
+    sb.from('infants').select('*').eq('vuelo_id',vueloId),
+    // b106: los paquetes viven en su propia tabla y se asocian N:N (ver PROGRAMA-PAQUETES.md)
+    sb.from('cupo_paquetes').select('paquetes(id,codigo,nombre_visible,url,datos,estado)').eq('vuelo_id',vueloId)
   ]);
+  // Se guardan en una variable de módulo porque el botón de quitar manda el ÍNDICE, no la URL ni el id:
+  // cualquier comilla dentro de un onclick rompe el botón en silencio.
+  _paqsDetalle=(paqRel||[]).map(r=>r.paquetes).filter(p=>p&&p.estado!=='borrador');
   // El precio neto no viaja en el select (revocado a authenticated); admin y operaciones lo traen por RPC gateada (13-jul: se sumó operaciones)
   let precioNetoAdmin=null;
   if((rolEfectivo==='admin'||rolEfectivo==='operaciones')&&vuelo){const {data:pn}=await sb.rpc('admin_get_precio_neto',{p_vuelo_id:vueloId});precioNetoAdmin=pn;}
@@ -2173,15 +2183,27 @@ async function cargarDetalle(vueloId){
   // b105/M3: los paquetes armados con este cupo, con su link a Atlas. Van ARRIBA del itinerario porque
   // son la acción comercial: el que abre el cupo quiere cotizar. Sin paquetes cargados no ocupa lugar.
   // El Travel Partner no los ve: tiene su propio render (cargarDetalleTP) y estos links son internos.
-  // ⚠️ El ✕ va APARTE del link, no sobre la pastilla entera: si el click borrara, no habría forma de
-  // abrir el paquete, que es para lo que existe. Quitar pregunta antes; abrir no.
-  {const paqs=paquetesValidos(vuelo.paquetes);
-   _paqsDetalle=paqs;
+  // b106 · los paquetes de este cupo. Cada uno puede tener LINK, PDF o los dos:
+  //   · con `datos` cargados  → botón "Descargar PDF" (arma la pieza del pasajero, con la firma del vendedor)
+  //   · con `url`             → link para abrirlo en la web
+  // ⚠️ El ✕ va APARTE, no sobre la pastilla entera: si el click borrara, no habría forma de abrir el
+  //    paquete, que es para lo que existe. Quitar pregunta antes; abrir y descargar no.
+  {const paqs=_paqsDetalle;
    const puedeQuitar=esAdmin||esOper;
    if(paqs.length){
-     html+=`<div class="itinerario-wrap" style="margin-bottom:12px"><div class="itinerario-title" style="margin:0 0 8px">📦 Paquetes con este cupo</div><div style="display:flex;flex-wrap:wrap;gap:8px">`
-          +paqs.map((p,i)=>`<span style="display:inline-flex;align-items:center;border:1px solid var(--border2);border-radius:8px;overflow:hidden"><a href="${esc(p.url)}" target="_blank" rel="noopener noreferrer" title="${esc(p.url)}" style="padding:6px 11px;font-size:12px;color:var(--text);text-decoration:none">🔗 ${esc(p.etiqueta)}</a>${puedeQuitar?`<button class="btn-sm" title="Quitar este paquete del cupo" style="border:none;border-left:1px solid var(--border2);border-radius:0;padding:6px 10px" onclick="quitarPaquete('${vueloId}',${i})">✕</button>`:''}</span>`).join('')
-          +`</div></div>`;
+     html+=`<div class="itinerario-wrap" style="margin-bottom:12px"><div class="itinerario-title" style="margin:0 0 8px">📦 Paquetes con este cupo</div><div style="display:flex;flex-direction:column;gap:8px">`
+       +paqs.map((p,i)=>{
+          const tieneDatos=p.datos&&p.datos.hoteles&&p.datos.hoteles.length;
+          const acciones=[
+            tieneDatos?`<button class="btn-sm" title="Descargar el PDF para mandarle al pasajero" onclick="descargarPaquetePDF('${p.id}')">⬇ Descargar PDF</button>`:'',
+            (p.url&&/^https?:\/\//i.test(p.url))?`<a class="btn-sm" href="${esc(p.url)}" target="_blank" rel="noopener noreferrer" title="${esc(p.url)}" style="text-decoration:none">🔗 Abrir</a>`:'',
+            puedeQuitar?`<button class="btn-sm" title="Quitar este paquete del cupo" onclick="quitarPaquete('${vueloId}',${i})">✕</button>`:''
+          ].filter(Boolean).join('');
+          return `<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;border:1px solid var(--border2);border-radius:8px;padding:8px 12px">`
+               +`<span style="font-size:13px;min-width:0"><b>${esc(p.nombre_visible)}</b>${p.codigo?` <span style="color:var(--muted);font-family:'DM Mono',monospace;font-size:11px">${esc(p.codigo)}</span>`:''}${!tieneDatos&&!p.url?` <span style="color:var(--muted);font-size:11px">— sin contenido todavía</span>`:''}</span>`
+               +`<span style="display:flex;gap:6px;flex-wrap:wrap">${acciones}</span></div>`;
+        }).join('')
+       +`</div></div>`;
    }}
 
   if(vuelo.itinerario&&vuelo.itinerario.length>0){
@@ -4434,64 +4456,215 @@ async function abrirModalVuelo(){
   document.getElementById('modal-vuelo').style.display='flex';
 }
 
-// ── PAQUETES DEL CUPO (b105 · M3, idea del sistema de Jetmar) ──────────────────────────────────
-// Los paquetes armados a partir de un cupo viven en la web de Guamatur (o en Atlas); hasta b104 el
-// vendedor los buscaba a mano. Ahora el cupo guarda su lista de links y el detalle los muestra.
-// Forma guardada en `vuelos.paquetes`: [{url, etiqueta}].
+// ── PAQUETES DEL CUPO (b106 · etapa 1 de PROGRAMA-PAQUETES.md) ────────────────────────────────
+// Un paquete es una ENTIDAD (tablas `paquetes` + `cupo_paquetes`), no una lista de links dentro del
+// cupo como en b105. Puede tener link, PDF de Atlas, datos extraídos, o una combinación.
 //
-// 🔑 Se cargan y se quitan desde "⚙ Gestionar cupo" del DETALLE del cupo, no desde "Editar cupo"
-//    (decisión de Nacho, 23-set). El motivo es el permiso: así lo puede hacer OPERACIONES sin tener que
-//    darle el formulario donde están el precio, la cantidad de lugares y el itinerario.
-// 🔒 La escritura va por RPC (`agregar_paquete_cupo` / `quitar_paquete_cupo`), que valida el rol EN EL
-//    SERVIDOR y acepta solo http/https. Operaciones no pasa la RLS de `vuelos`, así que esas RPC son su
-//    único camino: la pantalla puede mentir sobre quién sos, el servidor no. (Un admin sí puede escribir
-//    la columna directo — siempre pudo editar el cupo entero. Ver db/2026-09-23-b105b-*.sql.)
-//    Lo de http/https no es un capricho: el que carga el link es de la casa, pero el que lo CLICKEA es
+// 🔑 Se cargan y se quitan desde "⚙ Gestionar cupo" del DETALLE, no desde "Editar cupo" (decisión de
+//    Nacho, 23-set). El motivo es el permiso: así lo hace OPERACIONES sin darle el formulario donde
+//    están el precio, la cantidad de lugares y el itinerario.
+// 🔑 N:N a propósito: un paquete sirve a varias salidas y un cupo tiene varios paquetes. Con 1:1 habría
+//    que volver a subir el mismo PDF para cada cupo.
+// 🔒 La escritura va SOLO por RPC (`agregar_paquete_cupo` / `quitar_paquete_cupo`), que validan el rol
+//    en el servidor. A `authenticated` no se le dio insert/update/delete sobre estas tablas — lección de
+//    b105, donde un `revoke` de columna no servía porque había un grant de TABLA.
+//    Lo de http/https tampoco es capricho: el que carga el link es de la casa, pero el que lo CLICKEA es
 //    cualquier vendedor — un `javascript:…` en un href sería ejecutar código ajeno con su sesión abierta.
-// 🔑 Se agrega y se quita DE A UNO, en vez de mandar la lista entera: si dos personas tocan el mismo
-//    cupo al mismo tiempo, ninguna pisa el paquete de la otra.
-function paquetesValidos(raw){
-  if(!Array.isArray(raw)) return [];
-  return raw.map(p=>{
-    const url=String((p&&p.url)||'').trim();
-    if(!/^https?:\/\//i.test(url)) return null;
-    const etiqueta=String((p&&p.etiqueta)||'').trim();
-    // Sin nombre, se muestra el link acortado: siempre se ve algo con sentido, nunca una fila vacía.
-    return {url,etiqueta:etiqueta||url.replace(/^https?:\/\//i,'').slice(0,60)};
-  }).filter(Boolean);
-}
-// La lista que se está mostrando en el detalle. El botón de quitar manda el ÍNDICE, no la URL: una URL
-// dentro de un `onclick` hay que escaparla y cualquier comilla rompe el botón en silencio.
+
+// Lo que se está mostrando en el detalle. El botón de quitar manda el ÍNDICE, no el id ni la URL:
+// cualquier comilla dentro de un `onclick` rompe el botón en silencio.
 let _paqsDetalle=[],_paqVueloId=null;
 
 function abrirModalPaquete(vueloId){
   _paqVueloId=vueloId;
-  document.getElementById('paq-url').value='';
-  document.getElementById('paq-etiqueta').value='';
+  ['paq-nombre','paq-url','paq-codigo'].forEach(id=>{const e=document.getElementById(id);if(e)e.value='';});
   document.getElementById('modal-paq-alert').innerHTML='';
   document.getElementById('modal-paquete').style.display='flex';
-  setTimeout(()=>{const e=document.getElementById('paq-url');if(e)e.focus();},60);
+  setTimeout(()=>{const e=document.getElementById('paq-nombre');if(e)e.focus();},60);
 }
 async function guardarPaquete(){
+  const nombre=document.getElementById('paq-nombre').value.trim();
   const url=document.getElementById('paq-url').value.trim();
-  const etiqueta=document.getElementById('paq-etiqueta').value.trim();
-  if(!/^https?:\/\//i.test(url)){
+  const codigo=document.getElementById('paq-codigo').value.trim();
+  // El nombre es obligatorio: es lo que ve el vendedor Y el nombre del archivo que le llega al pasajero.
+  if(!nombre){mostrarAlerta('modal-paq-alert','Poné un nombre. Es el que va a ver el vendedor y el nombre del archivo que recibe el pasajero.','error');return;}
+  if(url&&!/^https?:\/\//i.test(url)){
     mostrarAlerta('modal-paq-alert','El link tiene que empezar con http:// o https:// — copialo de la barra del navegador.','error');return;
   }
   setBtnLoading('btn-guardar-paquete',true,'Agregar paquete');
-  const {error}=await sb.rpc('agregar_paquete_cupo',{p_vuelo_id:_paqVueloId,p_url:url,p_etiqueta:etiqueta||null});
+  const {error}=await sb.rpc('agregar_paquete_cupo',{p_vuelo_id:_paqVueloId,p_nombre:nombre,p_url:url||null,p_codigo:codigo||null});
   setBtnLoading('btn-guardar-paquete',false,'Agregar paquete');
   if(error){mostrarAlerta('modal-paq-alert',error.message,'error');return;}
-  await registrarLog('agregar_paquete','vuelo',_paqVueloId,{url,etiqueta});
+  await registrarLog('agregar_paquete','vuelo',_paqVueloId,{nombre,url,codigo});
   cerrarModal('modal-paquete');
   cargarDetalle(_paqVueloId);
 }
+// ── LA PIEZA DEL PASAJERO (b106) ──────────────────────────────────────────────────────────────
+// Arma el PDF que el vendedor le manda al pasajero, a partir de `paquetes.datos`.
+// Diseño aprobado por Nacho el 23-set; molde en documentacion/paquetes/plantilla/pieza-aprobada.html.
+//
+// 🔑 Habla el MISMO lenguaje visual que la propuesta del cotizador (H2 en tinta con barra roja,
+//    números en serif, el rojo solo como acento, sin cajas crema, sin emojis). No es estética: si un
+//    cliente recibe una cotización y un paquete, tienen que verse de la misma casa.
+// 🔑 El cuadro `SGL/DBL/TPL/FAM/CHD1/CHD2` de Atlas NO se reproduce: cada hotel muestra la base doble
+//    como tarjeta y el resto de las ocupaciones en una línea en castellano. Ese cuadro era el problema.
+// 🔒 Se arma en el navegador del VENDEDOR, así que la firma sale de su sesión: es imposible bajar un
+//    PDF firmado por otro.
+const PAQ_MONEY=n=>(n===null||n===undefined||n==='')?null:'USD '+Math.round(Number(n)).toLocaleString('es-UY');
+// Un precio de menor sólo vale si el rango de edad es válido. En los 6 paquetes del set de prueba
+// aparecieron "de 0 a 0 años" (dos veces) y "de 2 a 0 años": el número existe y no aplica a nadie.
+function paqMenorValido(txt){
+  const m=String(txt||'').match(/(\d+)\s*a\s*(\d+)/);
+  if(!m) return false;
+  const min=+m[1], max=+m[2];
+  return max>0 && max>=min;
+}
+function paqOcupaciones(h){
+  const out=[];
+  if(h.sgl) out.push(`Base single <b>${PAQ_MONEY(h.sgl)}</b>`);
+  if(h.tpl) out.push(`Base triple <b>${PAQ_MONEY(h.tpl)}</b>`);
+  if(h.fam) out.push(`2 adultos + 2 menores <b>${PAQ_MONEY(h.fam)}</b> por adulto`);
+  const ok=paqMenorValido(h.edades_chd);
+  if(h.chd1&&ok) out.push(`Menor de ${esc(String(h.edades_chd).replace(/\.$/,''))} <b>${PAQ_MONEY(h.chd1)}</b>`);
+  else out.push('<span style="color:#6b7079">Sin tarifa de menor</span>');
+  return out;
+}
+function paqueteHTML(p,firma){
+  const d=p.datos||{}, logo=new URL(GUA_LOGO,location.href).href;
+  const F=(s)=>esc(s||'');
+  const hoteles=Array.isArray(d.hoteles)?d.hoteles:[];
+  const vuelos=Array.isArray(d.vuelos)?d.vuelos:[];
+  const meta=[d.fecha_ida&&d.fecha_vuelta?`<b>${F(formatFecha(d.fecha_ida))} al ${F(formatFecha(d.fecha_vuelta))}</b>`:'',
+              d.dias?`<b>${d.dias} días</b>, ${d.noches} noches`:'', F(d.destino||d.titulo)].filter(Boolean).join('<span class="sep">·</span>');
+  const filaVuelo=v=>`<div class="vseg"><div class="vseg-al">${F((v.aerolinea||'').slice(0,2).toUpperCase())}</div>
+      <div class="vseg-main"><span class="rot">${F(v.tipo||'Ida')}${v.numero?' · vuelo '+F(v.numero):''}</span>
+        <div class="ruta">${F(v.origen||v.origen_cod)} <span class="ar">→</span> ${F(v.destino||v.destino_cod)}</div>
+        <div class="vmeta">${[F(v.aerolinea),v.fecha?F(formatFecha(v.fecha)):'',`${F(v.origen_cod)} → ${F(v.destino_cod)}`].filter(Boolean).join(' · ')}</div></div>
+      <div class="hs">${F(v.salida)||'--:--'}<span class="dash">–</span>${F(v.llegada)||'--:--'}</div></div>`;
+  const filaHotel=(h,i)=>`<div class="opcion"><div class="ophead"><span class="opn">Opción ${i+1}</span>
+      <span class="opn" style="color:#6b7079">${h.noches||d.noches||''} noches${h.regimen?' · '+F(h.regimen):''}</span></div>
+      <div class="hnom">${F(h.nombre)}</div>
+      ${h.dbl?`<div class="pcard"><div><div class="lbl">Base doble</div><div class="per">por persona, dos por habitación</div></div>
+        <div class="num">${PAQ_MONEY(h.dbl)}</div></div>`:''}
+      <div class="otras">${paqOcupaciones(h).join('<span class="sep2">·</span>')}</div></div>`;
+  return `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><title>${F(p.nombre_visible)}</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@400;500;600&family=Montserrat:wght@400;500;600;700&display=swap">
+<style>
+:root{--rojo:#cd0039;--vino:#981632;--tinta:#17191d;--ink2:#3b3f46;--gris:#6b7079;--linea:#e7e3da;--panel:#faf7f0}
+*{box-sizing:border-box}html,body{margin:0;padding:0}
+body{background:#eceef0;font-family:'Sequel Sans','Montserrat',Arial,sans-serif;color:var(--ink2);font-size:16px;line-height:1.55;padding:20px 10px;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.serif{font-family:'ITC Garamond Std','EB Garamond',Georgia,serif}
+.doc{max-width:700px;margin:0 auto;background:#fff;border-radius:6px;overflow:hidden;box-shadow:0 8px 30px rgba(20,24,31,.1)}
+.top{padding:18px 30px;display:flex;align-items:center;justify-content:space-between;gap:16px;border-bottom:1px solid var(--linea)}
+.top img{height:26px}.top .tag{color:var(--gris);font-size:11px;letter-spacing:2px;text-transform:uppercase;font-weight:600}
+.hero{background:var(--rojo);color:#fff;padding:18px 30px}
+.hero h1{font-family:'ITC Garamond Std','EB Garamond',Georgia,serif;font-size:34px;line-height:1;margin:0 0 5px;font-weight:600}
+.hero p{font-family:'ITC Garamond Std','EB Garamond',Georgia,serif;font-size:17px;margin:0;max-width:40ch;opacity:.95}
+.body{padding:18px 30px 22px}
+h2{font-family:'ITC Garamond Std','EB Garamond',Georgia,serif;color:var(--tinta);font-size:22px;margin:22px 0 10px;font-weight:600;padding-top:18px;border-top:1px solid var(--linea);position:relative}
+h2:before{content:"";position:absolute;top:-1px;left:0;width:44px;height:2px;background:var(--rojo)}
+h2:first-child{margin-top:4px}
+h3{font-size:17px;font-weight:600;color:var(--gris);margin:22px 0 8px}
+.meta{margin:10px 0 2px;font-size:14px}.meta b{color:var(--vino)}.sep{color:var(--gris);margin:0 9px}
+.desc{background:var(--panel);border-left:3px solid var(--rojo);padding:12px 16px;border-radius:6px;margin:12px 0 2px;font-size:15.5px}
+.vuelos{margin:10px 0 2px;border:1px solid var(--linea);border-radius:8px;overflow:hidden}
+.vseg{display:flex;align-items:center;gap:14px;padding:11px 16px;border-bottom:1px solid var(--linea)}
+.vseg:last-child{border-bottom:none}
+.vseg-al{flex:none;width:42px;height:42px;border:1px solid var(--linea);border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:var(--vino)}
+.vseg-main{flex:1;min-width:0}
+.rot{font-size:11px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--rojo)}
+.ruta{font-family:'ITC Garamond Std','EB Garamond',Georgia,serif;font-size:19px;font-weight:600;color:var(--tinta)}
+.ar{color:var(--rojo);font-family:'Montserrat',sans-serif;font-size:15px}
+.vmeta{font-size:13px;color:var(--gris);margin-top:2px}
+.hs{flex:none;text-align:right;white-space:nowrap;font-family:'ITC Garamond Std','EB Garamond',Georgia,serif;font-size:18px;font-weight:600;color:var(--tinta);font-variant-numeric:tabular-nums}
+.dash{color:var(--gris);margin:0 4px}
+.inc{background:#fff;border:1px solid var(--linea);border-radius:8px;padding:4px 18px 8px;margin:10px 0}
+.inc ul{list-style:none;padding:0;margin:0}
+.inc li{padding:8px 0 8px 28px;position:relative;font-size:15.5px;border-bottom:1px solid var(--linea)}
+.inc li:last-child{border-bottom:none}.inc li:before{content:'✓';color:var(--rojo);font-weight:700;position:absolute;left:2px}
+.bul{list-style:none;padding:0;margin:8px 0}.bul li{padding:7px 0 7px 26px;position:relative;font-size:16px}
+.bul li:before{content:'✕';color:var(--gris);position:absolute;left:0;font-weight:700}
+.val{font-size:15px;color:var(--gris);margin:4px 0 14px}
+.opcion{border:1px solid var(--linea);border-radius:10px;padding:16px 18px;margin-bottom:14px}
+.ophead{display:flex;align-items:baseline;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.opn{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--vino)}
+.hnom{font-family:'ITC Garamond Std','EB Garamond',Georgia,serif;font-size:21px;font-weight:600;color:var(--tinta);margin:4px 0 2px}
+.pcard{border:1px solid #d6cfc0;border-radius:8px;padding:12px 16px;display:flex;align-items:center;justify-content:space-between;gap:14px;background:var(--panel);margin-top:14px}
+.lbl{font-size:14px;color:var(--gris);text-transform:uppercase;letter-spacing:.5px}.per{font-size:13px;color:var(--gris)}
+.num{font-family:'ITC Garamond Std','EB Garamond',Georgia,serif;font-size:28px;font-weight:600;color:var(--tinta);white-space:nowrap;font-variant-numeric:tabular-nums}
+.otras{margin:12px 0 0;font-size:14.5px}.otras b{color:var(--tinta);font-variant-numeric:tabular-nums}
+.sep2{color:var(--gris);margin:0 10px}
+.dia{display:grid;grid-template-columns:30px 1fr;gap:14px;padding:11px 0;border-bottom:1px solid var(--linea)}
+.dia:last-child{border-bottom:none}
+.dnum{font-size:12px;font-weight:700;color:var(--rojo);padding-top:3px}
+.dtit{font-weight:600;font-size:15.5px;margin:0;color:var(--tinta)}.dtxt{margin:3px 0 0;font-size:14.5px;color:var(--gris)}
+.firma{background:#fff;border:1px solid var(--linea);border-radius:10px;padding:18px;display:flex;gap:16px;align-items:center;margin:14px 0 0}
+.firma .av{width:66px;height:66px;border-radius:50%;background:var(--rojo);color:#fff;font-family:'ITC Garamond Std','EB Garamond',Georgia,serif;font-size:28px;display:flex;align-items:center;justify-content:center;flex:none;font-weight:600}
+.firma .nom{font-size:20px;font-weight:600;color:var(--tinta)}
+.firma .rol{color:var(--rojo);font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;margin:2px 0 6px}
+.firma a{color:var(--vino);text-decoration:none;font-weight:600;font-size:14px}
+.tyc{font-size:14px;color:var(--gris);border-top:1px solid var(--linea);margin-top:26px;padding-top:16px}
+.tyc h4{color:var(--tinta);font-size:15px;margin:0 0 8px}.tyc ol{padding-left:18px;margin:8px 0}.tyc li{margin:5px 0}
+.foot{padding:18px 26px 24px;border-top:1px solid var(--linea);text-align:center;color:var(--gris);font-size:14px}
+.foot img{height:20px;margin-bottom:8px;display:block;margin-left:auto;margin-right:auto}
+.noprint{margin:18px auto;max-width:700px;text-align:center}
+.noprint button{background:var(--rojo);color:#fff;border:none;padding:12px 24px;border-radius:8px;font-size:15px;font-family:'Montserrat',sans-serif;font-weight:600;cursor:pointer}
+@page{size:A4;margin:14mm 14mm 16mm}
+@media print{body{background:#fff;padding:0;font-size:12pt}.doc{box-shadow:none;border-radius:0;max-width:100%}.noprint{display:none}
+ .opcion,.pcard,.inc,.vseg,.firma,.desc,.dia{page-break-inside:avoid}h2,h3{page-break-after:avoid}.ophead,.hnom{page-break-after:avoid}p{orphans:3;widows:3}}</style></head><body>
+<div class="doc">
+  <div class="top"><img src="${logo}" alt="Guamatur Viajes"/><span class="tag">${d.codigo?'Paquete '+F(d.codigo):'Paquete'}</span></div>
+  <div class="hero"><h1 class="serif">${F(d.destino||d.titulo||p.nombre_visible)}</h1>${d.temporada?`<p class="serif">${F(d.temporada)}</p>`:''}</div>
+  <div class="body">
+    ${meta?`<div class="meta">${meta}</div>`:''}
+    ${d.descripcion?`<div class="desc">${F(d.descripcion)}</div>`:''}
+    ${vuelos.length?`<h2>Tu viaje</h2><div class="vuelos">${vuelos.map(filaVuelo).join('')}</div>`:''}
+    ${(Array.isArray(d.incluye)&&d.incluye.length)?`<h2>Todo esto ya está incluido</h2><div class="inc"><ul>${d.incluye.map(x=>`<li>${F(x)}</li>`).join('')}</ul></div>`:''}
+    ${hoteles.length?`<h2>${hoteles.length>1?'Elegí tu hotel':'Tu alojamiento'}</h2>
+      <p class="val">El precio ya incluye todo lo de arriba: es el valor final por persona, en dólares.</p>
+      ${hoteles.map(filaHotel).join('')}
+      <p style="font-size:14px;color:#6b7079;text-align:center">Los precios pueden variar al momento de realizar la reserva.</p>`:''}
+    ${(Array.isArray(d.no_incluye)&&d.no_incluye.length)?`<h3>No incluye</h3><ul class="bul">${d.no_incluye.map(x=>`<li>${F(x)}</li>`).join('')}</ul>`:''}
+    ${(Array.isArray(d.itinerario)&&d.itinerario.length)?`<h2>Itinerario sugerido</h2>${d.itinerario.map(x=>`<div class="dia"><div class="dnum">${String(x.dia).padStart(2,'0')}</div><div><p class="dtit">${F(x.resumen)}</p><p class="dtxt">${F(x.detalle)}</p></div></div>`).join('')}`:''}
+    <h2>Tu asesor de viaje</h2>
+    <div class="firma"><div class="av serif">${F((firma.nombre||'G').trim().charAt(0).toUpperCase())}</div>
+      <div><div class="nom">${F(firma.nombre)}</div><div class="rol">${F(firma.cargo||'Asesor de viajes')}</div>
+      <div>${firma.telefono?`<a href="tel:${F(firma.telefono)}">${F(firma.telefono)}</a> · `:''}<a href="mailto:${F(firma.email)}">${F(firma.email)}</a></div></div></div>
+    ${(Array.isArray(d.condiciones)&&d.condiciones.length)?`<div class="tyc"><h4>Condiciones</h4><ol>${d.condiciones.map(x=>`<li>${F(x)}</li>`).join('')}</ol></div>`:''}
+  </div>
+  <div class="foot"><img src="${logo}" alt="Guamatur Viajes"/>
+    <div>Av. Ricaldoni 2587, Montevideo · guamatur.com</div>
+    ${d.codigo?`<div style="margin-top:6px">Paquete <b>${F(d.codigo)}</b> — pasá este código y sabemos exactamente cuál es.</div>`:''}
+    <div style="margin-top:6px">Condiciones generales: <a href="https://www.guamatur.com/legal.asp" style="color:#6b7079">guamatur.com/legal.asp</a></div></div>
+</div>
+<div class="noprint"><button onclick="window.print()">Guardar como PDF</button></div>
+</body></html>`;
+}
+async function descargarPaquetePDF(paqueteId){
+  const p=_paqsDetalle.find(x=>x.id===paqueteId);
+  if(!p){alert('No se encontró el paquete.');return;}
+  if(!p.datos||!p.datos.hoteles||!p.datos.hoteles.length){
+    alert('Este paquete todavía no tiene el contenido cargado.\n\nOperaciones tiene que subir el PDF de Atlas para que se procese.');return;
+  }
+  // etapa 2: esto sale del perfil del vendedor. Hoy toma lo que hay en `usuarios`.
+  const yo=(vendedores||[]).find(u=>u.email===currentUser?.email)||{};
+  const firma={nombre:yo.nombre||currentUser?.email||'Guamatur',cargo:'Asesor de viajes',telefono:'',email:currentUser?.email||''};
+  const w=window.open('','_blank');
+  if(!w){alert('Permití las ventanas emergentes para descargar el paquete.');return;}
+  w.document.write(paqueteHTML(p,firma));
+  w.document.close();
+  // El título de la ventana es el nombre que propone el navegador al guardar el PDF: es el archivo que
+  // le llega al pasajero. Por eso el nombre del paquete es obligatorio.
+  try{w.document.title=p.nombre_visible;}catch(e){}
+  await registrarLog('descargar_paquete','paquete',paqueteId,{nombre:p.nombre_visible});
+}
+
 async function quitarPaquete(vueloId,i){
   const p=_paqsDetalle[i]; if(!p) return;
-  if(!confirm(`¿Seguro que desea eliminar paquete asociado al cupo?\n\n${p.etiqueta||p.url}\n\nSe saca el link de este cupo. El paquete en sí no se borra.`)) return;
-  const {error}=await sb.rpc('quitar_paquete_cupo',{p_vuelo_id:vueloId,p_url:p.url});
+  if(!confirm(`¿Seguro que desea eliminar paquete asociado al cupo?\n\n${p.nombre_visible}\n\nSe saca de este cupo. Si no queda en ningún otro, se borra.`)) return;
+  const {error}=await sb.rpc('quitar_paquete_cupo',{p_vuelo_id:vueloId,p_paquete_id:p.id});
   if(error){alert('No se pudo quitar el paquete:\n\n'+error.message);return;}
-  await registrarLog('quitar_paquete','vuelo',vueloId,{url:p.url,etiqueta:p.etiqueta});
+  await registrarLog('quitar_paquete','vuelo',vueloId,{paquete_id:p.id,nombre:p.nombre_visible});
   cargarDetalle(vueloId);
 }
 
