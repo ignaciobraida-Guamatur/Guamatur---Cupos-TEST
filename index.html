@@ -4737,11 +4737,13 @@ function previewFirma(){
   const c=(document.getElementById('firma-cargo').value||'').trim()||'Asesor de viajes';
   const t=(document.getElementById('firma-telefono').value||'').trim();
   const mail=currentUser?.email||'';
+  // Los estilos son los MISMOS que los de `.firma` en paqueteHTML() (avatar rojo, cargo en versales
+  // rojas, contacto en vino). Si acá se viera distinto, la previa estaría mintiendo.
   document.getElementById('firma-preview').innerHTML=
-    `<div style="width:44px;height:44px;border-radius:50%;background:#cd0039;color:#fff;display:flex;align-items:center;justify-content:center;font-size:19px;flex:0 0 auto">${esc(n.charAt(0).toUpperCase())}</div>
-     <div style="min-width:0"><div style="font-weight:600;color:#17191d">${esc(n)}</div>
-       <div style="font-size:12px;color:#6b7079">${esc(c)}</div>
-       <div style="font-size:12px;color:#981632;word-break:break-all">${t?esc(t)+' · ':''}${esc(mail)}</div></div>`;
+    `<div style="width:50px;height:50px;border-radius:50%;background:#cd0039;color:#fff;display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:600;font-family:Georgia,serif;flex:0 0 auto">${esc(n.charAt(0).toUpperCase())}</div>
+     <div style="min-width:0"><div style="font-size:17px;font-weight:600;color:#17191d">${esc(n)}</div>
+       <div style="color:#cd0039;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;margin:2px 0 4px">${esc(c)}</div>
+       <div style="font-size:12px;font-weight:600;color:#981632;word-break:break-all">${t?esc(t)+' · ':''}${esc(mail)}</div></div>`;
 }
 async function guardarFirma(){
   const nombre=(document.getElementById('firma-nombre').value||'').trim();
