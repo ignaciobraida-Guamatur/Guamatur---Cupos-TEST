@@ -998,7 +998,7 @@ const sb=supabase.createClient(CONFIG.SUPABASE_URL,CONFIG.SUPABASE_ANON_KEY,{
 // ⚠️ Una sola versión por cadena y CORTA: el detalle va al CHANGELOG.md, no acá. Nacho ve este texto
 // completo en el encabezado (el resto ve solo el "bNN") y si es largo se desborda; además `APP_VERSION_CORTA`
 // saca el número con un match, así que dos "bNN" en la misma cadena confunden cuál es la versión.
-const APP_VERSION='Fase 2 · 2026-09-23 (b119-TEST · Si se subió una versión nueva, un cartel arriba le avisa al vendedor que su pestaña tiene la vieja y cuál debería estar viendo.)';
+const APP_VERSION='Fase 2 · 2026-09-23 (b120-TEST · Publicada solo para probar el aviso de versión nueva. Mismo código que la b119.)';
 // Columnas de 'vuelos' legibles por cualquier usuario. EXCLUYE precio_neto: el admin lo lee por RPC admin_get_precio_neto (gateada por es_admin). No usar select('*') sobre vuelos: la columna precio_neto quedó revocada a authenticated.
 // ⚠️ Toda columna que se agregue acá necesita `grant select (col) to authenticated` en la base, si no
 // PostgREST tira 400 y se cae la pantalla entera (gotcha #6). `emitido` viene de la migración 2026-08-06.
