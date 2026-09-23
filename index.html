@@ -968,7 +968,7 @@ const sb=supabase.createClient(CONFIG.SUPABASE_URL,CONFIG.SUPABASE_ANON_KEY,{
 // ⚠️ Una sola versión por cadena y CORTA: el detalle va al CHANGELOG.md, no acá. Nacho ve este texto
 // completo en el encabezado (el resto ve solo el "bNN") y si es largo se desborda; además `APP_VERSION_CORTA`
 // saca el número con un match, así que dos "bNN" en la misma cadena confunden cuál es la versión.
-const APP_VERSION='Fase 2 · 2026-09-23 (b108-TEST · Operaciones sube el PDF del paquete tal cual sale de Atlas y el vendedor lo abre desde el cupo; al quitar el último cupo se borra también el archivo.)';
+const APP_VERSION='Fase 2 · 2026-09-23 (b109-TEST · El circuito completo del paquete: Operaciones sube el PDF de Atlas, lo procesa con IA, lo revisa en borrador y lo publica; recién ahí el vendedor lo ve.)';
 // Columnas de 'vuelos' legibles por cualquier usuario. EXCLUYE precio_neto: el admin lo lee por RPC admin_get_precio_neto (gateada por es_admin). No usar select('*') sobre vuelos: la columna precio_neto quedó revocada a authenticated.
 // ⚠️ Toda columna que se agregue acá necesita `grant select (col) to authenticated` en la base, si no
 // PostgREST tira 400 y se cae la pantalla entera (gotcha #6). `emitido` viene de la migración 2026-08-06.
@@ -2057,7 +2057,10 @@ async function cargarDetalle(vueloId){
   ]);
   // Se guardan en una variable de módulo porque el botón de quitar manda el ÍNDICE, no la URL ni el id:
   // cualquier comilla dentro de un onclick rompe el botón en silencio.
-  _paqsDetalle=(paqRel||[]).map(r=>r.paquetes).filter(p=>p&&p.estado!=='borrador');
+  // b109 — los BORRADORES los ve solo quien los revisa (admin/Operaciones). El candado de verdad está
+  // en la policy `paquetes_select`: a un vendedor la base directamente no se los devuelve. Acá no hace
+  // falta filtrar de nuevo — si aparece un borrador es porque este usuario puede verlo.
+  _paqsDetalle=(paqRel||[]).map(r=>r.paquetes).filter(Boolean);
   // El precio neto no viaja en el select (revocado a authenticated); admin y operaciones lo traen por RPC gateada (13-jul: se sumó operaciones)
   let precioNetoAdmin=null;
   if((rolEfectivo==='admin'||rolEfectivo==='operaciones')&&vuelo){const {data:pn}=await sb.rpc('admin_get_precio_neto',{p_vuelo_id:vueloId});precioNetoAdmin=pn;}
@@ -2261,16 +2264,24 @@ async function cargarDetalle(vueloId){
      html+=`<div class="itinerario-wrap" style="margin-bottom:12px"><div class="itinerario-title" style="margin:0 0 8px">📦 Paquetes con este cupo</div><div style="display:flex;flex-direction:column;gap:8px">`
        +paqs.map((p,i)=>{
           const tieneDatos=p.datos&&p.datos.hoteles&&p.datos.hoteles.length;
+          const esBorrador=p.estado==='borrador';
           const acciones=[
-            tieneDatos?`<button class="btn-sm" title="Descargar el PDF para mandarle al pasajero" onclick="descargarPaquetePDF('${p.id}')">⬇ Descargar PDF</button>`:'',
+            tieneDatos?`<button class="btn-sm" title="${esBorrador?'Vista previa de la pieza, para revisarla antes de publicar':'Descargar el PDF para mandarle al pasajero'}" onclick="descargarPaquetePDF('${p.id}')">⬇ ${esBorrador?'Vista previa':'Descargar PDF'}</button>`:'',
             // b108: el PDF tal cual sale de Atlas. Feo, pero es lo que hoy el vendedor busca a mano en
-            // su correo — hasta que la IA (etapa 4) llene `datos`, es lo único que hay.
+            // su correo — hasta que la IA llene `datos`, es lo único que hay. Y en borrador es contra
+            // lo que Operaciones compara: la revisión es PDF original vs pieza.
             p.pdf_origen?`<button class="btn-sm" title="El PDF original de Atlas, tal cual lo subió Operaciones" onclick="verPdfDeAtlas('${p.id}',this)">📄 ${tieneDatos?'Original de Atlas':'Ver el PDF de Atlas'}</button>`:'',
+            // b109 — procesar con IA. Solo con PDF cargado, y solo para quien puede gastar tokens.
+            (puedeQuitar&&p.pdf_origen)?`<button class="btn-sm" title="${tieneDatos?'Volver a leer el PDF. El paquete vuelve a borrador y el vendedor deja de verlo hasta que lo publiques.':'Leer el PDF con IA y armar la pieza. Queda en borrador hasta que lo revises.'}" onclick="procesarPaqueteIA('${vueloId}','${p.id}',this)">✨ ${tieneDatos?'Volver a procesar':'Procesar con IA'}</button>`:'',
+            (puedeQuitar&&esBorrador&&tieneDatos)?`<button class="btn-sm" style="border-color:var(--green);color:var(--green)" title="Publicarlo: recién ahí el vendedor lo ve y lo puede mandar" onclick="publicarPaquete('${vueloId}','${p.id}',true,this)">✓ Publicar</button>`:'',
+            (puedeQuitar&&!esBorrador&&tieneDatos)?`<button class="btn-sm" title="Sacarlo de circulación: vuelve a borrador y el vendedor deja de verlo" onclick="publicarPaquete('${vueloId}','${p.id}',false,this)">↩ Despublicar</button>`:'',
             (p.url&&/^https?:\/\//i.test(p.url))?`<a class="btn-sm" href="${esc(p.url)}" target="_blank" rel="noopener noreferrer" title="${esc(p.url)}" style="text-decoration:none">🔗 Abrir</a>`:'',
             puedeQuitar?`<button class="btn-sm" title="Quitar este paquete del cupo" onclick="quitarPaquete('${vueloId}',${i})">✕</button>`:''
           ].filter(Boolean).join('');
-          return `<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;border:1px solid var(--border2);border-radius:8px;padding:8px 12px">`
-               +`<span style="font-size:13px;min-width:0"><b>${esc(p.nombre_visible)}</b>${p.codigo?` <span style="color:var(--muted);font-family:'DM Mono',monospace;font-size:11px">${esc(p.codigo)}</span>`:''}${!tieneDatos&&!p.url&&!p.pdf_origen?` <span style="color:var(--muted);font-size:11px">— sin contenido todavía</span>`:''}</span>`
+          return `<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;border:1px solid ${esBorrador?'var(--yellow)':'var(--border2)'};border-radius:8px;padding:8px 12px">`
+               +`<span style="font-size:13px;min-width:0"><b>${esc(p.nombre_visible)}</b>${p.codigo?` <span style="color:var(--muted);font-family:'DM Mono',monospace;font-size:11px">${esc(p.codigo)}</span>`:''}`
+               +`${esBorrador?` <span class="badge badge-orange" title="Todavía no lo ve ningún vendedor">BORRADOR</span> <span style="color:var(--muted);font-size:11px">— revisalo contra el PDF y publicalo</span>`:''}`
+               +`${!tieneDatos&&!p.url&&!p.pdf_origen?` <span style="color:var(--muted);font-size:11px">— sin contenido todavía</span>`:''}</span>`
                +`<span style="display:flex;gap:6px;flex-wrap:wrap">${acciones}</span></div>`;
         }).join('')
        +`</div></div>`;
@@ -4622,6 +4633,59 @@ async function verPdfDeAtlas(paqueteId,btn){
   }
   if(w)w.location.href=data.signedUrl; else window.location.href=data.signedUrl;
   await registrarLog('ver_pdf_atlas','paquete',paqueteId,{nombre:p.nombre_visible});
+}
+
+// ⚠️ Cuando una Edge Function responde con un status que no es 2xx, supabase-js NO pone el mensaje en
+//    `error.message`: ahí deja un genérico ("Edge Function returned a non-2xx status code") y el cuerpo
+//    real queda en `error.context`. Sin esto, TODOS los errores del procesamiento —falta el PDF, falta
+//    la key, el PDF no es un paquete— se verían iguales y mandarían a buscar el problema al lugar
+//    equivocado.
+async function invocarFuncion(nombre,body){
+  const {data,error}=await sb.functions.invoke(nombre,{body});
+  if(!error) return data;
+  let msg=error.message||'No se pudo conectar con el servidor.';
+  try{const j=await error.context.json(); if(j&&j.error) msg=j.error;}catch(e){}
+  throw new Error(msg);
+}
+
+// b109 — procesar el PDF de Atlas con IA. Solo admin/Operaciones (lo gatea también la Edge Function:
+// procesar gasta tokens). Deja el paquete en BORRADOR: el vendedor no lo ve hasta que se publique.
+async function procesarPaqueteIA(vueloId,paqueteId,btn){
+  const p=_paqsDetalle.find(x=>x.id===paqueteId);
+  if(!p)return;
+  const yaTiene=p.datos&&p.datos.hoteles&&p.datos.hoteles.length;
+  if(yaTiene&&!confirm(`Volver a leer el PDF de "${p.nombre_visible}".\n\nSe reemplaza lo que hay cargado y el paquete vuelve a BORRADOR: el vendedor deja de verlo hasta que lo publiques de nuevo.\n\n¿Seguir?`))return;
+  const txt=btn?btn.innerHTML:'';
+  if(btn){btn.disabled=true;btn.innerHTML='⏳ Leyendo el PDF…';}
+  try{
+    const r=await invocarFuncion('paquete-extraer',{paquete_id:paqueteId});
+    await registrarLog('procesar_paquete_ia','paquete',paqueteId,{nombre:p.nombre_visible,modelo:r?.modelo,tokens_in:r?.tokens_in,tokens_out:r?.tokens_out,costo_usd:r?.costo_usd});
+    const d=r&&r.datos||{};
+    alert(`Listo: ${(d.hoteles||[]).length} hotel${(d.hoteles||[]).length===1?'':'es'}, ${(d.vuelos||[]).length} tramo${(d.vuelos||[]).length===1?'':'s'} y ${(d.itinerario||[]).length} día${(d.itinerario||[]).length===1?'':'s'} de itinerario.\n\nQuedó en BORRADOR. Miralo con "Vista previa", comparalo contra el PDF de Atlas y publicalo.`);
+  }catch(e){
+    alert('No se pudo procesar el paquete:\n\n'+e.message);
+  }finally{
+    if(btn){btn.disabled=false;btn.innerHTML=txt;}
+  }
+  cargarDetalle(vueloId);
+}
+
+// b109 — publicar (o sacar de circulación). Lo que decide qué ve el vendedor.
+async function publicarPaquete(vueloId,paqueteId,publicar,btn){
+  const p=_paqsDetalle.find(x=>x.id===paqueteId);
+  if(!p)return;
+  if(publicar){
+    if(!confirm(`Publicar "${p.nombre_visible}".\n\nA partir de ahora cualquier vendedor lo va a poder descargar y mandarle al pasajero. ¿Lo revisaste contra el PDF de Atlas?`))return;
+  }else{
+    if(!confirm(`Sacar de circulación "${p.nombre_visible}".\n\nVuelve a borrador y el vendedor deja de verlo. No se borra: el PDF y lo extraído quedan.`))return;
+  }
+  const txt=btn?btn.innerHTML:'';
+  if(btn){btn.disabled=true;btn.innerHTML='⏳';}
+  const {error}=await sb.rpc('publicar_paquete',{p_paquete_id:paqueteId,p_publicar:!!publicar});
+  if(btn){btn.disabled=false;btn.innerHTML=txt;}
+  if(error){alert('No se pudo:\n\n'+error.message);return;}
+  await registrarLog(publicar?'publicar_paquete':'despublicar_paquete','paquete',paqueteId,{nombre:p.nombre_visible});
+  cargarDetalle(vueloId);
 }
 // ── LA PIEZA DEL PASAJERO (b106) ──────────────────────────────────────────────────────────────
 // Arma el PDF que el vendedor le manda al pasajero, a partir de `paquetes.datos`.
