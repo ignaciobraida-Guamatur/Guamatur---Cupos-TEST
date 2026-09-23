@@ -638,10 +638,10 @@
       <label class="form-label">Nombre del paquete <span style="color:var(--muted);font-size:10px">obligatorio — lo ve el vendedor, y es el nombre del archivo que recibe el pasajero</span></label>
       <input class="form-input" id="paq-nombre" placeholder="Ej: Búzios - Salida 07 de enero"/>
     </div>
-    <div class="form-group">
-      <label class="form-label">Link <span style="color:var(--muted);font-size:10px">opcional — el paquete en la web</span></label>
-      <input class="form-input" id="paq-url" placeholder="https://www.guamatur.com/…"/>
-    </div>
+    <!-- El campo "Link" se sacó el 23-set: venía de b105, cuando un paquete ERA un link a la web.
+         Hoy un paquete es el PDF de Atlas. La columna `paquetes.url` sigue existiendo y la RPC sigue
+         aceptando el parámetro, dormidos a propósito: los links vuelven en otra etapa (decisión de
+         Nacho) y borrarlos sería tener que crearlos de nuevo. -->
     <div class="form-group">
       <label class="form-label">Código de Atlas <span style="color:var(--muted);font-size:10px">opcional</span></label>
       <input class="form-input" id="paq-codigo" placeholder="Ej: PAQ2185"/>
@@ -973,7 +973,7 @@ const sb=supabase.createClient(CONFIG.SUPABASE_URL,CONFIG.SUPABASE_ANON_KEY,{
 // ⚠️ Una sola versión por cadena y CORTA: el detalle va al CHANGELOG.md, no acá. Nacho ve este texto
 // completo en el encabezado (el resto ve solo el "bNN") y si es largo se desborda; además `APP_VERSION_CORTA`
 // saca el número con un match, así que dos "bNN" en la misma cadena confunden cuál es la versión.
-const APP_VERSION='Fase 2 · 2026-09-23 (b109b-TEST · El circuito completo del paquete: Operaciones sube el PDF de Atlas, lo revisa en borrador y lo publica. El procesado con IA queda detrás de PAQUETES_IA_ENABLED.)';
+const APP_VERSION='Fase 2 · 2026-09-23 (b110-TEST · Un paquete es el PDF de Atlas: se sacó el campo de link del alta, que venía de cuando un paquete era un link a la web.)';
 // Columnas de 'vuelos' legibles por cualquier usuario. EXCLUYE precio_neto: el admin lo lee por RPC admin_get_precio_neto (gateada por es_admin). No usar select('*') sobre vuelos: la columna precio_neto quedó revocada a authenticated.
 // ⚠️ Toda columna que se agregue acá necesita `grant select (col) to authenticated` en la base, si no
 // PostgREST tira 400 y se cae la pantalla entera (gotcha #6). `emitido` viene de la migración 2026-08-06.
@@ -2275,11 +2275,15 @@ async function cargarDetalle(vueloId){
             // b108: el PDF tal cual sale de Atlas. Feo, pero es lo que hoy el vendedor busca a mano en
             // su correo — hasta que la IA llene `datos`, es lo único que hay. Y en borrador es contra
             // lo que Operaciones compara: la revisión es PDF original vs pieza.
-            p.pdf_origen?`<button class="btn-sm" title="El PDF original de Atlas, tal cual lo subió Operaciones" onclick="verPdfDeAtlas('${p.id}',this)">📄 ${tieneDatos?'Original de Atlas':'Ver el PDF de Atlas'}</button>`:'',
+            // Mientras no hay pieza armada hay UN solo PDF: aclarar "de Atlas" no aporta nada. Recién
+            // cuando la IA arma la pieza conviven los dos y ahí sí hay que distinguirlos.
+            p.pdf_origen?`<button class="btn-sm" title="${tieneDatos?'El PDF original de Atlas, tal cual lo subió Operaciones':'El PDF que subió Operaciones'}" onclick="verPdfDeAtlas('${p.id}',this)">📄 ${tieneDatos?'Original de Atlas':'Ver PDF'}</button>`:'',
             // b109 — procesar con IA. Solo con PDF cargado, y solo para quien puede gastar tokens.
             (puedeQuitar&&p.pdf_origen&&CONFIG.PAQUETES_IA_ENABLED)?`<button class="btn-sm" title="${tieneDatos?'Volver a leer el PDF. El paquete vuelve a borrador y el vendedor deja de verlo hasta que lo publiques.':'Leer el PDF con IA y armar la pieza. Queda en borrador hasta que lo revises.'}" onclick="procesarPaqueteIA('${vueloId}','${p.id}',this)">✨ ${tieneDatos?'Volver a procesar':'Procesar con IA'}</button>`:'',
             (puedeQuitar&&esBorrador&&tieneDatos)?`<button class="btn-sm" style="border-color:var(--green);color:var(--green)" title="Publicarlo: recién ahí el vendedor lo ve y lo puede mandar" onclick="publicarPaquete('${vueloId}','${p.id}',true,this)">✓ Publicar</button>`:'',
             (puedeQuitar&&!esBorrador&&tieneDatos)?`<button class="btn-sm" title="Sacarlo de circulación: vuelve a borrador y el vendedor deja de verlo" onclick="publicarPaquete('${vueloId}','${p.id}',false,this)">↩ Despublicar</button>`:'',
+            // Solo para los paquetes viejos que se cargaron como link (b105). Hoy no se puede crear uno
+            // así: el campo se sacó del alta. Se deja para no dejar ciego a un paquete ya cargado.
             (p.url&&/^https?:\/\//i.test(p.url))?`<a class="btn-sm" href="${esc(p.url)}" target="_blank" rel="noopener noreferrer" title="${esc(p.url)}" style="text-decoration:none">🔗 Abrir</a>`:'',
             puedeQuitar?`<button class="btn-sm" title="Quitar este paquete del cupo" onclick="quitarPaquete('${vueloId}',${i})">✕</button>`:''
           ].filter(Boolean).join('');
@@ -4576,7 +4580,7 @@ function avisoPdfPaquete(){
 }
 function abrirModalPaquete(vueloId){
   _paqVueloId=vueloId;
-  ['paq-nombre','paq-url','paq-codigo','paq-pdf'].forEach(id=>{const e=document.getElementById(id);if(e)e.value='';});
+  ['paq-nombre','paq-codigo','paq-pdf'].forEach(id=>{const e=document.getElementById(id);if(e)e.value='';});
   document.getElementById('paq-pdf-msg').textContent='';
   document.getElementById('modal-paq-alert').innerHTML='';
   document.getElementById('modal-paquete').style.display='flex';
@@ -4584,14 +4588,10 @@ function abrirModalPaquete(vueloId){
 }
 async function guardarPaquete(){
   const nombre=document.getElementById('paq-nombre').value.trim();
-  const url=document.getElementById('paq-url').value.trim();
   const codigo=document.getElementById('paq-codigo').value.trim();
   const pdf=document.getElementById('paq-pdf').files[0]||null;
   // El nombre es obligatorio: es lo que ve el vendedor Y el nombre del archivo que le llega al pasajero.
   if(!nombre){mostrarAlerta('modal-paq-alert','Poné un nombre. Es el que va a ver el vendedor y el nombre del archivo que recibe el pasajero.','error');return;}
-  if(url&&!/^https?:\/\//i.test(url)){
-    mostrarAlerta('modal-paq-alert','El link tiene que empezar con http:// o https:// — copialo de la barra del navegador.','error');return;
-  }
   if(pdf&&pdf.size>PAQ_PDF_TOPE){
     mostrarAlerta('modal-paq-alert','El PDF pesa más de 10 MB. Ese es el tope.','error');return;}
   if(pdf&&!/\.pdf$/i.test(pdf.name)&&pdf.type!=='application/pdf'){
@@ -4599,7 +4599,7 @@ async function guardarPaquete(){
   setBtnLoading('btn-guardar-paquete',true,'Agregar paquete');
   // 🔑 Primero el paquete, después el archivo. Si falla la subida queda un paquete SIN PDF —visible en
   //    la pantalla, se reintenta o se borra—. Al revés quedaría un archivo que no aparece en ningún lado.
-  const {data:nuevoId,error}=await sb.rpc('agregar_paquete_cupo',{p_vuelo_id:_paqVueloId,p_nombre:nombre,p_url:url||null,p_codigo:codigo||null});
+  const {data:nuevoId,error}=await sb.rpc('agregar_paquete_cupo',{p_vuelo_id:_paqVueloId,p_nombre:nombre,p_url:null,p_codigo:codigo||null});
   if(error){setBtnLoading('btn-guardar-paquete',false,'Agregar paquete');mostrarAlerta('modal-paq-alert',error.message,'error');return;}
   let avisoPdf='';
   if(pdf&&nuevoId){
@@ -4615,7 +4615,7 @@ async function guardarPaquete(){
     }
   }
   setBtnLoading('btn-guardar-paquete',false,'Agregar paquete');
-  await registrarLog('agregar_paquete','vuelo',_paqVueloId,{nombre,url,codigo,con_pdf:!!pdf});
+  await registrarLog('agregar_paquete','vuelo',_paqVueloId,{nombre,codigo,con_pdf:!!pdf});
   cerrarModal('modal-paquete');
   if(avisoPdf)alert(avisoPdf);
   cargarDetalle(_paqVueloId);
