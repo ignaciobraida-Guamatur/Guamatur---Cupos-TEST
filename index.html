@@ -284,7 +284,7 @@
       <div id="temp-selector-wrap" class="temp-selector"></div>
     </div>
     <div style="display:flex;gap:12px;flex-wrap:wrap">
-      <div style="display:flex;flex-direction:column;gap:3px"><label class="form-label" style="font-size:10px;margin:0">Filtrar cupos</label><input class="search-input" type="text" placeholder="Por nombre o ciudad" oninput="filtrarVuelos(this.value)"/></div>
+      <div style="display:flex;flex-direction:column;gap:3px"><label class="form-label" style="font-size:10px;margin:0">Filtrar cupos</label><input class="search-input" type="text" placeholder="Por nombre, ciudad o región" oninput="filtrarVuelos(this.value)"/></div>
       <div id="tp-buscar-pax" style="display:flex;flex-direction:column;gap:3px"><label class="form-label" style="font-size:10px;margin:0">Buscar pasajero</label><input class="search-input" type="text" placeholder="🔎 En todos los cupos" oninput="buscarPasajeros(this.value)"/></div>
       <div id="btn-export-temp-wrap" style="display:none;align-items:flex-end"><button class="btn btn-excel" onclick="exportarTemporada()" title="Una fila por lugar de todos los cupos de la temporada, para conciliar con la planilla">⬇ Exportar temporada</button></div>
     </div>
@@ -998,7 +998,7 @@ const sb=supabase.createClient(CONFIG.SUPABASE_URL,CONFIG.SUPABASE_ANON_KEY,{
 // ⚠️ Una sola versión por cadena y CORTA: el detalle va al CHANGELOG.md, no acá. Nacho ve este texto
 // completo en el encabezado (el resto ve solo el "bNN") y si es largo se desborda; además `APP_VERSION_CORTA`
 // saca el número con un match, así que dos "bNN" en la misma cadena confunden cuál es la versión.
-const APP_VERSION='Fase 2 · 2026-09-23 (b120-TEST · Publicada solo para probar el aviso de versión nueva. Mismo código que la b119.)';
+const APP_VERSION='Fase 2 · 2026-09-23 (b120-TEST · El vendedor deja de ver los cupos cancelados, y el filtro busca también por región: escribir Brasil o Caribe.)';
 // Columnas de 'vuelos' legibles por cualquier usuario. EXCLUYE precio_neto: el admin lo lee por RPC admin_get_precio_neto (gateada por es_admin). No usar select('*') sobre vuelos: la columna precio_neto quedó revocada a authenticated.
 // ⚠️ Toda columna que se agregue acá necesita `grant select (col) to authenticated` en la base, si no
 // PostgREST tira 400 y se cae la pantalla entera (gotcha #6). `emitido` viene de la migración 2026-08-06.
@@ -1994,8 +1994,15 @@ function renderVuelos(lista){
     const alerta=estadoCupo(tot,lV);const [cls,txt]=alertaMap[alerta];
     return {...v,vV,rV,lV,tot,sumaTandas,pct:tot>0?Math.round(vV/tot*100):0,cls,txt,orden:alertaOrden[alerta]};
   });
+  // b120 (pedido de Rodrigo vía Nacho): EL VENDEDOR NO VE LOS CUPOS CANCELADOS.
+  // 🔑 "Cancelado" no es un estado guardado: es `total === 0`, o sea que a ese cupo le redujeron todos
+  //    los lugares. Al vendedor no le sirve para nada —no puede reservar— y ensucia: ordenando por
+  //    fecha, un cancelado se le pone PRIMERO en la lista y parece una salida disponible.
+  // Admin y Operaciones los siguen viendo: necesitan la foto completa de la temporada.
+  const filasVisibles=verTandas?filas:filas.filter(f=>f.tot>0);
+  if(!filasVisibles.length){cont.innerHTML='<div class="loading">No hay cupos que coincidan</div>';return;}
   // #4: primero los cupos CON lugares libres (ordenados por fecha de salida); los completos/cancelados (0 libres) al fondo
-  filas.sort((a,b)=>(a.lV>0?0:1)-(b.lV>0?0:1)||String(a.fecha||'9999-99-99').localeCompare(String(b.fecha||'9999-99-99'))||(a.nombre||'').localeCompare(b.nombre||''));
+  filasVisibles.sort((a,b)=>(a.lV>0?0:1)-(b.lV>0?0:1)||String(a.fecha||'9999-99-99').localeCompare(String(b.fecha||'9999-99-99'))||(a.nombre||'').localeCompare(b.nombre||''));
   const filaHTML=(d)=>{
     const oculto=(esAdmin&&d.visible===false)?' <span class="badge badge-l">Oculto</span>':'';
     const redu=(d.reducidos>0)?` <span class="badge badge-l" title="${d.reducidos} lugar(es) reducido(s)">−${d.reducidos}</span>`:'';
@@ -2038,7 +2045,7 @@ function renderVuelos(lista){
   // ⚠️ Un cupo SIN fecha nunca se archiva: no se esconde algo que no se puede fechar.
   const hoy=fechaHoyISO();
   const yaViajo=d=>!!d.fecha&&String(d.fecha).slice(0,10)<hoy;
-  const vivos=filas.filter(d=>!yaViajo(d)), viajados=filas.filter(yaViajo);
+  const vivos=filasVisibles.filter(d=>!yaViajo(d)), viajados=filasVisibles.filter(yaViajo);
   let html=vivos.length?tabla(vivos):'<div class="loading">No quedan cupos por salir en esta temporada</div>';
   if(viajados.length){
     html+=`<details style="margin-top:20px">
@@ -2049,7 +2056,16 @@ function renderVuelos(lista){
   cont.innerHTML=html;
 }
 // b102: sin tildes de los dos lados — "maceio" encuentra "Maceió" y al revés.
-function filtrarVuelos(q){const t=sinTildes(q);renderVuelos(vuelosData.filter(v=>sinTildes(v.nombre).includes(t)||sinTildes(v.ciudad_nombre).includes(t)))}
+// b120 (pedido de Rodrigo vía Nacho): el filtro también busca por REGIÓN — escribir "Brasil" o "Caribe"
+// trae todos los cupos de esa región. `destino` es la región en la base; es la columna que el listado
+// muestra como "Región".
+function filtrarVuelos(q){
+  const t=sinTildes(q);
+  renderVuelos(vuelosData.filter(v=>
+    sinTildes(v.nombre).includes(t)||
+    sinTildes(v.ciudad_nombre).includes(t)||
+    sinTildes(v.destino).includes(t)));
+}
 
 // ── BÚSQUEDA DE PASAJEROS ────────────────────────
 let busqPasajerosTimer=null;
