@@ -711,6 +711,14 @@
         <select class="form-select" id="v-visible"><option value="true">Visible</option><option value="false">Oculto (solo admins)</option></select>
       </div>
       <div class="form-group full"><label class="form-label">Condiciones de equipaje</label><textarea class="form-textarea" id="v-equipaje" placeholder="Ej: 1 carry on + 1 equipaje en bodega 23kg"></textarea></div>
+      <!-- b105 · M3 (idea del sistema de Jetmar): los paquetes armados con este cupo, con su link a Atlas.
+           ⚠️ Oculto al CREAR un cupo: el paquete se arma en Atlas DESPUÉS de que el cupo existe, así que
+           en el alta sería un campo que nadie puede completar. Se muestra solo al editar. -->
+      <div class="form-group full" id="v-paquetes-wrap" style="display:none">
+        <label class="form-label">📦 Paquetes con este cupo <span style="color:var(--muted);font-size:10px">el link de Atlas y un nombre para reconocerlo · lo ve el vendedor en el detalle del cupo</span></label>
+        <div id="v-paquetes-lista"></div>
+        <button type="button" class="btn-sm" onclick="agregarFilaPaquete()" style="margin-top:6px">+ Agregar paquete</button>
+      </div>
     </div>
     <div style="margin-bottom:14px;border-top:1px solid var(--border);padding-top:12px">
       <label class="form-label">📅 Agenda de eventos (Google Calendar) <span style="color:var(--muted);font-size:10px">una columna por recordatorio: los días antes de la salida y quién lo recibe</span></label>
@@ -892,12 +900,13 @@ const sb=supabase.createClient(CONFIG.SUPABASE_URL,CONFIG.SUPABASE_ANON_KEY,{
 // ⚠️ Una sola versión por cadena y CORTA: el detalle va al CHANGELOG.md, no acá. Nacho ve este texto
 // completo en el encabezado (el resto ve solo el "bNN") y si es largo se desborda; además `APP_VERSION_CORTA`
 // saca el número con un match, así que dos "bNN" en la misma cadena confunden cuál es la versión.
-const APP_VERSION='TEST · b103 · total de la salida + tanda que sigue';
+const APP_VERSION='TEST · 2026-09-23 (b105 · Paquetes con link a Atlas en el cupo, y el itinerario se copia como imagen para WhatsApp.)';
 // Columnas de 'vuelos' legibles por cualquier usuario. EXCLUYE precio_neto: el admin lo lee por RPC admin_get_precio_neto (gateada por es_admin). No usar select('*') sobre vuelos: la columna precio_neto quedó revocada a authenticated.
 // ⚠️ Toda columna que se agregue acá necesita `grant select (col) to authenticated` en la base, si no
 // PostgREST tira 400 y se cae la pantalla entera (gotcha #6). `emitido` viene de la migración 2026-08-06.
 // `continua_de` (b101, tandas) viene de db/2026-09-15-b101-tandas.sql.
-const VUELO_COLS='id,temporada_id,nombre,ciudad_codigo,ciudad_nombre,aerolinea,fecha,fecha_regreso,total_lugares,precio,condiciones_equipaje,creado_en,destino,itinerario,visible,itinerario_historial,cal_dias_pago_final,cal_dias_cancel_sin_gastos,cal_dias_cancel_con_gastos,cal_dias_salida,cal_usuarios,emitido,emitido_en,emitido_por,continua_de';
+// `paquetes` (b105, M3) viene de db/2026-09-23-b105-paquetes-del-cupo.sql — con su grant de columna.
+const VUELO_COLS='id,temporada_id,nombre,ciudad_codigo,ciudad_nombre,aerolinea,fecha,fecha_regreso,total_lugares,precio,condiciones_equipaje,creado_en,destino,itinerario,visible,itinerario_historial,cal_dias_pago_final,cal_dias_cancel_sin_gastos,cal_dias_cancel_con_gastos,cal_dias_salida,cal_usuarios,emitido,emitido_en,emitido_por,continua_de,paquetes';
 // Calendarización: al crear un cupo, dispara (fire-and-forget) la creación de eventos en Google Calendar vía n8n.
 const N8N_WEBHOOK_AGENDA=CONFIG.N8N_WEBHOOK_AGENDA;
 // b85 (pedido Diego, 23-jul): los tres vencimientos del cupo tienen destinatarios PROPIOS. Antes era una
@@ -2145,8 +2154,18 @@ async function cargarDetalle(vueloId){
       <span><span class="badge badge-infant">INF</span> Infant — no ocupa lugar</span>
     </div></details>`;
 
+  // b105/M3: los paquetes armados con este cupo, con su link a Atlas. Van ARRIBA del itinerario porque
+  // son la acción comercial: el que abre el cupo quiere cotizar. Sin paquetes cargados no ocupa lugar.
+  // El Travel Partner no los ve: tiene su propio render (cargarDetalleTP) y estos links son internos.
+  {const paqs=paquetesValidos(vuelo.paquetes);
+   if(paqs.length){
+     html+=`<div class="itinerario-wrap" style="margin-bottom:12px"><div class="itinerario-title" style="margin:0 0 8px">📦 Paquetes con este cupo</div><div style="display:flex;flex-wrap:wrap;gap:8px">`
+          +paqs.map(p=>`<a class="btn-sm" href="${esc(p.url)}" target="_blank" rel="noopener noreferrer" style="text-decoration:none">🔗 ${esc(p.etiqueta)}</a>`).join('')
+          +`</div></div>`;
+   }}
+
   if(vuelo.itinerario&&vuelo.itinerario.length>0){
-    html+=`<div class="itinerario-wrap"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;gap:10px;flex-wrap:wrap"><div style="display:flex;align-items:center;gap:10px"><img src="${GUA_LOGO_BLANCO}" alt="Guamatur Viajes" style="height:22px"/><div class="itinerario-title" style="margin:0">✈ Itinerario del cupo</div></div><button class="btn-sm" onclick="imprimirItinerario('${vueloId}')">🖨 Imprimir / PDF</button></div>
+    html+=`<div class="itinerario-wrap"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;gap:10px;flex-wrap:wrap"><div style="display:flex;align-items:center;gap:10px"><img src="${GUA_LOGO_BLANCO}" alt="Guamatur Viajes" style="height:22px"/><div class="itinerario-title" style="margin:0">✈ Itinerario del cupo</div></div><div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn-sm" onclick="copiarItinerarioImagen('${vueloId}',this)" title="Copia el itinerario como imagen, listo para pegar en WhatsApp">🖼 Copiar como imagen</button><button class="btn-sm" onclick="imprimirItinerario('${vueloId}')">🖨 Imprimir / PDF</button></div></div>
     <table class="itinerario-table"><thead><tr><th>Tipo</th><th>Fecha</th><th>Aerolínea</th><th>Vuelo</th><th>Origen</th><th>Destino</th><th>Salida</th><th>Llegada</th></tr></thead><tbody>`;
     vuelo.itinerario.forEach(t=>{const tipo=t.tipo||'Ida';const badgeCls=tipo==='Vuelta'?'badge-orange':'badge-green';html+=`<tr><td><span class="badge ${badgeCls}">${esc(tipo)}</span></td><td>${esc(formatTramoFecha(t.fecha))}</td><td>${esc(t.aerolinea||vuelo.aerolinea)||'—'}</td><td>${esc(t.vuelo)||'—'}</td><td>${esc(t.origen)||'—'}</td><td>${esc(t.destino)||'—'}</td><td>${esc(t.salida)||'—'}</td><td>${esc(t.llegada)||'—'}</td></tr>`;});
     html+='</tbody></table></div>';
@@ -3652,6 +3671,171 @@ async function imprimirItinerario(vueloId,lugarId){
   w.document.close();
 }
 
+// ── COPIAR EL ITINERARIO COMO IMAGEN (b105 · M4, idea del sistema de Jetmar) ───────────────────
+// El equipo manda los itinerarios por WhatsApp. Hasta b104 sacaban captura de pantalla: salía el tema
+// oscuro, la barra del navegador y lo que hubiera alrededor. Esto deja una imagen limpia y con la marca
+// en el portapapeles, lista para pegar.
+//
+// 🔑 No se usa html2canvas a propósito: la app pinta con variables CSS y tema oscuro, y esa librería las
+//    resuelve distinto según el navegador — saldría una imagen "parecida" sin que nadie lo note. Acá cada
+//    elemento se dibuja explícito y sale igual en todos lados.
+// 🔒 La imagen NO lleva precio, ni valor neto, ni pasajeros: es lo que se le manda a un cliente.
+// 📱 No es la tabla de 8 columnas del PDF, sino un bloque por tramo: esto se lee en un celular.
+const ITI_IMG={ancho:840, pad:34, escala:2};   // 840 × 2 = 1680 px reales
+
+// El SVG de marca tiene viewBox pero NO width/height, y varios navegadores dibujan 0×0 en ese caso.
+// Se le ponen las medidas explícitas antes de cargarlo: es el archivo oficial, no un logo redibujado.
+async function cargarLogoParaCanvas(alto){
+  const txt=await (await fetch(GUA_LOGO)).text();
+  const vb=(txt.match(/viewBox="([-\d.\s]+)"/)||[])[1];
+  if(!vb) throw new Error('el SVG de marca no tiene viewBox');
+  const p=vb.trim().split(/\s+/).map(Number);
+  const ancho=Math.round(alto*(p[2]/p[3]));
+  const url='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(txt.replace('<svg',`<svg width="${ancho}" height="${alto}"`));
+  const img=new Image();
+  await new Promise((ok,err)=>{img.onload=ok;img.onerror=()=>err(new Error('no se pudo cargar el logo'));img.src=url;});
+  return {img,ancho,alto};
+}
+// Corta un texto en líneas que entren en `ancho`.
+function envolverTexto(ctx,texto,ancho){
+  const lineas=[];let linea='';
+  String(texto).split(/\s+/).filter(Boolean).forEach(p=>{
+    const prueba=linea?linea+' '+p:p;
+    if(linea&&ctx.measureText(prueba).width>ancho){lineas.push(linea);linea=p;}else{linea=prueba;}
+  });
+  if(linea)lineas.push(linea);
+  return lineas;
+}
+function rectRedondeado(c,x,y,w,h,r){
+  c.beginPath();
+  if(c.roundRect){c.roundRect(x,y,w,h,r);return;}
+  c.moveTo(x+r,y);c.arcTo(x+w,y,x+w,y+h,r);c.arcTo(x+w,y+h,x,y+h,r);c.arcTo(x,y+h,x,y,r);c.arcTo(x,y,x+w,y,r);c.closePath();
+}
+function dibujarItinerarioPNG(v,it,logo){
+  const W=ITI_IMG.ancho,P=ITI_IMG.pad,S=ITI_IMG.escala;
+  // Se dibuja en un lienzo alto de sobra y al final se recorta a la altura real. Calcular el alto por
+  // adelantado obliga a mantener dos veces la misma aritmética: cualquier retoque del diseño dejaría una
+  // franja blanca abajo, o cortaría la última fila, sin que se note al mirar.
+  const cv=document.createElement('canvas');
+  cv.width=W*S; cv.height=(520+it.length*130)*S;
+  const c=cv.getContext('2d');
+  c.scale(S,S);
+  c.fillStyle='#ffffff';c.fillRect(0,0,W,cv.height/S);
+  const colorTipo=t=>(String(t||'Ida')==='Vuelta')?GUA_SECONDARY:GUA_PRIMARY;
+  const aeroTxt=(cod,conCiudad)=>{const k=String(cod||'').trim().toUpperCase();const n=conCiudad?AEROPUERTOS[k]:'';return n?`${k} · ${n}`:(k||'—');};
+  const F=(peso,px)=>`${peso} ${px}px "DM Sans", sans-serif`;
+
+  let y=P;
+  c.drawImage(logo.img,P,y,logo.ancho,logo.alto);
+  y+=logo.alto+22;
+  c.fillStyle='#1a1a1a';c.font=F(600,21);c.fillText(String(v.nombre||'Cupo'),P,y);
+  y+=22;
+  const meta=[v.ciudad_nombre,v.fecha?formatFecha(v.fecha):'',v.aerolinea].filter(Boolean).join('   ·   ');
+  c.fillStyle='#666';c.font=F(400,14);c.fillText(meta,P,y);
+  y+=14;
+  c.fillStyle=GUA_PRIMARY;c.fillRect(P,y,W-2*P,3);
+  y+=20;
+
+  it.forEach(t=>{
+    const h=86,col=colorTipo(t.tipo),ancho=W-2*P;
+    c.fillStyle='#f7f5f6';rectRedondeado(c,P,y,ancho,h,10);c.fill();
+    c.fillStyle=col;rectRedondeado(c,P,y,4,h,2);c.fill();
+    const et=String(t.tipo||'Ida').toUpperCase();
+    c.font=F(600,11);
+    const etW=c.measureText(et).width+18;
+    c.fillStyle=col;rectRedondeado(c,P+20,y+15,etW,19,9);c.fill();
+    c.fillStyle='#ffffff';c.fillText(et,P+29,y+28);
+    c.fillStyle='#1a1a1a';c.font=F(600,15);c.fillText(formatTramoFecha(t.fecha)||'—',P+30+etW,y+29);
+    c.fillStyle='#555';c.font=F(400,13);c.textAlign='right';
+    c.fillText([t.aerolinea||v.aerolinea,t.vuelo].filter(Boolean).join(' · ')||'—',W-P-20,y+29);
+    c.textAlign='left';
+    // Ruta: hora + aeropuerto → hora + aeropuerto. Si con los nombres de ciudad no entra en el ancho,
+    // se cae a solo los códigos IATA en vez de pisar el borde.
+    const armar=conCiudad=>[
+      {t:(t.salida||'--:--')+'  ',f:F(600,16),col:'#1a1a1a'},
+      {t:aeroTxt(t.origen,conCiudad),f:F(400,14),col:'#333333'},
+      {t:'     →     ',f:F(400,14),col:GUA_PRIMARY},
+      {t:(t.llegada||'--:--')+'  ',f:F(600,16),col:'#1a1a1a'},
+      {t:aeroTxt(t.destino,conCiudad),f:F(400,14),col:'#333333'}
+    ];
+    const mide=ps=>ps.reduce((a,p)=>{c.font=p.f;return a+c.measureText(p.t).width;},0);
+    let partes=armar(true);
+    if(mide(partes)>ancho-40) partes=armar(false);
+    let x=P+20;
+    partes.forEach(p=>{c.font=p.f;c.fillStyle=p.col;c.fillText(p.t,x,y+64);x+=c.measureText(p.t).width;});
+    y+=h+10;
+  });
+
+  const equipaje=String(v.condiciones_equipaje||'').trim();
+  if(equipaje){
+    c.font=F(400,13);
+    const lineas=envolverTexto(c,equipaje,W-2*P-28);
+    const h=26+lineas.length*18+10;
+    c.fillStyle='#ffffff';c.strokeStyle='#e8e2e4';c.lineWidth=1;
+    rectRedondeado(c,P,y,W-2*P,h,10);c.fill();c.stroke();
+    c.fillStyle=GUA_PRIMARY;c.font=F(600,13);c.fillText('Equipaje',P+14,y+20);
+    c.fillStyle='#444444';c.font=F(400,13);
+    lineas.forEach((l,i)=>c.fillText(l,P+14,y+20+(i+1)*18));
+    y+=h+10;
+  }
+
+  y+=8;
+  c.strokeStyle='#eeeeee';c.lineWidth=1;c.beginPath();c.moveTo(P,y+0.5);c.lineTo(W-P,y+0.5);c.stroke();
+  y+=20;
+  c.fillStyle='#999999';c.font=F(400,12);
+  c.fillText('Guamatur Viajes · guamatur.com · itinerario sujeto a confirmación',P,y);
+  y+=P;
+
+  const alto=Math.ceil(y);
+  const out=document.createElement('canvas');
+  out.width=W*S;out.height=alto*S;
+  const oc=out.getContext('2d');
+  oc.fillStyle='#ffffff';oc.fillRect(0,0,out.width,out.height);
+  oc.drawImage(cv,0,0,W*S,alto*S,0,0,W*S,alto*S);
+  return new Promise(r=>out.toBlob(r,'image/png'));
+}
+async function copiarItinerarioImagen(vueloId,btn){
+  const original=btn?btn.textContent:'';
+  const decir=t=>{if(btn)btn.textContent=t;};
+  if(btn)btn.disabled=true;
+  try{
+    decir('Generando…');
+    const {data:v}=await sb.from('vuelos').select(VUELO_COLS).eq('id',vueloId).single();
+    if(!v){alert('No se pudo cargar el cupo');return;}
+    const it=Array.isArray(v.itinerario)?v.itinerario:[];
+    if(!it.length){alert('Este cupo no tiene itinerario cargado: no hay nada que copiar.');return;}
+    // Las tipografías de la app se bajan de Google Fonts. Si el canvas dibuja antes de que estén listas,
+    // usa la fuente por defecto y la imagen sale distinta — sin ningún error a la vista.
+    if(document.fonts&&document.fonts.load){
+      try{await Promise.all([document.fonts.load(`400 15px "DM Sans"`),document.fonts.load(`600 15px "DM Sans"`)]);}catch(e){}
+    }
+    const logo=await cargarLogoParaCanvas(30);
+    const blob=await dibujarItinerarioPNG(v,it,logo);
+    if(!blob) throw new Error('el navegador no pudo generar el PNG');
+    // Escribir imágenes en el portapapeles no funciona en todos los navegadores. Si no se puede, se
+    // descarga el PNG y se dice por qué: peor que no copiar es un botón que parece haber copiado.
+    let copiado=false;
+    try{
+      if(navigator.clipboard&&window.ClipboardItem){
+        await navigator.clipboard.write([new ClipboardItem({'image/png':blob})]);
+        copiado=true;
+      }
+    }catch(e){console.warn('[Itinerario imagen] no se pudo copiar al portapapeles:',e);}
+    if(copiado){decir('✓ Copiado');setTimeout(()=>{decir(original);},2500);return;}
+    const a=document.createElement('a');
+    a.href=URL.createObjectURL(blob);
+    a.download=`Itinerario - ${String(v.nombre||'cupo').replace(/[\\/:*?"<>|]/g,'-')}.png`;
+    a.click();
+    setTimeout(()=>URL.revokeObjectURL(a.href),5000);
+    alert('Tu navegador no deja copiar imágenes al portapapeles, así que la descargué.\n\nEstá en Descargas, lista para adjuntar.');
+  }catch(e){
+    console.error('[Itinerario imagen]',e);
+    alert('No se pudo generar la imagen del itinerario.\n\n'+(e&&e.message?e.message:'')+'\n\nUsá "Imprimir / PDF" mientras tanto.');
+  }finally{
+    if(btn){btn.disabled=false;if(btn.textContent==='Generando…')btn.textContent=original;}
+  }
+}
+
 // ── ADMIN ────────────────────────────────────────
 let usuariosAdmin=[],usuarioEditando=null;
 async function cargarAdmin(){
@@ -4139,6 +4323,10 @@ async function abrirEditarVuelo(vueloId,opts){
       {const dest=calDestinatarios(v.cal_usuarios);document.querySelectorAll('.v-cal-u').forEach(c=>{c.checked=!tanda&&(dest[c.dataset.ev]||[]).includes(c.value);});}   // b101: tanda = agenda destildada
       document.getElementById('v-visible').value=(v.visible===false)?'false':'true';
       document.getElementById('v-equipaje').value=v.condiciones_equipaje||'';
+      // b105/M3: los paquetes se editan solo al EDITAR. Al duplicar van vacíos a propósito — los links
+      // de Atlas son del cupo original y apuntarían a otra salida.
+      pintarPaquetesForm(duplicar?[]:v.paquetes);
+      mostrarPaquetesWrap(!duplicar);
       document.getElementById('tramos-wrap').innerHTML='';
       tramosCount=0;
       // Año/mes del cupo, para migrar las fechas de tramo VIEJAS ("DD Mmm" sin año) a calendario al abrir a editar.
@@ -4217,6 +4405,7 @@ async function abrirModalVuelo(){
     c.checked=Array.isArray(inv?.porDefecto)&&inv.porDefecto.includes(c.dataset.ev);
   });
   aplicarDefectoSalida();  // b98: "sale en 2 semanas" queda apagado hasta que se elija una aerolínea con voucher
+  pintarPaquetesForm([]);mostrarPaquetesWrap(false);   // b105/M3: el alta no muestra paquetes (ver el comentario del bloque)
   document.getElementById('v-visible').value='true';
   nombreCupoManual=false;_regresoPrevio=null;_itiAlAbrir=null;
   _modoTanda=false;prepararCampoTanda(null,null);   // b101: el alta normal no es tanda
@@ -4228,6 +4417,51 @@ async function abrirModalVuelo(){
   const pegEl=document.getElementById('v-itinerario-pegar');if(pegEl)pegEl.value='';
   const pegMsg=document.getElementById('v-itinerario-parse-msg');if(pegMsg)pegMsg.textContent='';
   document.getElementById('modal-vuelo').style.display='flex';
+}
+
+// ── PAQUETES DEL CUPO (b105 · M3, idea del sistema de Jetmar) ──────────────────────────────────
+// Los paquetes que Producto arma a partir de un cupo viven en Atlas; hasta b104 el vendedor tenía que
+// buscarlos a mano. Ahora el cupo guarda su lista de links y el detalle los muestra.
+// Forma guardada en `vuelos.paquetes`: [{url, etiqueta}].
+//
+// 🔒 Solo se acepta http/https. El que CARGA el link es admin, pero el que lo CLICKEA es cualquier
+//    vendedor: un `javascript:...` en un href sería ejecutar código ajeno con su sesión abierta.
+function paquetesValidos(raw){
+  if(!Array.isArray(raw)) return [];
+  return raw.map(p=>{
+    const url=String((p&&p.url)||'').trim();
+    if(!/^https?:\/\//i.test(url)) return null;
+    const etiqueta=String((p&&p.etiqueta)||'').trim();
+    // Sin nombre, se muestra el link acortado: siempre se ve algo con sentido, nunca una fila vacía.
+    return {url,etiqueta:etiqueta||url.replace(/^https?:\/\//i,'').slice(0,60)};
+  }).filter(Boolean);
+}
+function mostrarPaquetesWrap(ver){
+  const w=document.getElementById('v-paquetes-wrap');
+  if(w) w.style.display=ver?'block':'none';
+}
+function agregarFilaPaquete(url,etiqueta){
+  const cont=document.getElementById('v-paquetes-lista'); if(!cont) return;
+  const row=document.createElement('div');
+  row.className='v-paq-row';
+  row.style.cssText='display:flex;gap:6px;margin-bottom:6px;flex-wrap:wrap';
+  row.innerHTML=`<input class="form-input v-paq-url" style="flex:2;min-width:220px" placeholder="https://… (link del paquete en Atlas)" value="${esc(url||'')}"/>`
+               +`<input class="form-input v-paq-et" style="flex:1;min-width:150px" placeholder="Nombre del paquete" value="${esc(etiqueta||'')}"/>`
+               +`<button type="button" class="btn-sm" title="Quitar este paquete" onclick="this.closest('.v-paq-row').remove()">✕</button>`;
+  cont.appendChild(row);
+}
+// Se pintan TAL COMO ESTÁN guardados, sin filtrar: si alguna vez quedó una fila inválida, el admin tiene
+// que poder verla y arreglarla — no que desaparezca sola al abrir el formulario.
+function pintarPaquetesForm(raw){
+  const cont=document.getElementById('v-paquetes-lista'); if(!cont) return;
+  cont.innerHTML='';
+  (Array.isArray(raw)?raw:[]).forEach(p=>agregarFilaPaquete(p&&p.url,p&&p.etiqueta));
+}
+function paquetesDelForm(){
+  return Array.from(document.querySelectorAll('#v-paquetes-lista .v-paq-row')).map(r=>({
+    url:(r.querySelector('.v-paq-url')?.value||'').trim(),
+    etiqueta:(r.querySelector('.v-paq-et')?.value||'').trim()
+  })).filter(p=>p.url||p.etiqueta);   // fila del todo vacía = el que apretó "+" y se arrepintió
 }
 
 async function guardarVuelo(){
@@ -4346,6 +4580,16 @@ async function guardarVuelo(){
        if(pAntes!==pAhora) cambiosCupo.push({tipo:'precio',etiqueta:`el precio de venta (${pAntes==null?'sin precio':'USD '+pAntes} → ${pAhora==null?'sin precio':'USD '+pAhora})`,antes:pAntes,ahora:pAhora});}
       if((vAct?.aerolinea||'')!==(datos.aerolinea||'')) cambiosCupo.push({tipo:'aerolinea',etiqueta:`la aerolínea (${vAct?.aerolinea||'sin aerolínea'} → ${datos.aerolinea||'sin aerolínea'})`,antes:vAct?.aerolinea||'',ahora:datos.aerolinea||''});
       if((vAct?.condiciones_equipaje||'')!==(datos.condiciones_equipaje||'')) cambiosCupo.push({tipo:'equipaje',etiqueta:'las condiciones de equipaje',antes:vAct?.condiciones_equipaje||'',ahora:datos.condiciones_equipaje||''});
+      // b105/M3: paquetes. Se valida al guardar y no mientras se escribe — un link a medio pegar no
+      // tiene por qué dar error. Se frena en vez de descartar en silencio: el admin cargó ese link
+      // por algo, y una fila que desaparece sola se vuelve a cargar mal la próxima vez.
+      {const paqsForm=paquetesDelForm();
+       const mala=paqsForm.find(p=>!/^https?:\/\//i.test(p.url));
+       if(mala){
+         mostrarAlerta('modal-v-alert',`El paquete "${mala.etiqueta||mala.url||'(sin nombre)'}" no tiene un link válido: tiene que empezar con http:// o https://`,'error');
+         setBtnLoading('btn-crear-vuelo',false,'Guardar cambios');return;
+       }
+       datos.paquetes=paqsForm;}
       const {error}=await sb.from('vuelos').update(datos).eq('id',editarVueloId);
       if(error){setBtnLoading('btn-crear-vuelo',false,'Guardar cambios');mostrarAlerta('modal-v-alert',error.message,'error');return;}
       await registrarLog('editar_cupo','vuelo',editarVueloId,{itinerario_cambio:itinerarioCambio});
