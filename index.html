@@ -635,8 +635,9 @@
     <div class="modal-title">📦 Agregar paquete al cupo</div>
     <div id="modal-paq-alert"></div>
     <div class="form-group">
-      <label class="form-label">Nombre del paquete <span style="color:var(--muted);font-size:10px">obligatorio — lo ve el vendedor, y es el nombre del archivo que recibe el pasajero</span></label>
-      <input class="form-input" id="paq-nombre" placeholder="Ej: Búzios - Salida 07 de enero"/>
+      <label class="form-label">Nombre del paquete <span style="color:var(--muted);font-size:10px">lo ve el vendedor, y es el nombre del archivo que recibe el pasajero</span></label>
+      <input class="form-input" id="paq-nombre" placeholder="Dejalo vacío y lo nombra la IA"/>
+      <div style="font-size:11px;color:var(--muted);margin-top:4px">Si subís el PDF y dejás esto vacío, al procesarlo queda nombrado <b>"Búzios - salida 07 de enero"</b>, igual que todos. Escribilo solo si querés uno distinto.</div>
     </div>
     <!-- El campo "Link" se sacó el 23-set: venía de b105, cuando un paquete ERA un link a la web.
          Hoy un paquete es el PDF de Atlas. La columna `paquetes.url` sigue existiendo y la RPC sigue
@@ -982,7 +983,7 @@ const sb=supabase.createClient(CONFIG.SUPABASE_URL,CONFIG.SUPABASE_ANON_KEY,{
 // ⚠️ Una sola versión por cadena y CORTA: el detalle va al CHANGELOG.md, no acá. Nacho ve este texto
 // completo en el encabezado (el resto ve solo el "bNN") y si es largo se desborda; además `APP_VERSION_CORTA`
 // saca el número con un match, así que dos "bNN" en la misma cadena confunden cuál es la versión.
-const APP_VERSION='Fase 2 · 2026-09-23 (b115-TEST · Operaciones sube el PDF de Atlas, lo lee la IA y arma la pieza para el pasajero; queda en borrador hasta que lo revisen y publiquen.)';
+const APP_VERSION='Fase 2 · 2026-09-23 (b116-TEST · El nombre y el código del paquete los pone la IA, con un patrón fijo, para que no queden con el criterio de cada uno.)';
 // Columnas de 'vuelos' legibles por cualquier usuario. EXCLUYE precio_neto: el admin lo lee por RPC admin_get_precio_neto (gateada por es_admin). No usar select('*') sobre vuelos: la columna precio_neto quedó revocada a authenticated.
 // ⚠️ Toda columna que se agregue acá necesita `grant select (col) to authenticated` en la base, si no
 // PostgREST tira 400 y se cae la pantalla entera (gotcha #6). `emitido` viene de la migración 2026-08-06.
@@ -4599,8 +4600,10 @@ async function guardarPaquete(){
   const nombre=document.getElementById('paq-nombre').value.trim();
   const codigo=document.getElementById('paq-codigo').value.trim();
   const pdf=document.getElementById('paq-pdf').files[0]||null;
-  // El nombre es obligatorio: es lo que ve el vendedor Y el nombre del archivo que le llega al pasajero.
-  if(!nombre){mostrarAlerta('modal-paq-alert','Poné un nombre. Es el que va a ver el vendedor y el nombre del archivo que recibe el pasajero.','error');return;}
+  // b116 — el nombre ya no es obligatorio SI hay PDF: lo pone la IA al procesar, con un patrón fijo,
+  // para que no queden nombrados con el criterio de cada uno. Sin PDF sigue haciendo falta: no hay de
+  // dónde sacarlo.
+  if(!nombre&&!pdf){mostrarAlerta('modal-paq-alert','Poné un nombre, o subí el PDF de Atlas y lo nombra la IA al procesarlo.','error');return;}
   if(pdf&&pdf.size>PAQ_PDF_TOPE){
     mostrarAlerta('modal-paq-alert','El PDF pesa más de 10 MB. Ese es el tope.','error');return;}
   if(pdf&&!/\.pdf$/i.test(pdf.name)&&pdf.type!=='application/pdf'){
@@ -4608,7 +4611,10 @@ async function guardarPaquete(){
   setBtnLoading('btn-guardar-paquete',true,'Agregar paquete');
   // 🔑 Primero el paquete, después el archivo. Si falla la subida queda un paquete SIN PDF —visible en
   //    la pantalla, se reintenta o se borra—. Al revés quedaría un archivo que no aparece en ningún lado.
-  const {data:nuevoId,error}=await sb.rpc('agregar_paquete_cupo',{p_vuelo_id:_paqVueloId,p_nombre:nombre,p_url:null,p_codigo:codigo||null});
+  // Sin nombre va uno provisional: `nombre_visible` es NOT NULL y el paquete se crea ANTES de
+  // procesar. Se ve en la pantalla mientras tanto, así que dice claramente qué está pasando.
+  const nombreProvisional=nombre||('Sin procesar · '+(pdf?pdf.name.replace(/\.pdf$/i,'').slice(0,50):'sin PDF'));
+  const {data:nuevoId,error}=await sb.rpc('agregar_paquete_cupo',{p_vuelo_id:_paqVueloId,p_nombre:nombreProvisional,p_url:null,p_codigo:codigo||null});
   if(error){setBtnLoading('btn-guardar-paquete',false,'Agregar paquete');mostrarAlerta('modal-paq-alert',error.message,'error');return;}
   let avisoPdf='';
   if(pdf&&nuevoId){
@@ -4672,10 +4678,14 @@ async function procesarPaqueteIA(vueloId,paqueteId,btn){
   const txt=btn?btn.innerHTML:'';
   if(btn){btn.disabled=true;btn.innerHTML='⏳ Leyendo el PDF…';}
   try{
-    const r=await invocarFuncion('paquete-extraer',{paquete_id:paqueteId});
-    await registrarLog('procesar_paquete_ia','paquete',paqueteId,{nombre:p.nombre_visible,modelo:r?.modelo,tokens_in:r?.tokens_in,tokens_out:r?.tokens_out,costo_usd:r?.costo_usd});
+    // b116 — se renombra solo si el nombre es el provisional que puso la app. Si Operaciones escribió
+    // uno a propósito, no se le pisa.
+    const esProvisional=/^Sin procesar · /.test(p.nombre_visible||'');
+    const r=await invocarFuncion('paquete-extraer',{paquete_id:paqueteId,renombrar:esProvisional});
+    await registrarLog('procesar_paquete_ia','paquete',paqueteId,{nombre:p.nombre_visible,modelo:r?.modelo,tokens_in:r?.tokens_in,tokens_out:r?.tokens_out,costo_usd:r?.costo_usd,renombrado:r?.renombrado});
     const d=r&&r.datos||{};
-    alert(`Listo: ${(d.hoteles||[]).length} hotel${(d.hoteles||[]).length===1?'':'es'}, ${(d.vuelos||[]).length} tramo${(d.vuelos||[]).length===1?'':'s'} y ${(d.itinerario||[]).length} día${(d.itinerario||[]).length===1?'':'s'} de itinerario.\n\nQuedó en BORRADOR. Miralo con "Vista previa", comparalo contra el PDF de Atlas y publicalo.`);
+    const comoQueda=r?.renombrado?`\n\nQuedó nombrado "${r.nombre_sugerido}".`:'';
+    alert(`Listo: ${(d.hoteles||[]).length} hotel${(d.hoteles||[]).length===1?'':'es'} y ${(d.vuelos||[]).length} tramo${(d.vuelos||[]).length===1?'':'s'}.${comoQueda}\n\nEstá en BORRADOR. Miralo con "Vista previa", comparalo contra el PDF de Atlas y publicalo.`);
   }catch(e){
     alert('No se pudo procesar el paquete:\n\n'+e.message);
   }finally{
