@@ -613,6 +613,27 @@
 </div>
 
 <!-- MODAL TEMPORADA -->
+<!-- b105 · M3: asociar un paquete al cupo. Se abre desde "⚙ Gestionar cupo" del detalle, y lo pueden
+     usar admins y Operaciones. De a un paquete por vez: quitar se hace con el ✕ de cada pastilla. -->
+<div id="modal-paquete" class="modal-overlay" style="display:none">
+  <div class="modal">
+    <div class="modal-title">📦 Agregar paquete al cupo</div>
+    <div id="modal-paq-alert"></div>
+    <div class="form-group">
+      <label class="form-label">Link del paquete <span style="color:var(--muted);font-size:10px">copialo de la barra del navegador</span></label>
+      <input class="form-input" id="paq-url" placeholder="https://www.guamatur.com/…"/>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Nombre <span style="color:var(--muted);font-size:10px">opcional — es lo que ve el vendedor en el cupo</span></label>
+      <input class="form-input" id="paq-etiqueta" placeholder="Ej: Cancún 7 noches con hotel"/>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" onclick="cerrarModal('modal-paquete')">Cerrar</button>
+      <button class="btn btn-primary" id="btn-guardar-paquete" onclick="guardarPaquete()">Agregar paquete</button>
+    </div>
+  </div>
+</div>
+
 <div id="modal-temporada" class="modal-overlay" style="display:none">
   <div class="modal">
     <div class="modal-title" id="modal-temp-title">Nueva temporada</div>
@@ -711,14 +732,6 @@
         <select class="form-select" id="v-visible"><option value="true">Visible</option><option value="false">Oculto (solo admins)</option></select>
       </div>
       <div class="form-group full"><label class="form-label">Condiciones de equipaje</label><textarea class="form-textarea" id="v-equipaje" placeholder="Ej: 1 carry on + 1 equipaje en bodega 23kg"></textarea></div>
-      <!-- b105 · M3 (idea del sistema de Jetmar): los paquetes armados con este cupo, con su link a Atlas.
-           ⚠️ Oculto al CREAR un cupo: el paquete se arma en Atlas DESPUÉS de que el cupo existe, así que
-           en el alta sería un campo que nadie puede completar. Se muestra solo al editar. -->
-      <div class="form-group full" id="v-paquetes-wrap" style="display:none">
-        <label class="form-label">📦 Paquetes con este cupo <span style="color:var(--muted);font-size:10px">el link de Atlas y un nombre para reconocerlo · lo ve el vendedor en el detalle del cupo</span></label>
-        <div id="v-paquetes-lista"></div>
-        <button type="button" class="btn-sm" onclick="agregarFilaPaquete()" style="margin-top:6px">+ Agregar paquete</button>
-      </div>
     </div>
     <div style="margin-bottom:14px;border-top:1px solid var(--border);padding-top:12px">
       <label class="form-label">📅 Agenda de eventos (Google Calendar) <span style="color:var(--muted);font-size:10px">una columna por recordatorio: los días antes de la salida y quién lo recibe</span></label>
@@ -900,7 +913,7 @@ const sb=supabase.createClient(CONFIG.SUPABASE_URL,CONFIG.SUPABASE_ANON_KEY,{
 // ⚠️ Una sola versión por cadena y CORTA: el detalle va al CHANGELOG.md, no acá. Nacho ve este texto
 // completo en el encabezado (el resto ve solo el "bNN") y si es largo se desborda; además `APP_VERSION_CORTA`
 // saca el número con un match, así que dos "bNN" en la misma cadena confunden cuál es la versión.
-const APP_VERSION='TEST · 2026-09-23 (b105 · Paquetes con link a Atlas en el cupo, y el itinerario se copia como imagen para WhatsApp.)';
+const APP_VERSION='TEST · 2026-09-23 (b105 · Paquetes del cupo cargados por Operaciones, y el itinerario se copia como imagen para WhatsApp.)';
 // Columnas de 'vuelos' legibles por cualquier usuario. EXCLUYE precio_neto: el admin lo lee por RPC admin_get_precio_neto (gateada por es_admin). No usar select('*') sobre vuelos: la columna precio_neto quedó revocada a authenticated.
 // ⚠️ Toda columna que se agregue acá necesita `grant select (col) to authenticated` en la base, si no
 // PostgREST tira 400 y se cae la pantalla entera (gotcha #6). `emitido` viene de la migración 2026-08-06.
@@ -2065,9 +2078,12 @@ async function cargarDetalle(vueloId){
       <button class="btn btn-excel" onclick="exportarExcel('${vueloId}')">⬇ Excel</button>
       ${((esAdmin||esOper)&&rV>0)?`<button class="btn btn-outline" title="Darle más horas a una reserva para que no se venza sola" onclick="abrirEstirarVencimiento('${vueloId}')">⏱ Estirar vencimiento (${rV})</button>`:''}
       ${(!esAdmin&&misReservas.length)?`<button class="btn btn-danger" onclick="abrirModalEliminar('${vueloId}')">🗑 Liberar mis reservas (${misReservas.length})</button>`:''}
-      ${esAdmin?`<details class="menu-gestionar"><summary>⚙ Gestionar cupo ▾</summary><div class="menu-panel">
+      ${(esAdmin||esOper)?`<details class="menu-gestionar"><summary>⚙ Gestionar cupo ▾</summary><div class="menu-panel">
         <div class="menu-label">Gestión</div>
-        <button class="menu-item" onclick="this.closest('details').removeAttribute('open');abrirEditarVuelo('${vueloId}')">✏ Editar cupo</button>
+        <!-- b105/M3: el único ítem del menú que también ve OPERACIONES. Está acá y no en "Editar cupo"
+             para que puedan cargar paquetes sin acceso al precio, los lugares ni el itinerario. -->
+        <button class="menu-item" title="Asociar a este cupo el link de un paquete de la web" onclick="this.closest('details').removeAttribute('open');abrirModalPaquete('${vueloId}')">📦 Agregar paquetes</button>
+        ${esAdmin?`<button class="menu-item" onclick="this.closest('details').removeAttribute('open');abrirEditarVuelo('${vueloId}')">✏ Editar cupo</button>
         <button class="menu-item" title="Más lugares para esta misma salida, con otro PNR, otro neto y otro precio. El vendedor ve una sola tanda por vez." onclick="this.closest('details').removeAttribute('open');abrirNuevaTanda('${vueloId}')">➕ Nueva tanda (otro precio)</button>
         <button class="menu-item" onclick="this.closest('details').removeAttribute('open');marcarEmitido('${vueloId}',${vuelo.emitido?'false':'true'})">${vuelo.emitido?'🔓 Sacar la marca de EMITIDO':'🎫 Marcar como EMITIDO (congela el cupo)'}</button>
         <button class="menu-item" onclick="this.closest('details').removeAttribute('open');imprimirItinerario('${vueloId}')">🖨 Imprimir / PDF</button>
@@ -2077,7 +2093,7 @@ async function cargarDetalle(vueloId){
         <div class="menu-label">Peligro</div>
         <button class="menu-item danger" onclick="this.closest('details').removeAttribute('open');abrirModalCancelar('${vueloId}')">⚠ Cancelar reserva (con penalidad)…</button>
         <button class="menu-item danger" onclick="this.closest('details').removeAttribute('open');abrirModalEliminar('${vueloId}')">🗑 Liberar lugares (borrar)</button>
-        <button class="menu-item danger" onclick="this.closest('details').removeAttribute('open');cancelarCupo('${vueloId}')">✖ Cancelar cupo</button>
+        <button class="menu-item danger" onclick="this.closest('details').removeAttribute('open');cancelarCupo('${vueloId}')">✖ Cancelar cupo</button>`:''}
       </div></details>`:''}
     </div>
   </div>`;
@@ -2157,10 +2173,14 @@ async function cargarDetalle(vueloId){
   // b105/M3: los paquetes armados con este cupo, con su link a Atlas. Van ARRIBA del itinerario porque
   // son la acción comercial: el que abre el cupo quiere cotizar. Sin paquetes cargados no ocupa lugar.
   // El Travel Partner no los ve: tiene su propio render (cargarDetalleTP) y estos links son internos.
+  // ⚠️ El ✕ va APARTE del link, no sobre la pastilla entera: si el click borrara, no habría forma de
+  // abrir el paquete, que es para lo que existe. Quitar pregunta antes; abrir no.
   {const paqs=paquetesValidos(vuelo.paquetes);
+   _paqsDetalle=paqs;
+   const puedeQuitar=esAdmin||esOper;
    if(paqs.length){
      html+=`<div class="itinerario-wrap" style="margin-bottom:12px"><div class="itinerario-title" style="margin:0 0 8px">📦 Paquetes con este cupo</div><div style="display:flex;flex-wrap:wrap;gap:8px">`
-          +paqs.map(p=>`<a class="btn-sm" href="${esc(p.url)}" target="_blank" rel="noopener noreferrer" style="text-decoration:none">🔗 ${esc(p.etiqueta)}</a>`).join('')
+          +paqs.map((p,i)=>`<span style="display:inline-flex;align-items:center;border:1px solid var(--border2);border-radius:8px;overflow:hidden"><a href="${esc(p.url)}" target="_blank" rel="noopener noreferrer" title="${esc(p.url)}" style="padding:6px 11px;font-size:12px;color:var(--text);text-decoration:none">🔗 ${esc(p.etiqueta)}</a>${puedeQuitar?`<button class="btn-sm" title="Quitar este paquete del cupo" style="border:none;border-left:1px solid var(--border2);border-radius:0;padding:6px 10px" onclick="quitarPaquete('${vueloId}',${i})">✕</button>`:''}</span>`).join('')
           +`</div></div>`;
    }}
 
@@ -4323,10 +4343,6 @@ async function abrirEditarVuelo(vueloId,opts){
       {const dest=calDestinatarios(v.cal_usuarios);document.querySelectorAll('.v-cal-u').forEach(c=>{c.checked=!tanda&&(dest[c.dataset.ev]||[]).includes(c.value);});}   // b101: tanda = agenda destildada
       document.getElementById('v-visible').value=(v.visible===false)?'false':'true';
       document.getElementById('v-equipaje').value=v.condiciones_equipaje||'';
-      // b105/M3: los paquetes se editan solo al EDITAR. Al duplicar van vacíos a propósito — los links
-      // de Atlas son del cupo original y apuntarían a otra salida.
-      pintarPaquetesForm(duplicar?[]:v.paquetes);
-      mostrarPaquetesWrap(!duplicar);
       document.getElementById('tramos-wrap').innerHTML='';
       tramosCount=0;
       // Año/mes del cupo, para migrar las fechas de tramo VIEJAS ("DD Mmm" sin año) a calendario al abrir a editar.
@@ -4405,7 +4421,6 @@ async function abrirModalVuelo(){
     c.checked=Array.isArray(inv?.porDefecto)&&inv.porDefecto.includes(c.dataset.ev);
   });
   aplicarDefectoSalida();  // b98: "sale en 2 semanas" queda apagado hasta que se elija una aerolínea con voucher
-  pintarPaquetesForm([]);mostrarPaquetesWrap(false);   // b105/M3: el alta no muestra paquetes (ver el comentario del bloque)
   document.getElementById('v-visible').value='true';
   nombreCupoManual=false;_regresoPrevio=null;_itiAlAbrir=null;
   _modoTanda=false;prepararCampoTanda(null,null);   // b101: el alta normal no es tanda
@@ -4420,12 +4435,21 @@ async function abrirModalVuelo(){
 }
 
 // ── PAQUETES DEL CUPO (b105 · M3, idea del sistema de Jetmar) ──────────────────────────────────
-// Los paquetes que Producto arma a partir de un cupo viven en Atlas; hasta b104 el vendedor tenía que
-// buscarlos a mano. Ahora el cupo guarda su lista de links y el detalle los muestra.
+// Los paquetes armados a partir de un cupo viven en la web de Guamatur (o en Atlas); hasta b104 el
+// vendedor los buscaba a mano. Ahora el cupo guarda su lista de links y el detalle los muestra.
 // Forma guardada en `vuelos.paquetes`: [{url, etiqueta}].
 //
-// 🔒 Solo se acepta http/https. El que CARGA el link es admin, pero el que lo CLICKEA es cualquier
-//    vendedor: un `javascript:...` en un href sería ejecutar código ajeno con su sesión abierta.
+// 🔑 Se cargan y se quitan desde "⚙ Gestionar cupo" del DETALLE del cupo, no desde "Editar cupo"
+//    (decisión de Nacho, 23-set). El motivo es el permiso: así lo puede hacer OPERACIONES sin tener que
+//    darle el formulario donde están el precio, la cantidad de lugares y el itinerario.
+// 🔒 La escritura va por RPC (`agregar_paquete_cupo` / `quitar_paquete_cupo`), que valida el rol EN EL
+//    SERVIDOR y acepta solo http/https. Operaciones no pasa la RLS de `vuelos`, así que esas RPC son su
+//    único camino: la pantalla puede mentir sobre quién sos, el servidor no. (Un admin sí puede escribir
+//    la columna directo — siempre pudo editar el cupo entero. Ver db/2026-09-23-b105b-*.sql.)
+//    Lo de http/https no es un capricho: el que carga el link es de la casa, pero el que lo CLICKEA es
+//    cualquier vendedor — un `javascript:…` en un href sería ejecutar código ajeno con su sesión abierta.
+// 🔑 Se agrega y se quita DE A UNO, en vez de mandar la lista entera: si dos personas tocan el mismo
+//    cupo al mismo tiempo, ninguna pisa el paquete de la otra.
 function paquetesValidos(raw){
   if(!Array.isArray(raw)) return [];
   return raw.map(p=>{
@@ -4436,32 +4460,39 @@ function paquetesValidos(raw){
     return {url,etiqueta:etiqueta||url.replace(/^https?:\/\//i,'').slice(0,60)};
   }).filter(Boolean);
 }
-function mostrarPaquetesWrap(ver){
-  const w=document.getElementById('v-paquetes-wrap');
-  if(w) w.style.display=ver?'block':'none';
+// La lista que se está mostrando en el detalle. El botón de quitar manda el ÍNDICE, no la URL: una URL
+// dentro de un `onclick` hay que escaparla y cualquier comilla rompe el botón en silencio.
+let _paqsDetalle=[],_paqVueloId=null;
+
+function abrirModalPaquete(vueloId){
+  _paqVueloId=vueloId;
+  document.getElementById('paq-url').value='';
+  document.getElementById('paq-etiqueta').value='';
+  document.getElementById('modal-paq-alert').innerHTML='';
+  document.getElementById('modal-paquete').style.display='flex';
+  setTimeout(()=>{const e=document.getElementById('paq-url');if(e)e.focus();},60);
 }
-function agregarFilaPaquete(url,etiqueta){
-  const cont=document.getElementById('v-paquetes-lista'); if(!cont) return;
-  const row=document.createElement('div');
-  row.className='v-paq-row';
-  row.style.cssText='display:flex;gap:6px;margin-bottom:6px;flex-wrap:wrap';
-  row.innerHTML=`<input class="form-input v-paq-url" style="flex:2;min-width:220px" placeholder="https://… (link del paquete en Atlas)" value="${esc(url||'')}"/>`
-               +`<input class="form-input v-paq-et" style="flex:1;min-width:150px" placeholder="Nombre del paquete" value="${esc(etiqueta||'')}"/>`
-               +`<button type="button" class="btn-sm" title="Quitar este paquete" onclick="this.closest('.v-paq-row').remove()">✕</button>`;
-  cont.appendChild(row);
+async function guardarPaquete(){
+  const url=document.getElementById('paq-url').value.trim();
+  const etiqueta=document.getElementById('paq-etiqueta').value.trim();
+  if(!/^https?:\/\//i.test(url)){
+    mostrarAlerta('modal-paq-alert','El link tiene que empezar con http:// o https:// — copialo de la barra del navegador.','error');return;
+  }
+  setBtnLoading('btn-guardar-paquete',true,'Agregar paquete');
+  const {error}=await sb.rpc('agregar_paquete_cupo',{p_vuelo_id:_paqVueloId,p_url:url,p_etiqueta:etiqueta||null});
+  setBtnLoading('btn-guardar-paquete',false,'Agregar paquete');
+  if(error){mostrarAlerta('modal-paq-alert',error.message,'error');return;}
+  await registrarLog('agregar_paquete','vuelo',_paqVueloId,{url,etiqueta});
+  cerrarModal('modal-paquete');
+  cargarDetalle(_paqVueloId);
 }
-// Se pintan TAL COMO ESTÁN guardados, sin filtrar: si alguna vez quedó una fila inválida, el admin tiene
-// que poder verla y arreglarla — no que desaparezca sola al abrir el formulario.
-function pintarPaquetesForm(raw){
-  const cont=document.getElementById('v-paquetes-lista'); if(!cont) return;
-  cont.innerHTML='';
-  (Array.isArray(raw)?raw:[]).forEach(p=>agregarFilaPaquete(p&&p.url,p&&p.etiqueta));
-}
-function paquetesDelForm(){
-  return Array.from(document.querySelectorAll('#v-paquetes-lista .v-paq-row')).map(r=>({
-    url:(r.querySelector('.v-paq-url')?.value||'').trim(),
-    etiqueta:(r.querySelector('.v-paq-et')?.value||'').trim()
-  })).filter(p=>p.url||p.etiqueta);   // fila del todo vacía = el que apretó "+" y se arrepintió
+async function quitarPaquete(vueloId,i){
+  const p=_paqsDetalle[i]; if(!p) return;
+  if(!confirm(`¿Seguro que desea eliminar paquete asociado al cupo?\n\n${p.etiqueta||p.url}\n\nSe saca el link de este cupo. El paquete en sí no se borra.`)) return;
+  const {error}=await sb.rpc('quitar_paquete_cupo',{p_vuelo_id:vueloId,p_url:p.url});
+  if(error){alert('No se pudo quitar el paquete:\n\n'+error.message);return;}
+  await registrarLog('quitar_paquete','vuelo',vueloId,{url:p.url,etiqueta:p.etiqueta});
+  cargarDetalle(vueloId);
 }
 
 async function guardarVuelo(){
@@ -4580,16 +4611,6 @@ async function guardarVuelo(){
        if(pAntes!==pAhora) cambiosCupo.push({tipo:'precio',etiqueta:`el precio de venta (${pAntes==null?'sin precio':'USD '+pAntes} → ${pAhora==null?'sin precio':'USD '+pAhora})`,antes:pAntes,ahora:pAhora});}
       if((vAct?.aerolinea||'')!==(datos.aerolinea||'')) cambiosCupo.push({tipo:'aerolinea',etiqueta:`la aerolínea (${vAct?.aerolinea||'sin aerolínea'} → ${datos.aerolinea||'sin aerolínea'})`,antes:vAct?.aerolinea||'',ahora:datos.aerolinea||''});
       if((vAct?.condiciones_equipaje||'')!==(datos.condiciones_equipaje||'')) cambiosCupo.push({tipo:'equipaje',etiqueta:'las condiciones de equipaje',antes:vAct?.condiciones_equipaje||'',ahora:datos.condiciones_equipaje||''});
-      // b105/M3: paquetes. Se valida al guardar y no mientras se escribe — un link a medio pegar no
-      // tiene por qué dar error. Se frena en vez de descartar en silencio: el admin cargó ese link
-      // por algo, y una fila que desaparece sola se vuelve a cargar mal la próxima vez.
-      {const paqsForm=paquetesDelForm();
-       const mala=paqsForm.find(p=>!/^https?:\/\//i.test(p.url));
-       if(mala){
-         mostrarAlerta('modal-v-alert',`El paquete "${mala.etiqueta||mala.url||'(sin nombre)'}" no tiene un link válido: tiene que empezar con http:// o https://`,'error');
-         setBtnLoading('btn-crear-vuelo',false,'Guardar cambios');return;
-       }
-       datos.paquetes=paqsForm;}
       const {error}=await sb.from('vuelos').update(datos).eq('id',editarVueloId);
       if(error){setBtnLoading('btn-crear-vuelo',false,'Guardar cambios');mostrarAlerta('modal-v-alert',error.message,'error');return;}
       await registrarLog('editar_cupo','vuelo',editarVueloId,{itinerario_cambio:itinerarioCambio});
