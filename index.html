@@ -936,7 +936,9 @@ const CONFIG={
   // dibujada ni recortada de una captura: es un documento que se le entrega al pasajero.
   // Si una aerolínea no está en este mapa, el voucher muestra solo el nombre: nunca una imagen rota.
   // Los archivos y su procedencia están en aerolineas/LEEME.txt.
-  VOUCHER_LOGO:{SKY:'aerolineas/sky.svg',Azul:'aerolineas/azul.svg',GOL:'aerolineas/gol.svg','JetSmart':'aerolineas/jetsmart.svg','Avianca':'aerolineas/avianca.svg'},
+  // b113: LATAM se suma para la PIEZA DE PAQUETE (aparece en los paquetes al Caribe). No emite voucher
+  // propio, así que no está en VOUCHER_AEROLINEAS — este mapa es solo "qué logo oficial tenemos".
+  VOUCHER_LOGO:{SKY:'aerolineas/sky.svg',Azul:'aerolineas/azul.svg',GOL:'aerolineas/gol.svg','JetSmart':'aerolineas/jetsmart.svg','Avianca':'aerolineas/avianca.svg','LATAM':'aerolineas/latam.svg'},
   // Bloque "Importante" del voucher — texto EXACTO que pasó Operaciones. No es el mismo que
   // CONDICIONES_ITINERARIO: aquel son las condiciones de contratación del cupo, este es el ticket manual.
   VOUCHER_IMPORTANTE:[
@@ -946,11 +948,18 @@ const CONFIG={
     'La presentación en los aeropuertos debe ser de 3 horas antes de cada salida de vuelo.'
   ],
   ATLAS_ENABLED:true,
+  // b112 — condiciones que van SIEMPRE en la pieza del paquete, las traiga o no el PDF de Atlas.
+  // 🔑 Un cupo es un lugar PRE-COMPRADO: esto es verdad para todos, y dejarlo librado a que la IA lo
+  //    encuentre en el PDF significa que a algún pasajero no le va a llegar. Es condición comercial,
+  //    no un dato del documento. Si el texto ya vino en el PDF, no se repite.
+  PAQUETE_CONDICIONES_FIJAS:[
+    'Importante: Los pasajes aéreos emitidos en este período de alta demanda no son reembolsables y no admiten cambios de fecha ni están sujetos a penalidades por modificación. Recomendamos contratar un seguro de cancelación para contar con mayor flexibilidad ante imprevistos. Consultanos para más información.'
+  ],
   // b109 — el botón "Procesar con IA" de los paquetes. En false NO se dibuja: mejor que Operaciones
   // no vea el botón a que lo vea y falle siempre. Se prende cuando la ANTHROPIC_API_KEY está cargada
   // como secreto del proyecto de Supabase (y después de correr los 6 PDFs del set de prueba).
   // El resto del circuito —subir el PDF, verlo, publicar— anda igual con esto apagado.
-  PAQUETES_IA_ENABLED:false,
+  PAQUETES_IA_ENABLED:true,
   BRAND_PRIMARY:'#cd0039',BRAND_SECONDARY:'#981632',BRAND_COMP:'#fcf6eb',BRAND_COMP2:'#efefef',
   LOGO_COLOR:'logo-color.svg',   // logo color institucional (#cd0039) — para fondos claros (PDF)
   LOGO_BLANCO:'logo-blanco.svg', // logo blanco — para fondos oscuros (app)
@@ -973,7 +982,7 @@ const sb=supabase.createClient(CONFIG.SUPABASE_URL,CONFIG.SUPABASE_ANON_KEY,{
 // ⚠️ Una sola versión por cadena y CORTA: el detalle va al CHANGELOG.md, no acá. Nacho ve este texto
 // completo en el encabezado (el resto ve solo el "bNN") y si es largo se desborda; además `APP_VERSION_CORTA`
 // saca el número con un match, así que dos "bNN" en la misma cadena confunden cuál es la versión.
-const APP_VERSION='Fase 2 · 2026-09-23 (b110-TEST · Un paquete es el PDF de Atlas: se sacó el campo de link del alta, que venía de cuando un paquete era un link a la web.)';
+const APP_VERSION='Fase 2 · 2026-09-23 (b115-TEST · Operaciones sube el PDF de Atlas, lo lee la IA y arma la pieza para el pasajero; queda en borrador hasta que lo revisen y publiquen.)';
 // Columnas de 'vuelos' legibles por cualquier usuario. EXCLUYE precio_neto: el admin lo lee por RPC admin_get_precio_neto (gateada por es_admin). No usar select('*') sobre vuelos: la columna precio_neto quedó revocada a authenticated.
 // ⚠️ Toda columna que se agregue acá necesita `grant select (col) to authenticated` en la base, si no
 // PostgREST tira 400 y se cae la pantalla entera (gotcha #6). `emitido` viene de la migración 2026-08-06.
@@ -4725,15 +4734,73 @@ function paqOcupaciones(h){
 function paqueteHTML(p,firma){
   const d=p.datos||{}, logo=new URL(GUA_LOGO,location.href).href;
   const F=(s)=>esc(s||'');
+  // b112 — el logo OFICIAL de la aerolínea, el mismo archivo que usa el voucher (verificado contra la
+  // fuente en b91). Antes acá iba un badge con las DOS PRIMERAS LETRAS del nombre, que no es un código
+  // y salía mal: "JetSmart" daba "JE" cuando el código es JA. Lo vio Nacho en la pieza.
+  // 🔑 Si la aerolínea no está en el mapa NO se dibuja nada: el nombre ya va abajo, en la línea de
+  //    detalle. Misma regla que el voucher — nunca una imagen rota ni un código inventado.
+  // ⚠️ El nombre viene como figura en el PDF de Atlas, que usa la RAZÓN SOCIAL: "GOL TRANSPORTES
+  //    AEREOS", "LATAM AIRLINES GROUP". Comparar por igualdad exacta contra la clave "GOL" no matchea
+  //    y el logo no salía aunque el archivo estuviera en el repo. Se compara por PALABRA —no por
+  //    substring suelto, que podría pegar dentro de otra palabra.
+  const logoAerolinea=(nombre)=>{
+    const palabras=String(nombre||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'')
+      .split(/[^a-z0-9]+/).filter(Boolean);
+    if(!palabras.length) return '';
+    const norm=s=>String(s).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]/g,'');
+    const clave=Object.keys(CONFIG.VOUCHER_LOGO||{}).find(k=>palabras.includes(norm(k)));
+    if(!clave) return '';
+    return `<img src="${new URL(CONFIG.VOUCHER_LOGO[clave],location.href).href}" alt="${F(clave)}"/>`;
+  };
+  // b112 — las condiciones de la pieza = las del PDF + las FIJAS de CONFIG, sin repetir. La comparación
+  // es sobre el texto sin acentos ni puntuación: el mismo párrafo vuelve de la IA con comas distintas.
+  const normC=s=>String(s||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]/g,'');
+  const condiciones=Array.isArray(d.condiciones)?d.condiciones.slice():[];
+  (CONFIG.PAQUETE_CONDICIONES_FIJAS||[]).forEach(fija=>{
+    const clave=normC(fija).slice(0,60);
+    if(!condiciones.some(c=>normC(c).includes(clave))) condiciones.push(fija);
+  });
   const hoteles=Array.isArray(d.hoteles)?d.hoteles:[];
   const vuelos=Array.isArray(d.vuelos)?d.vuelos:[];
   const meta=[d.fecha_ida&&d.fecha_vuelta?`<b>${F(formatFecha(d.fecha_ida))} al ${F(formatFecha(d.fecha_vuelta))}</b>`:'',
               d.dias?`<b>${d.dias} días</b>, ${d.noches} noches`:'', F(d.destino||d.titulo)].filter(Boolean).join('<span class="sep">·</span>');
-  const filaVuelo=v=>`<div class="vseg"><div class="vseg-al">${F((v.aerolinea||'').slice(0,2).toUpperCase())}</div>
-      <div class="vseg-main"><span class="rot">${F(v.tipo||'Ida')}${v.numero?' · vuelo '+F(v.numero):''}</span>
-        <div class="ruta">${F(v.origen||v.origen_cod)} <span class="ar">→</span> ${F(v.destino||v.destino_cod)}</div>
-        <div class="vmeta">${[F(v.aerolinea),v.fecha?F(formatFecha(v.fecha)):'',`${F(v.origen_cod)} → ${F(v.destino_cod)}`].filter(Boolean).join(' · ')}</div></div>
-      <div class="hs">${F(v.salida)||'--:--'}<span class="dash">–</span>${F(v.llegada)||'--:--'}</div></div>`;
+  // b113 — el detalle de aéreos con el mismo formato que la propuesta del cotizador (pedido de Nacho):
+  // fecha · logo · hora y código de cada punta, con la ciudad debajo. Es la misma casa: quien recibe
+  // una cotización y un paquete tiene que ver lo mismo.
+  // 🔑 El "+1" cuando la llegada es del día siguiente NO es un adorno: en b100 un vuelo nocturno salió
+  //    impreso con la fecha mal justamente por no marcarlo.
+  const paqCiudad=s=>String(s||'').split(/\s+-\s+/)[0].trim();
+  const paqDiaSig=(sal,lleg)=>{
+    const a=/^(\d{1,2}):(\d{2})/.exec(String(sal||'')), b=/^(\d{1,2}):(\d{2})/.exec(String(lleg||''));
+    if(!a||!b) return false;
+    return (+b[1]*60+ +b[2]) < (+a[1]*60+ +a[2]);
+  };
+  // ⚠️ Se arma con tablas propias, NO con toLocaleDateString: el locale ya mete sus puntos y comas
+  //    ("jue., 14 ene. 2027") y parchearlo con replace terminó imprimiendo "Jue. 14 Ene.. 2027".
+  //    Además "Set" es la abreviatura que se usa en la casa, no el "sep" del locale.
+  const PAQ_DIAS=['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'];
+  const PAQ_MESES=['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Set','Oct','Nov','Dic'];
+  const paqFechaVuelo=s=>{
+    const m=/^(\d{4})-(\d{2})-(\d{2})/.exec(String(s||''));
+    if(!m) return F(s);
+    const d=new Date(+m[1],+m[2]-1,+m[3]);
+    if(isNaN(d)) return F(s);
+    return esc(`${PAQ_DIAS[d.getDay()]}. ${m[3]} ${PAQ_MESES[d.getMonth()]}. ${m[1]}`);
+  };
+  const punta=(hora,cod,ciudad,mas1,derecha)=>`<div class="pt">
+      <div class="hora">${derecha?'':`<span class="cod">${F(cod)}</span> `}${F(hora)||'--:--'}${mas1?'<span class="mas1">+1</span>':''}${derecha?` <span class="cod">${F(cod)}</span>`:''}</div>
+      <div class="ciu">${F(paqCiudad(ciudad)||cod)}</div></div>`;
+  const filaVuelo=v=>{
+    const mas1=paqDiaSig(v.salida,v.llegada);
+    return `<div class="vseg">
+      <div class="vseg-fecha">${v.tipo?`<b>${F(v.tipo)}</b>`:''}${v.fecha?paqFechaVuelo(v.fecha):''}${v.numero?`<span style="display:block;font-size:12px">Vuelo ${F(v.numero)}</span>`:''}</div>
+      ${logoAerolinea(v.aerolinea)?`<div class="vseg-al">${logoAerolinea(v.aerolinea)}</div>`:''}
+      <div class="vseg-main">
+        ${punta(v.salida,v.origen_cod,v.origen,false,false)}
+        <span class="ar">→</span>
+        ${punta(v.llegada,v.destino_cod,v.destino,mas1,true)}
+      </div></div>`;
+  };
   const filaHotel=(h,i)=>`<div class="opcion"><div class="ophead"><span class="opn">Opción ${i+1}</span>
       <span class="opn" style="color:#6b7079">${h.noches||d.noches||''} noches${h.regimen?' · '+F(h.regimen):''}</span></div>
       <div class="hnom">${F(h.nombre)}</div>
@@ -4760,17 +4827,20 @@ h2:first-child{margin-top:4px}
 h3{font-size:17px;font-weight:600;color:var(--gris);margin:22px 0 8px}
 .meta{margin:10px 0 2px;font-size:14px}.meta b{color:var(--vino)}.sep{color:var(--gris);margin:0 9px}
 .desc{background:var(--panel);border-left:3px solid var(--rojo);padding:12px 16px;border-radius:6px;margin:12px 0 2px;font-size:15.5px}
-.vuelos{margin:10px 0 2px;border:1px solid var(--linea);border-radius:8px;overflow:hidden}
-.vseg{display:flex;align-items:center;gap:14px;padding:11px 16px;border-bottom:1px solid var(--linea)}
-.vseg:last-child{border-bottom:none}
-.vseg-al{flex:none;width:42px;height:42px;border:1px solid var(--linea);border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:var(--vino)}
-.vseg-main{flex:1;min-width:0}
-.rot{font-size:11px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--rojo)}
-.ruta{font-family:'ITC Garamond Std','EB Garamond',Georgia,serif;font-size:19px;font-weight:600;color:var(--tinta)}
-.ar{color:var(--rojo);font-family:'Montserrat',sans-serif;font-size:15px}
-.vmeta{font-size:13px;color:var(--gris);margin-top:2px}
-.hs{flex:none;text-align:right;white-space:nowrap;font-family:'ITC Garamond Std','EB Garamond',Georgia,serif;font-size:18px;font-weight:600;color:var(--tinta);font-variant-numeric:tabular-nums}
-.dash{color:var(--gris);margin:0 4px}
+.vuelos{margin:10px 0 2px}
+.vseg{display:flex;align-items:center;gap:18px;padding:14px 18px;border:1px solid var(--linea);border-radius:10px;margin-bottom:8px}
+.vseg:last-child{margin-bottom:0}
+.vseg-fecha{flex:none;width:132px;font-size:13px;color:var(--gris);line-height:1.35}
+.vseg-fecha b{display:block;font-size:11px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;color:var(--rojo)}
+.vseg-al{flex:none;width:62px;height:40px;display:flex;align-items:center;justify-content:center;border-left:1px solid var(--linea);padding-left:14px}
+.vseg-al img{max-width:100%;max-height:100%;object-fit:contain;display:block}
+.vseg-main{flex:1;min-width:0;display:flex;align-items:center;justify-content:flex-end;gap:14px}
+.pt{text-align:center;min-width:0}
+.pt .hora{font-size:21px;font-weight:600;color:var(--tinta);font-variant-numeric:tabular-nums;white-space:nowrap}
+.pt .cod{font-size:12px;color:var(--gris);font-weight:500}
+.pt .ciu{font-size:14px;font-weight:700;color:var(--tinta);text-transform:uppercase;letter-spacing:.2px;margin-top:1px}
+.pt .mas1{font-size:11px;color:var(--rojo);font-weight:700;vertical-align:super}
+.ar{color:var(--tinta);font-size:19px;flex:none;padding-bottom:16px}
 .inc{background:#fff;border:1px solid var(--linea);border-radius:8px;padding:4px 18px 8px;margin:10px 0}
 .inc ul{list-style:none;padding:0;margin:0}
 .inc li{padding:8px 0 8px 28px;position:relative;font-size:15.5px;border-bottom:1px solid var(--linea)}
@@ -4818,12 +4888,17 @@ h3{font-size:17px;font-weight:600;color:var(--gris);margin:22px 0 8px}
       ${hoteles.map(filaHotel).join('')}
       <p style="font-size:14px;color:#6b7079;text-align:center">Los precios pueden variar al momento de realizar la reserva.</p>`:''}
     ${(Array.isArray(d.no_incluye)&&d.no_incluye.length)?`<h3>No incluye</h3><ul class="bul">${d.no_incluye.map(x=>`<li>${F(x)}</li>`).join('')}</ul>`:''}
-    ${(Array.isArray(d.itinerario)&&d.itinerario.length)?`<h2>Itinerario sugerido</h2>${d.itinerario.map(x=>`<div class="dia"><div class="dnum">${String(x.dia).padStart(2,'0')}</div><div><p class="dtit">${F(x.resumen)}</p><p class="dtxt">${F(x.detalle)}</p></div></div>`).join('')}`:''}
+    <!-- b114 - el itinerario dia por dia se saco de la pieza (decision de Nacho, 23-set). Alargaba el
+         PDF con texto generico ("dia libre para actividades") que no ayuda a vender y empujaba los
+         precios a la segunda hoja. El dato SE SIGUE EXTRAYENDO y queda guardado en paquetes.datos, asi
+         que volver a mostrarlo no obliga a reprocesar ningun PDF.
+         OJO: este comentario vive DENTRO de un template literal de JS. Nada de backticks aca adentro:
+         cierran el string y rompen el archivo entero (paso al escribirlo). -->
     <h2>Tu asesor de viaje</h2>
     <div class="firma"><div class="av serif">${F((firma.nombre||'G').trim().charAt(0).toUpperCase())}</div>
       <div><div class="nom">${F(firma.nombre)}</div><div class="rol">${F(firma.cargo||'Asesor de viajes')}</div>
       <div>${firma.telefono?`<a href="tel:${F(firma.telefono)}">${F(firma.telefono)}</a> · `:''}<a href="mailto:${F(firma.email)}">${F(firma.email)}</a></div></div></div>
-    ${(Array.isArray(d.condiciones)&&d.condiciones.length)?`<div class="tyc"><h4>Condiciones</h4><ol>${d.condiciones.map(x=>`<li>${F(x)}</li>`).join('')}</ol></div>`:''}
+    ${condiciones.length?`<div class="tyc"><h4>Condiciones</h4><ol>${condiciones.map(x=>`<li>${F(x)}</li>`).join('')}</ol></div>`:''}
   </div>
   <div class="foot"><img src="${logo}" alt="Guamatur Viajes"/>
     <div>Av. Ricaldoni 2587, Montevideo · guamatur.com</div>

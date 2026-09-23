@@ -12,6 +12,15 @@ marcas de terceros que van en un documento que se le entrega al pasajero.
                                               Sumado en b100, 14-sep-2026. Se descarto el
                                               wordmark sin ave y el logo viejo con fondo rojo)
 
+  latam.svg Latam Airlines                   (IATA LA; identidad Interbrand 2016. Sumado en b113,
+                                              23-set-2026, para la PIEZA DE PAQUETE: aparece en los
+                                              paquetes al Caribe. Se eligio la variante INDIGO, que
+                                              Commons publica explicitamente "para que se vea sobre
+                                              fondo blanco", que es donde va)
+
+OJO: LATAM esta en CONFIG.VOUCHER_LOGO pero NO en CONFIG.VOUCHER_AEROLINEAS. No emite voucher propio;
+ese mapa es "que logo oficial tenemos", no "quien lleva voucher".
+
 Origen: Wikimedia Commons / Wikipedia, agosto y setiembre 2026. Son las marcas vigentes, verificadas a ojo antes de
 subirlas. Si alguna aerolinea cambia su identidad, o si Guamatur consigue el archivo del brand
 kit oficial de la aerolinea, se reemplaza el archivo y listo: el voucher lo toma solo.
