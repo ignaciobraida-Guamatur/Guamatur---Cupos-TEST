@@ -998,7 +998,7 @@ const sb=supabase.createClient(CONFIG.SUPABASE_URL,CONFIG.SUPABASE_ANON_KEY,{
 // ⚠️ Una sola versión por cadena y CORTA: el detalle va al CHANGELOG.md, no acá. Nacho ve este texto
 // completo en el encabezado (el resto ve solo el "bNN") y si es largo se desborda; además `APP_VERSION_CORTA`
 // saca el número con un match, así que dos "bNN" en la misma cadena confunden cuál es la versión.
-const APP_VERSION='Fase 2 · 2026-09-23 (b120-TEST · El vendedor deja de ver los cupos cancelados, y el filtro busca también por región: escribir Brasil o Caribe.)';
+const APP_VERSION='Fase 2 · 2026-09-23 (b121-TEST · Admin y Aéreos ven marcados en rojo los cupos con ventas vivas dentro de lugares dados de baja.)';
 // Columnas de 'vuelos' legibles por cualquier usuario. EXCLUYE precio_neto: el admin lo lee por RPC admin_get_precio_neto (gateada por es_admin). No usar select('*') sobre vuelos: la columna precio_neto quedó revocada a authenticated.
 // ⚠️ Toda columna que se agregue acá necesita `grant select (col) to authenticated` en la base, si no
 // PostgREST tira 400 y se cae la pantalla entera (gotcha #6). `emitido` viene de la migración 2026-08-06.
@@ -1260,6 +1260,8 @@ const accionDeLugar=l=>(l&&l.accion_id)?(accionesComerciales.find(a=>a.id===l.ac
 // b87: {vuelo_id: [acciones con lugares LIBRES]} — alimenta las pastillas del listado de cupos.
 // Se rearma en cada cargarVuelos(); sale de la RPC acciones_libres_por_cupo.
 let accionesPorCupo={};
+// b121 — cupos con ventas vivas dentro de lugares reducidos. Solo se llena para admin/Operaciones.
+let ventasReducidasPorCupo={};
 // Texto blanco o negro sobre el color de la acción, según cuál se lea. El color lo elige el admin y
 // puede ser claro: un amarillo con texto blanco no se lee. Luminancia percibida (ITU-R BT.601).
 function textoSobre(hex){
@@ -1900,6 +1902,18 @@ async function cargarVuelos(){
     const {data:accs}=await sb.rpc('acciones_libres_por_cupo',{p_temporada_id:temporadaActiva});
     (accs||[]).forEach(a=>{(accionesPorCupo[a.vuelo_id]=accionesPorCupo[a.vuelo_id]||[]).push(a);});
   }
+  // b121 (pedido de Nacho): los cupos con ventas VIVAS dentro de lugares REDUCIDOS se marcan para que no
+  // pasen desapercibidos. Un lugar reducido salió del stock: no debería tener gente adentro.
+  // 🔑 Nadie los veía: `vista_vuelos` cuenta vendidos con `NOT reducido` (muestran "VENDIDOS 0") y "Mis
+  //    reservas" del vendedor también los filtra. Con b120 quedaron invisibles del todo.
+  // La RPC devuelve vacío si no sos admin/Operaciones: es una alerta de gestión, no del vendedor.
+  ventasReducidasPorCupo={};
+  if(rolEfectivo==='admin'||rolEfectivo==='operaciones'){
+    try{
+      const {data:vr}=await sb.rpc('cupos_con_ventas_reducidas',{p_temporada_id:temporadaActiva});
+      (vr||[]).forEach(r=>{ventasReducidasPorCupo[r.vuelo_id]=r.pax;});
+    }catch(e){console.warn('[ventas en reducidos]',e);}   // si falla, el listado sale igual
+  }
   // b101: tandas. Si la consulta falla, no se oculta nada (se ve como antes de b101), nunca se cae el listado.
   // El Travel Partner queda afuera: su RPC no trae continua_de (y hoy no hay TP en uso).
   tandasInfo={};tandasOcultas=new Set();tandasSiguiente={};
@@ -2006,6 +2020,11 @@ function renderVuelos(lista){
   const filaHTML=(d)=>{
     const oculto=(esAdmin&&d.visible===false)?' <span class="badge badge-l">Oculto</span>':'';
     const redu=(d.reducidos>0)?` <span class="badge badge-l" title="${d.reducidos} lugar(es) reducido(s)">−${d.reducidos}</span>`:'';
+    // b121 — 🔴 ventas VIVAS dentro de lugares reducidos. Va en rojo y con texto explícito porque es lo
+    // contrario de una pastilla informativa: es algo que alguien tiene que ir a arreglar. Solo la ven
+    // admin y Operaciones (el mapa viene vacío para el resto).
+    const vRed=ventasReducidasPorCupo[d.id];
+    const alertaRed=vRed?` <span class="badge badge-red" style="font-weight:700" title="Hay ${vRed} venta(s) o reserva(s) VIVAS en lugares que se dieron de baja del stock. Un lugar reducido no debería tener pasajeros adentro: revisá qué pasó con esa gente. Además, el vendedor NO las ve (ni en el listado ni en Mis reservas).">🔴 ${vRed} venta${vRed===1?'':'s'} en lugares dados de baja</span>`:'';
     const emit=d.emitido?' <span class="badge badge-yellow" title="Cupo emitido: congelado, no se puede tocar">🎫 EMITIDO</span>':'';
     // b87: pastilla por acción comercial con lugares libres. Va con el color de la acción y su nombre,
     // así el vendedor identifica la preventa sin entrar al cupo. El "N libres" evita el malentendido de
@@ -2022,7 +2041,7 @@ function renderVuelos(lista){
     const sig=(!verTandas)?tandasSiguiente[d.id]:null;
     const masStock=sig?` <span class="badge badge-l" style="border-color:var(--accent2);color:var(--accent2)" title="Cuando se agote este cupo, siguen ${sig.lugares} lugar(es) a USD ${Number(sig.precio||0).toLocaleString('es-UY')}${sig.hayMas?' (y todavía otra tanda más)':''}">🔁 +${sig.lugares} a USD ${Number(sig.precio||0).toLocaleString('es-UY')}</span>`:'';
     return `<tr style="cursor:pointer" onclick="goToDetalle('${d.id}')">
-      <td style="color:var(--accent2);font-weight:500">${esc(d.nombre)}${oculto}${tanda}${masStock}${redu}${emit}${acc}</td>
+      <td style="color:var(--accent2);font-weight:500">${esc(d.nombre)}${oculto}${tanda}${masStock}${redu}${alertaRed}${emit}${acc}</td>
       <td><span class="badge ${regionBadge(d.destino)}">${esc(d.destino)||'—'}</span></td>
       <td>${esc(d.ciudad_nombre)||'—'}</td>
       <td data-sort="${d.fecha||''}">${d.fecha?formatFecha(d.fecha):'—'}</td>
