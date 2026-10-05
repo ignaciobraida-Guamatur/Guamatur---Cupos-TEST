@@ -641,28 +641,34 @@
   <div class="modal">
     <div class="modal-title">📦 Agregar paquete al cupo</div>
     <div id="modal-paq-alert"></div>
+    <!-- b117 — el camino principal es UN SOLO PASO: elegir los PDFs. El nombre y el código los pone la
+         IA leyendo el PDF (Atlas ya los nombra parejo), así que pedirlos adelante era hacer tipear algo
+         que el sistema ya sabe. Quedan atrás del desplegable, para el caso raro. -->
     <div class="form-group">
-      <label class="form-label">Nombre del paquete <span style="color:var(--muted);font-size:10px">obligatorio — lo ve el vendedor, y es el nombre del archivo que recibe el pasajero</span></label>
-      <input class="form-input" id="paq-nombre" placeholder="Ej: Búzios - Salida 07 de enero"/>
+      <label class="form-label">PDF de Atlas <span style="color:var(--muted);font-size:10px">podés elegir varios de una</span></label>
+      <input class="form-input" type="file" id="paq-pdf" accept="application/pdf,.pdf" multiple onchange="avisoPdfPaquete()"/>
+      <div id="paq-pdf-msg" style="font-size:11px;color:var(--muted);margin-top:4px"></div>
+      <div style="font-size:11px;color:var(--muted);margin-top:6px">La IA los lee y les pone <b>nombre y código</b> sola. Quedan en <b>borrador</b> hasta que los revises.</div>
     </div>
+    <details style="margin-bottom:14px">
+      <summary style="cursor:pointer;font-size:12px;color:var(--muted)">Ponerle un nombre o un código a mano</summary>
+      <div class="form-group" style="margin-top:10px">
+        <label class="form-label">Nombre del paquete <span style="color:var(--muted);font-size:10px">lo ve el vendedor, y es el nombre del archivo que recibe el pasajero</span></label>
+        <input class="form-input" id="paq-nombre" placeholder="Ej: Búzios - Salida 07 de enero"/>
+        <div style="font-size:11px;color:var(--muted);margin-top:4px">Solo si querés uno distinto del que pone la IA. Con varios PDFs no se usa.</div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Código de Atlas <span style="color:var(--muted);font-size:10px">lo saca del PDF si no lo ponés</span></label>
+        <input class="form-input" id="paq-codigo" placeholder="Ej: PAQ2185"/>
+      </div>
+    </details>
     <!-- El campo "Link" se sacó el 23-set: venía de b105, cuando un paquete ERA un link a la web.
          Hoy un paquete es el PDF de Atlas. La columna `paquetes.url` sigue existiendo y la RPC sigue
          aceptando el parámetro, dormidos a propósito: los links vuelven en otra etapa (decisión de
          Nacho) y borrarlos sería tener que crearlos de nuevo. -->
-    <div class="form-group">
-      <label class="form-label">Código de Atlas <span style="color:var(--muted);font-size:10px">opcional</span></label>
-      <input class="form-input" id="paq-codigo" placeholder="Ej: PAQ2185"/>
-    </div>
-    <!-- b108 — el PDF tal cual sale de Atlas. Hasta 10 MB y solo PDF: lo impone el bucket, así que un
-         archivo que no cumpla lo rechaza el servidor aunque se saltee el `accept` del input. -->
-    <div class="form-group">
-      <label class="form-label">PDF de Atlas <span style="color:var(--muted);font-size:10px">opcional — el paquete tal cual sale de Atlas, hasta 10 MB</span></label>
-      <input class="form-input" type="file" id="paq-pdf" accept="application/pdf,.pdf" onchange="avisoPdfPaquete()"/>
-      <div id="paq-pdf-msg" style="font-size:11px;color:var(--muted);margin-top:4px"></div>
-    </div>
     <div class="modal-actions">
       <button class="btn btn-outline" onclick="cerrarModal('modal-paquete')">Cerrar</button>
-      <button class="btn btn-primary" id="btn-guardar-paquete" onclick="guardarPaquete()">Agregar paquete</button>
+      <button class="btn btn-primary" id="btn-guardar-paquete" onclick="guardarPaquete()">Agregar y procesar</button>
     </div>
   </div>
 </div>
@@ -963,7 +969,8 @@ const CONFIG={
   //    camino que nadie usó todavía.
   // ⚠️ Apagar la llave NO borra nada: las tablas, el bucket y los paquetes cargados siguen intactos.
   //    Se prende y vuelve todo tal cual estaba.
-  PAQUETES_ENABLED:false,
+  // b122 — PRENDIDA en la rama paquetes-test, para probar y mostrar en TEST (5-oct). Producción sigue en b121 con la llave apagada.
+  PAQUETES_ENABLED:true,
   // b112 — condiciones que van SIEMPRE en la pieza del paquete, las traiga o no el PDF de Atlas.
   // 🔑 Un cupo es un lugar PRE-COMPRADO: esto es verdad para todos, y dejarlo librado a que la IA lo
   //    encuentre en el PDF significa que a algún pasajero no le va a llegar. Es condición comercial,
@@ -975,7 +982,7 @@ const CONFIG={
   // no vea el botón a que lo vea y falle siempre. Se prende cuando la ANTHROPIC_API_KEY está cargada
   // como secreto del proyecto de Supabase (y después de correr los 6 PDFs del set de prueba).
   // El resto del circuito —subir el PDF, verlo, publicar— anda igual con esto apagado.
-  PAQUETES_IA_ENABLED:false,
+  PAQUETES_IA_ENABLED:true,
   BRAND_PRIMARY:'#cd0039',BRAND_SECONDARY:'#981632',BRAND_COMP:'#fcf6eb',BRAND_COMP2:'#efefef',
   LOGO_COLOR:'logo-color.svg',   // logo color institucional (#cd0039) — para fondos claros (PDF)
   LOGO_BLANCO:'logo-blanco.svg', // logo blanco — para fondos oscuros (app)
@@ -998,7 +1005,7 @@ const sb=supabase.createClient(CONFIG.SUPABASE_URL,CONFIG.SUPABASE_ANON_KEY,{
 // ⚠️ Una sola versión por cadena y CORTA: el detalle va al CHANGELOG.md, no acá. Nacho ve este texto
 // completo en el encabezado (el resto ve solo el "bNN") y si es largo se desborda; además `APP_VERSION_CORTA`
 // saca el número con un match, así que dos "bNN" en la misma cadena confunden cuál es la versión.
-const APP_VERSION='Fase 2 · 2026-09-23 (b121-TEST · Admin y Aéreos ven marcados en rojo los cupos con ventas vivas dentro de lugares dados de baja.)';
+const APP_VERSION='Fase 2 · 2026-10-05 (b122-TEST · Paquetes con IA asociados al cupo, para probar y mostrar.)';
 // Columnas de 'vuelos' legibles por cualquier usuario. EXCLUYE precio_neto: el admin lo lee por RPC admin_get_precio_neto (gateada por es_admin). No usar select('*') sobre vuelos: la columna precio_neto quedó revocada a authenticated.
 // ⚠️ Toda columna que se agregue acá necesita `grant select (col) to authenticated` en la base, si no
 // PostgREST tira 400 y se cae la pantalla entera (gotcha #6). `emitido` viene de la migración 2026-08-06.
@@ -2387,9 +2394,12 @@ async function cargarDetalle(vueloId){
             // b108: el PDF tal cual sale de Atlas. Feo, pero es lo que hoy el vendedor busca a mano en
             // su correo — hasta que la IA llene `datos`, es lo único que hay. Y en borrador es contra
             // lo que Operaciones compara: la revisión es PDF original vs pieza.
-            // Mientras no hay pieza armada hay UN solo PDF: aclarar "de Atlas" no aporta nada. Recién
-            // cuando la IA arma la pieza conviven los dos y ahí sí hay que distinguirlos.
-            p.pdf_origen?`<button class="btn-sm" title="${tieneDatos?'El PDF original de Atlas, tal cual lo subió Operaciones':'El PDF que subió Operaciones'}" onclick="verPdfDeAtlas('${p.id}',this)">📄 ${tieneDatos?'Original de Atlas':'Ver PDF'}</button>`:'',
+            // b117 — el original de Atlas lo ven SOLO admin y Operaciones. Es el PDF feo que esta
+            // pieza vino a reemplazar: al vendedor no le suma, y le daría para mandar al pasajero
+            // justo lo que queremos sacar de circulación (decisión de Nacho, 23-set).
+            // 🔑 No lo deja sin nada: publicar exige que el paquete tenga hoteles, así que todo
+            //    paquete que el vendedor ve tiene su pieza armada.
+            (puedeQuitar&&p.pdf_origen)?`<button class="btn-sm" title="${tieneDatos?'El PDF original de Atlas, para comparar contra la pieza antes de publicar':'El PDF que se subió'}" onclick="verPdfDeAtlas('${p.id}',this)">📄 ${tieneDatos?'Original de Atlas':'Ver PDF'}</button>`:'',
             // b109 — procesar con IA. Solo con PDF cargado, y solo para quien puede gastar tokens.
             (puedeQuitar&&p.pdf_origen&&CONFIG.PAQUETES_IA_ENABLED)?`<button class="btn-sm" title="${tieneDatos?'Volver a leer el PDF. El paquete vuelve a borrador y el vendedor deja de verlo hasta que lo publiques.':'Leer el PDF con IA y armar la pieza. Queda en borrador hasta que lo revises.'}" onclick="procesarPaqueteIA('${vueloId}','${p.id}',this)">✨ ${tieneDatos?'Volver a procesar':'Procesar con IA'}</button>`:'',
             (puedeQuitar&&esBorrador&&tieneDatos)?`<button class="btn-sm" style="border-color:var(--green);color:var(--green)" title="Publicarlo: recién ahí el vendedor lo ve y lo puede mandar" onclick="publicarPaquete('${vueloId}','${p.id}',true,this)">✓ Publicar</button>`:'',
@@ -4683,12 +4693,19 @@ const PAQ_PDF_TOPE=10*1024*1024;
 function avisoPdfPaquete(){
   const f=document.getElementById('paq-pdf').files[0];
   const msg=document.getElementById('paq-pdf-msg');
-  if(!f){msg.textContent='';msg.style.color='var(--muted)';return;}
-  const mb=(f.size/1024/1024).toFixed(1);
-  if(f.size>PAQ_PDF_TOPE){msg.textContent=`Ese archivo pesa ${mb} MB y el tope son 10 MB.`;msg.style.color='var(--red)';return;}
-  if(!/\.pdf$/i.test(f.name)&&f.type!=='application/pdf'){
-    msg.textContent='Tiene que ser un PDF.';msg.style.color='var(--red)';return;}
-  msg.textContent=`${f.name} · ${mb} MB`;msg.style.color='var(--muted)';
+  const files=[...document.getElementById('paq-pdf').files];
+  if(!files.length){msg.textContent='';msg.style.color='var(--muted)';return;}
+  const malos=files.filter(f=>f.size>PAQ_PDF_TOPE||(!/\.pdf$/i.test(f.name)&&f.type!=='application/pdf'));
+  if(malos.length){
+    msg.textContent=malos.length===1
+      ? `"${malos[0].name}" no sirve: tiene que ser un PDF de hasta 10 MB.`
+      : `${malos.length} de los ${files.length} no sirven: tienen que ser PDF de hasta 10 MB.`;
+    msg.style.color='var(--red)';return;
+  }
+  const mb=(files.reduce((s,f)=>s+f.size,0)/1024/1024).toFixed(1);
+  msg.textContent=files.length===1?`${files[0].name} · ${mb} MB`
+    : `${files.length} PDFs · ${mb} MB · tarda ~${Math.ceil(files.length/PAQ_EN_PARALELO)*35} segundos`;
+  msg.style.color='var(--muted)';
 }
 function abrirModalPaquete(vueloId){
   _paqVueloId=vueloId;
@@ -4698,38 +4715,67 @@ function abrirModalPaquete(vueloId){
   document.getElementById('modal-paquete').style.display='flex';
   setTimeout(()=>{const e=document.getElementById('paq-nombre');if(e)e.focus();},60);
 }
+// b117 — se pueden subir VARIOS PDFs de una. Se procesan de a PAQ_EN_PARALELO.
+// 🔑 El 4 está MEDIDO, no elegido: los 4 PDFs del set en paralelo tardaron 44,8 s contra 120 s de a
+//    uno, sin que el modelo rechazara ninguno. Más arriba no se probó; si alguna vez rebota por
+//    límite de la API, el paquete queda creado con su PDF y se reprocesa desde la pantalla.
+const PAQ_EN_PARALELO=4;
+const paqEstado=(txt)=>{const e=document.getElementById('paq-pdf-msg');if(e){e.textContent=txt;e.style.color='var(--muted)';}};
+
 async function guardarPaquete(){
   const nombre=document.getElementById('paq-nombre').value.trim();
   const codigo=document.getElementById('paq-codigo').value.trim();
-  const pdf=document.getElementById('paq-pdf').files[0]||null;
-  // El nombre es obligatorio: es lo que ve el vendedor Y el nombre del archivo que le llega al pasajero.
-  if(!nombre){mostrarAlerta('modal-paq-alert','Poné un nombre. Es el que va a ver el vendedor y el nombre del archivo que recibe el pasajero.','error');return;}
-  if(pdf&&pdf.size>PAQ_PDF_TOPE){
-    mostrarAlerta('modal-paq-alert','El PDF pesa más de 10 MB. Ese es el tope.','error');return;}
-  if(pdf&&!/\.pdf$/i.test(pdf.name)&&pdf.type!=='application/pdf'){
-    mostrarAlerta('modal-paq-alert','El archivo tiene que ser un PDF.','error');return;}
-  setBtnLoading('btn-guardar-paquete',true,'Agregar paquete');
+  const files=[...document.getElementById('paq-pdf').files];
+  // Sin PDF hace falta un nombre: no hay de dónde sacarlo.
+  if(!files.length&&!nombre){mostrarAlerta('modal-paq-alert','Elegí el PDF de Atlas. O, si no tenés el PDF, ponele un nombre a mano.','error');return;}
+  const malos=files.filter(f=>f.size>PAQ_PDF_TOPE||(!/\.pdf$/i.test(f.name)&&f.type!=='application/pdf'));
+  if(malos.length){mostrarAlerta('modal-paq-alert','Hay archivos que no sirven: tienen que ser PDF de hasta 10 MB.','error');return;}
+  // Con varios, un nombre a mano no se puede aplicar a todos.
+  if(files.length>1&&(nombre||codigo)){
+    if(!confirm(`Elegiste ${files.length} PDFs, así que el nombre y el código que escribiste a mano NO se usan: los pone la IA leyendo cada uno.\n\n¿Seguir?`))return;
+  }
+  setBtnLoading('btn-guardar-paquete',true,'Agregar y procesar');
+  const unoSolo=files.length<=1;
+  const lista=files.length?files:[null];
+  const creados=[],problemas=[];
+
+  // ── 1 · Crear y subir ────────────────────────────────────────────────────────────────────────
   // 🔑 Primero el paquete, después el archivo. Si falla la subida queda un paquete SIN PDF —visible en
   //    la pantalla, se reintenta o se borra—. Al revés quedaría un archivo que no aparece en ningún lado.
-  const {data:nuevoId,error}=await sb.rpc('agregar_paquete_cupo',{p_vuelo_id:_paqVueloId,p_nombre:nombre,p_url:null,p_codigo:codigo||null});
-  if(error){setBtnLoading('btn-guardar-paquete',false,'Agregar paquete');mostrarAlerta('modal-paq-alert',error.message,'error');return;}
-  let avisoPdf='';
-  if(pdf&&nuevoId){
-    // El path lo valida la RPC: siempre `<id>.pdf`. `upsert` para que volver a subir pise el anterior
-    // en vez de dejar dos archivos.
-    const path=`${nuevoId}.pdf`;
-    const {error:eUp}=await sb.storage.from('paquetes').upload(path,pdf,{contentType:'application/pdf',upsert:true});
-    if(eUp){
-      avisoPdf='El paquete quedó creado, pero el PDF no se pudo subir: '+eUp.message+'\n\nProbá de nuevo entrando al paquete.';
-    }else{
-      const {error:eSet}=await sb.rpc('set_paquete_pdf',{p_paquete_id:nuevoId,p_path:path});
-      if(eSet)avisoPdf='El PDF se subió pero no quedó registrado en el paquete: '+eSet.message;
-    }
+  for(let i=0;i<lista.length;i++){
+    const pdf=lista[i];
+    paqEstado(`Subiendo ${i+1} de ${lista.length}…`);
+    const nombreProvisional=(unoSolo&&nombre)||('Sin procesar · '+(pdf?pdf.name.replace(/\.pdf$/i,'').slice(0,50):'sin PDF'));
+    const {data:id,error}=await sb.rpc('agregar_paquete_cupo',{p_vuelo_id:_paqVueloId,p_nombre:nombreProvisional,p_url:null,p_codigo:(unoSolo&&codigo)||null});
+    if(error){problemas.push((pdf?pdf.name:'el paquete')+': '+error.message);continue;}
+    if(!pdf){creados.push({id,pdf:null});continue;}
+    const {error:eUp}=await sb.storage.from('paquetes').upload(`${id}.pdf`,pdf,{contentType:'application/pdf',upsert:true});
+    if(eUp){problemas.push(pdf.name+': no se pudo subir ('+eUp.message+')');creados.push({id,pdf:null});continue;}
+    const {error:eSet}=await sb.rpc('set_paquete_pdf',{p_paquete_id:id,p_path:`${id}.pdf`});
+    if(eSet){problemas.push(pdf.name+': se subió pero no quedó registrado ('+eSet.message+')');}
+    creados.push({id,pdf:pdf.name,nombreManual:!!(unoSolo&&nombre)});
   }
-  setBtnLoading('btn-guardar-paquete',false,'Agregar paquete');
-  await registrarLog('agregar_paquete','vuelo',_paqVueloId,{nombre,codigo,con_pdf:!!pdf});
+
+  // ── 2 · Procesar con IA, de a tandas ─────────────────────────────────────────────────────────
+  const aProcesar=CONFIG.PAQUETES_IA_ENABLED?creados.filter(c=>c.pdf):[];
+  let listos=0;
+  for(let i=0;i<aProcesar.length;i+=PAQ_EN_PARALELO){
+    const tanda=aProcesar.slice(i,i+PAQ_EN_PARALELO);
+    paqEstado(`Leyendo con IA ${listos+1}-${Math.min(listos+tanda.length,aProcesar.length)} de ${aProcesar.length}… (esto tarda)`);
+    await Promise.all(tanda.map(async c=>{
+      try{
+        const r=await invocarFuncion('paquete-extraer',{paquete_id:c.id,renombrar:!c.nombreManual});
+        await registrarLog('procesar_paquete_ia','paquete',c.id,{modelo:r?.modelo,tokens_in:r?.tokens_in,tokens_out:r?.tokens_out,costo_usd:r?.costo_usd});
+      }catch(e){ problemas.push(c.pdf+': se subió pero la IA no pudo leerlo ('+e.message+'). Reprocesalo desde el cupo.'); }
+    }));
+    listos+=tanda.length;
+  }
+
+  setBtnLoading('btn-guardar-paquete',false,'Agregar y procesar');
+  await registrarLog('agregar_paquete','vuelo',_paqVueloId,{cantidad:creados.length,con_pdf:creados.filter(c=>c.pdf).length});
   cerrarModal('modal-paquete');
-  if(avisoPdf)alert(avisoPdf);
+  if(problemas.length)alert(`${creados.length-problemas.length} de ${lista.length} quedaron bien.\n\nCon problemas:\n· ${problemas.join('\n· ')}`);
+  else if(aProcesar.length)alert(`${aProcesar.length} paquete${aProcesar.length===1?'':'s'} cargado${aProcesar.length===1?'':'s'} y leído${aProcesar.length===1?'':'s'}.\n\nQuedaron en BORRADOR: revisalos contra el PDF de Atlas y publicá los que estén bien.`);
   cargarDetalle(_paqVueloId);
 }
 // Ver el PDF original de Atlas. El bucket es PRIVADO: se abre con una URL firmada de 5 minutos, que
@@ -4775,10 +4821,14 @@ async function procesarPaqueteIA(vueloId,paqueteId,btn){
   const txt=btn?btn.innerHTML:'';
   if(btn){btn.disabled=true;btn.innerHTML='⏳ Leyendo el PDF…';}
   try{
-    const r=await invocarFuncion('paquete-extraer',{paquete_id:paqueteId});
-    await registrarLog('procesar_paquete_ia','paquete',paqueteId,{nombre:p.nombre_visible,modelo:r?.modelo,tokens_in:r?.tokens_in,tokens_out:r?.tokens_out,costo_usd:r?.costo_usd});
+    // b116 — se renombra solo si el nombre es el provisional que puso la app. Si Operaciones escribió
+    // uno a propósito, no se le pisa.
+    const esProvisional=/^Sin procesar · /.test(p.nombre_visible||'');
+    const r=await invocarFuncion('paquete-extraer',{paquete_id:paqueteId,renombrar:esProvisional});
+    await registrarLog('procesar_paquete_ia','paquete',paqueteId,{nombre:p.nombre_visible,modelo:r?.modelo,tokens_in:r?.tokens_in,tokens_out:r?.tokens_out,costo_usd:r?.costo_usd,renombrado:r?.renombrado});
     const d=r&&r.datos||{};
-    alert(`Listo: ${(d.hoteles||[]).length} hotel${(d.hoteles||[]).length===1?'':'es'}, ${(d.vuelos||[]).length} tramo${(d.vuelos||[]).length===1?'':'s'} y ${(d.itinerario||[]).length} día${(d.itinerario||[]).length===1?'':'s'} de itinerario.\n\nQuedó en BORRADOR. Miralo con "Vista previa", comparalo contra el PDF de Atlas y publicalo.`);
+    const comoQueda=r?.renombrado?`\n\nQuedó nombrado "${r.nombre_sugerido}".`:'';
+    alert(`Listo: ${(d.hoteles||[]).length} hotel${(d.hoteles||[]).length===1?'':'es'} y ${(d.vuelos||[]).length} tramo${(d.vuelos||[]).length===1?'':'s'}.${comoQueda}\n\nEstá en BORRADOR. Miralo con "Vista previa", comparalo contra el PDF de Atlas y publicalo.`);
   }catch(e){
     alert('No se pudo procesar el paquete:\n\n'+e.message);
   }finally{
