@@ -4327,7 +4327,7 @@ async function abrirAjustarHorarios(vueloId){
   let html='<table><thead><tr><th>Tramo</th><th>Fecha</th><th>Vuelo</th><th>Ruta</th><th>Salida</th><th>Llegada</th></tr></thead><tbody>';
   v.itinerario.forEach((t,i)=>{
     const f=/^\d{4}-\d{2}-\d{2}$/.test(t.fecha||'')?t.fecha.split('-').reverse().join('/'):(t.fecha||'—');
-    const inp=(id,val,ph)=>`<input class="form-input" id="${id}" value="${esc(val||'')}" data-orig="${esc(val||'')}" placeholder="${ph}" style="padding:5px 8px;font-size:12px;max-width:120px" oninput="this.style.borderColor=this.value.trim()!==this.dataset.orig?'var(--yellow)':''"/><div style="font-size:10px;color:var(--muted);margin-top:2px">hoy: ${esc(val||'—')}</div>`;
+    const inp=(id,val,ph)=>`<input class="form-input" id="${id}" value="${esc(val||'')}" data-orig="${esc(val||'')}" placeholder="${ph}" style="padding:5px 8px;font-size:12px;max-width:120px" oninput="this.style.borderColor=this.value.trim()!==this.dataset.orig?'var(--yellow)':'';document.getElementById('modal-hor-alert').innerHTML=''"/><div style="font-size:10px;color:var(--muted);margin-top:2px">hoy: ${esc(val||'—')}</div>`;
     html+=`<tr><td>${esc(t.tipo||'Ida')}</td><td>${esc(f)}</td><td>${esc([t.aerolinea,t.vuelo].filter(Boolean).join(' '))||'—'}</td>
       <td>${esc([t.origen,t.destino].filter(Boolean).join(' → '))||'—'}</td>
       <td>${inp(`hor-s-${i}`,t.salida,'07:50')}</td><td>${inp(`hor-l-${i}`,t.llegada,'10:40 o 01:10 +1')}</td></tr>`;
