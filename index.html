@@ -284,7 +284,7 @@
       <div id="temp-selector-wrap" class="temp-selector"></div>
     </div>
     <div style="display:flex;gap:12px;flex-wrap:wrap">
-      <div style="display:flex;flex-direction:column;gap:3px"><label class="form-label" style="font-size:10px;margin:0">Filtrar cupos</label><input class="search-input" type="text" placeholder="Por nombre, ciudad o región" oninput="filtrarVuelos(this.value)"/></div>
+      <div style="display:flex;flex-direction:column;gap:3px"><label class="form-label" style="font-size:10px;margin:0">Filtrar cupos</label><input class="search-input" type="text" placeholder="Por nombre, ciudad, región o PNR" oninput="filtrarVuelos(this.value)"/></div>
       <div id="tp-buscar-pax" style="display:flex;flex-direction:column;gap:3px"><label class="form-label" style="font-size:10px;margin:0">Buscar pasajero</label><input class="search-input" type="text" placeholder="🔎 En todos los cupos" oninput="buscarPasajeros(this.value)"/></div>
       <div id="btn-export-temp-wrap" style="display:none;align-items:flex-end"><button class="btn btn-excel" onclick="exportarTemporada()" title="Una fila por lugar de todos los cupos de la temporada, para conciliar con la planilla">⬇ Exportar temporada</button></div>
     </div>
@@ -1025,7 +1025,7 @@ const sb=supabase.createClient(CONFIG.SUPABASE_URL,CONFIG.SUPABASE_ANON_KEY,{
 // ⚠️ Una sola versión por cadena y CORTA: el detalle va al CHANGELOG.md, no acá. Nacho ve este texto
 // completo en el encabezado (el resto ve solo el "bNN") y si es largo se desborda; además `APP_VERSION_CORTA`
 // saca el número con un match, así que dos "bNN" en la misma cadena confunden cuál es la versión.
-const APP_VERSION='Fase 2 · 2026-10-14 (b123-TEST · Un admin puede ajustar los horarios de un cupo EMITIDO sin sacarle la marca. Paquetes con IA prendido, solo TEST.)';
+const APP_VERSION='Fase 2 · 2026-10-28 (b124-TEST · PNR en el listado y filtro por PNR/palabras · Aviso al equipo al crear cupos. Paquetes con IA prendido, solo TEST.)';
 // Columnas de 'vuelos' legibles por cualquier usuario. EXCLUYE precio_neto: el admin lo lee por RPC admin_get_precio_neto (gateada por es_admin). No usar select('*') sobre vuelos: la columna precio_neto quedó revocada a authenticated.
 // ⚠️ Toda columna que se agregue acá necesita `grant select (col) to authenticated` en la base, si no
 // PostgREST tira 400 y se cae la pantalla entera (gotcha #6). `emitido` viene de la migración 2026-08-06.
@@ -1142,6 +1142,47 @@ async function avisarCambioCupo(v,itiViejo,itiNuevo,cambios){
     };
     await fetch(N8N_WEBHOOK_ITINERARIO,{method:'POST',mode:'no-cors',body:JSON.stringify(payload)});
   }catch(e){console.warn('[AvisoCupo] no se pudo avisar:',e);}
+}
+// b124 (pedido de Nacho): aviso de CUPO(S) NUEVO(S) a todo el equipo. Va por el MISMO workflow que el aviso de
+// cambios (tipo 'nuevo' + la lista `cupos_nuevos`) a propósito: ese webhook ya está apagado en TEST por el
+// sync, así que TEST no puede mandarle un mail real a nadie. En una carga masiva sale UN mail con todos los
+// cupos tildados, no uno por cupo. El valor neto nunca viaja (información reservada).
+// Devuelve false si no se mandó (ambiente sin webhook o sin destinatarios), para que quien llama lo diga.
+async function avisarCuposNuevos(cupos){
+  try{
+    if(!N8N_WEBHOOK_ITINERARIO||!Array.isArray(cupos)||!cupos.length) return false;
+    const destinatarios=(Array.isArray(vendedores)?vendedores:[]).filter(u=>u&&u.rol!=='travel_partner'&&u.email).map(u=>u.email);
+    if(!destinatarios.length) return false;
+    const uno=cupos.length===1?cupos[0]:null;
+    const payload={
+      secret:CUPOS_WEBHOOK_SECRET,
+      cupo:uno?(uno.nombre||''):`${cupos.length} cupos nuevos`,
+      destino:uno?(uno.ciudad_nombre||uno.destino||''):'',
+      aerolinea:uno?(uno.aerolinea||''):'',
+      fecha_salida:uno&&uno.fecha?String(uno.fecha).slice(0,10):'',
+      localizador:'',
+      url:location.origin+location.pathname,
+      editor:(vendedores.find(x=>x.email===currentUser?.email)?.nombre||currentUser?.email||'?'),
+      editor_email:currentUser?.email||'',
+      cambios:[{tipo:'nuevo',etiqueta:uno?'un cupo nuevo a la venta':`${cupos.length} cupos nuevos a la venta`}],
+      itinerario_anterior:[],itinerario_nuevo:[],
+      cupos_nuevos:cupos.map(c=>({
+        cupo:c.nombre||'',ciudad:c.ciudad_nombre||'',region:c.destino||'',aerolinea:c.aerolinea||'',
+        fecha_salida:c.fecha?String(c.fecha).slice(0,10):'',
+        precio:(c.precio==null||c.precio==='')?null:Number(c.precio),
+        lugares:c.total_lugares==null?null:Number(c.total_lugares),
+        nota:c.nota||'',
+        itinerario:Array.isArray(c.itinerario)?c.itinerario:[]})),
+      destinatarios
+    };
+    await fetch(N8N_WEBHOOK_ITINERARIO,{method:'POST',mode:'no-cors',body:JSON.stringify(payload)});
+    return true;
+  }catch(e){console.warn('[AvisoCupoNuevo] no se pudo avisar:',e);return false;}
+}
+// Resumen de una línea por cupo, para los cuadros de confirmación y para TEST (donde el mail está apagado).
+function lineaCupoNuevo(c){
+  const f=c.fecha?String(c.fecha).slice(0,10).split('-').reverse().join('/'):'sin fecha';
+  return `  • ${c.nombre||'(sin nombre)'} — ${f} — ${c.precio?'USD '+Number(c.precio).toLocaleString('es-UY'):'sin precio'} — ${c.total_lugares||'?'} lugares`;
 }
 // #5: la descripción larga de la versión la ve SOLO Nacho; el resto ve solo el número (derivado de APP_VERSION).
 const APP_VERSION_CORTA=(APP_VERSION.match(/b\d+(?:-[A-Za-z]+)?/)||['—'])[0];
@@ -1289,6 +1330,10 @@ const accionDeLugar=l=>(l&&l.accion_id)?(accionesComerciales.find(a=>a.id===l.ac
 let accionesPorCupo={};
 // b121 — cupos con ventas vivas dentro de lugares reducidos. Solo se llena para admin/Operaciones.
 let ventasReducidasPorCupo={};
+// b124 — {vuelo_id: PNR}, para la columna del listado y para encontrar un cupo por su PNR en "Filtrar
+// cupos". Sale de la RPC localizadores_temporada (una sola llamada por temporada; el Travel Partner
+// recibe vacío, igual que en get_localizador).
+let localizadoresPorCupo={};
 // Texto blanco o negro sobre el color de la acción, según cuál se lea. El color lo elige el admin y
 // puede ser claro: un amarillo con texto blanco no se lee. Luminancia percibida (ITU-R BT.601).
 function textoSobre(hex){
@@ -1941,6 +1986,15 @@ async function cargarVuelos(){
       (vr||[]).forEach(r=>{ventasReducidasPorCupo[r.vuelo_id]=r.pax;});
     }catch(e){console.warn('[ventas en reducidos]',e);}   // si falla, el listado sale igual
   }
+  // b124 (pedido de Nacho): el PNR de cada cupo, para la última columna y para el filtro. Lo ve quien ya lo
+  // ve en el detalle del cupo; el Travel Partner no (ni se pide). Si falla, el listado sale igual, sin PNR.
+  localizadoresPorCupo={};
+  if(rolEfectivo!=='travel_partner'){
+    try{
+      const {data:locs}=await sb.rpc('localizadores_temporada',{p_temporada_id:temporadaActiva});
+      (locs||[]).forEach(r=>{localizadoresPorCupo[r.vuelo_id]=r.localizador;});
+    }catch(e){console.warn('[PNR del listado]',e);}
+  }
   // b101: tandas. Si la consulta falla, no se oculta nada (se ve como antes de b101), nunca se cae el listado.
   // El Travel Partner queda afuera: su RPC no trae continua_de (y hoy no hay TP en uso).
   tandasInfo={};tandasOcultas=new Set();tandasSiguiente={};
@@ -2024,6 +2078,7 @@ function renderVuelos(lista){
   if(!lista.length){cont.innerHTML='<div class="loading">No hay cupos en esta temporada</div>';return;}
   const esAdmin=rolEfectivo==='admin';
   const verTandas=esAdmin||rolEfectivo==='operaciones';
+  const verPnr=rolEfectivo!=='travel_partner';   // b124
   const filas=lista.map(v=>{
     // b103 (pedido de Nacho): para quien ve UNA sola tanda por salida, esa fila ya no representa un cupo
     // sino LA SALIDA: los contadores suman toda la cadena. Si dijeran 12 cuando entre las dos tandas hay
@@ -2079,9 +2134,11 @@ function renderVuelos(lista){
       <td class="c-green">${d.lV}</td>
       <td>${d.pct}%</td>
       <td><span class="badge ${d.cls}">${d.txt}</span></td>
+      ${verPnr?`<td style="font-family:'DM Mono',monospace;font-size:12px;color:var(--accent2);white-space:nowrap">${esc(localizadoresPorCupo[d.id]||'')||'—'}</td>`:''}
     </tr>`;
   };
-  const tabla=(arr)=>`<div class="table-wrap"><table class="sortable"><thead><tr><th>Cupo</th><th>Región</th><th>Ciudad</th><th>Fecha</th><th>Precio</th><th>Total</th><th>Vendidos</th><th>Reservados</th><th>Libres</th><th>Ocup.</th><th>Alerta</th></tr></thead><tbody>${arr.map(filaHTML).join('')}</tbody></table></div>`;
+  // b124: la columna PNR va al final y solo para quien puede ver el PNR (todos menos el Travel Partner).
+  const tabla=(arr)=>`<div class="table-wrap"><table class="sortable"><thead><tr><th>Cupo</th><th>Región</th><th>Ciudad</th><th>Fecha</th><th>Precio</th><th>Total</th><th>Vendidos</th><th>Reservados</th><th>Libres</th><th>Ocup.</th><th>Alerta</th>${verPnr?'<th>PNR</th>':''}</tr></thead><tbody>${arr.map(filaHTML).join('')}</tbody></table></div>`;
   // b96 (pedido de Nacho): los cupos que YA VIAJARON bajan a una sección aparte, plegada, al fondo.
   // 🔑 "No está a la venta" y "ya viajó" no son lo mismo: un cupo completo sigue siendo trabajo (hay
   // pasajeros que gestionar), pero uno que ya despegó no tiene por qué competir por la atención del
@@ -2105,12 +2162,17 @@ function renderVuelos(lista){
 // b120 (pedido de Rodrigo vía Nacho): el filtro también busca por REGIÓN — escribir "Brasil" o "Caribe"
 // trae todos los cupos de esa región. `destino` es la región en la base; es la columna que el listado
 // muestra como "Región".
+// b124 (pedido de Nacho): también busca por PNR, y por PALABRAS en cualquier orden, como el buscador de
+// pasajeros (b104): "recife jetsmart" encuentra "Recife - JetSmart - 08JAN" aunque en el nombre haya un
+// guion en el medio, y "jetsmart recife" también. Se exigen TODAS las palabras (con "alguna", "natal gol"
+// traería todos los Natal y todos los GOL), cada una en cualquiera de los campos.
 function filtrarVuelos(q){
-  const t=sinTildes(q);
-  renderVuelos(vuelosData.filter(v=>
-    sinTildes(v.nombre).includes(t)||
-    sinTildes(v.ciudad_nombre).includes(t)||
-    sinTildes(v.destino).includes(t)));
+  const palabras=sinTildes(q).split(/[\s\-–·,]+/).filter(Boolean);
+  if(!palabras.length){renderVuelos(vuelosData);return;}
+  renderVuelos(vuelosData.filter(v=>{
+    const texto=[v.nombre,v.ciudad_nombre,v.destino,localizadoresPorCupo[v.id]].map(sinTildes).join(' ');
+    return palabras.every(p=>texto.includes(p));
+  }));
 }
 
 // ── BÚSQUEDA DE PASAJEROS ────────────────────────
@@ -5476,6 +5538,17 @@ async function guardarVuelo(){
         if(eT) alert(`El cupo "${datos.nombre}" se creó, pero NO quedó marcado como tanda:\n\n${eT.message}\n\nMientras no se vincule, el vendedor lo ve como un cupo más, con su precio. Vinculalo desde "Editar cupo" → "Tanda de".`);
       }
       agendarEventosCupo({...datos,vuelo_id:nuevoId}); // fire-and-forget: agenda eventos en Google Calendar vía n8n (#75: con vuelo_id para el upsert futuro)
+      // b124 (pedido de Nacho): aviso de cupo nuevo al equipo. Se PREGUNTA siempre, como el aviso de cambios
+      // en "Editar cupo". Solo si el cupo quedó visible: avisar de uno que el vendedor no ve es mandarlo a
+      // buscar algo que no está. Una tanda avisa igual, con una nota de que es la misma salida a otro precio.
+      if(datos.visible){
+        const cn={...datos,total_lugares,nota:_modoTanda?'Tanda nueva: más lugares para esta misma salida, a otro precio.':''};
+        if(N8N_WEBHOOK_ITINERARIO){
+          if(confirm(`${_modoTanda?'Tanda creada':'Cupo creado'}:\n\n${lineaCupoNuevo(cn)}\n\n¿Enviar un aviso por mail a todo el equipo (vendedores + Operaciones) de que hay un cupo nuevo a la venta?`)) avisarCuposNuevos([cn]);
+        }else{
+          alert(`${_modoTanda?'Tanda creada':'Cupo creado'}. El aviso por mail al equipo diría que hay un cupo nuevo a la venta:\n\n${lineaCupoNuevo(cn)}\n\nEn este ambiente el aviso por mail está apagado: no se envía nada.`);
+        }
+      }
       setBtnLoading('btn-crear-vuelo',false,_modoTanda?'Crear tanda':'Crear cupo');
       mostrarAlerta('modal-v-alert',_modoTanda?`Tanda creada con ${total_lugares} lugares`:`Vuelo creado con ${total_lugares} lugares`,'success');
       setTimeout(()=>{cerrarModal('modal-vuelo')},1200);
@@ -5739,7 +5812,7 @@ async function crearCuposMasivos(){
   if(malos.length){mostrarAlerta('modal-m-alert',`${malos.length} cupo(s) sin completar (nombre o total de lugares). Si el PNR no trajo los lugares, completá el número a mano — no se asume ninguno.`,'error');return;}
   setBtnLoading('btn-crear-masivo',true,'Crear cupos');
   await asegurarTokenFresco();
-  let ok=0; const errores=[];
+  let ok=0; const errores=[]; cuposMasivosCreados=[];
   for(const f of filas){
     try{
       // M6: alta ATÓMICA del cupo en la base (vuelo + lugares + bloqueo Operaciones + lista de espera en una sola transacción). Antes eran 4 escrituras sueltas: un fallo parcial dejaba un vuelo sin lugares.
@@ -5753,6 +5826,7 @@ async function crearCuposMasivos(){
         p_cal_dias_salida:null}),'RPC crear_cupo masivo');   // b98: explícito, aunque la RPC lo tenga por defecto
       if(error){errores.push(`${f.nombre}: ${error.message}`);continue;}
       await registrarLog('crear_cupo','vuelo',nuevoId,{nombre:f.nombre,total:f.total_lugares,via:'masivo'});
+      cuposMasivosCreados.push({...f,id:nuevoId});
       ok++;
     }catch(e){errores.push(`${f.nombre}: ${e.message}`);}
   }
@@ -5761,8 +5835,54 @@ async function crearCuposMasivos(){
     mostrarAlerta('modal-m-alert',`Creados ${ok}/${filas.length}. Errores: ${errores.join(' | ')}`,ok>0?'success':'error');
   }else{
     mostrarAlerta('modal-m-alert',`${ok} cupo(s) creado(s) correctamente`,'success');
-    setTimeout(()=>{cerrarModal('modal-masivo');cargarAdmin();},1300);
   }
+  // b124 (pedido de Nacho): después de crear, la lista de lo creado con TODO tildado para avisar al equipo;
+  // se destilda el que no se quiere avisar. Antes el modal se cerraba solo a los 1,3 s.
+  if(cuposMasivosCreados.length) renderAvisoMasivo();
+}
+
+// b124 — Paso 2 de la carga masiva: a qué cupos nuevos se les avisa al equipo. Sale UN mail con los tildados.
+let cuposMasivosCreados=[];
+function renderAvisoMasivo(){
+  document.getElementById('btn-crear-masivo').style.display='none';
+  const n=cuposMasivosCreados.length;
+  let html=`<div style="background:rgba(96,165,250,0.08);border:1px solid rgba(96,165,250,0.2);border-radius:8px;padding:10px;font-size:13px;color:#8ec1ff;margin-bottom:12px">
+    <b>¿Avisamos al equipo?</b> Sale <b>un solo mail</b> a todos los vendedores y Operaciones con los cupos que queden tildados.
+    Destildá los que no quieras avisar todavía.</div>
+    <div style="display:flex;gap:6px;margin-bottom:8px"><button type="button" class="btn-sm" onclick="document.querySelectorAll('.m-av-chk').forEach(c=>c.checked=true);contarAvisoMasivo()">Marcar todos</button><button type="button" class="btn-sm" onclick="document.querySelectorAll('.m-av-chk').forEach(c=>c.checked=false);contarAvisoMasivo()">Desmarcar todos</button></div>
+    <div class="table-wrap" style="margin-bottom:12px"><table><thead><tr><th>Avisar</th><th>Cupo</th><th>Salida</th><th>Aerolínea</th><th>Precio</th><th>Lugares</th></tr></thead><tbody>`;
+  cuposMasivosCreados.forEach((c,i)=>{
+    const f=c.fecha?String(c.fecha).split('-').reverse().join('/'):'—';
+    html+=`<tr><td><input type="checkbox" class="m-av-chk" data-i="${i}" checked onchange="contarAvisoMasivo()" style="width:15px;height:15px"/></td>
+      <td>${esc(c.nombre)}</td><td>${f}</td><td>${esc(c.aerolinea||'—')}</td>
+      <td>${c.precio?'USD '+Number(c.precio).toLocaleString('es-UY'):'<span style="color:var(--orange)" title="Se cargó sin precio: el mail va a decir que está a confirmar">sin precio</span>'}</td>
+      <td>${c.total_lugares||'—'}</td></tr>`;
+  });
+  html+=`</tbody></table></div>
+    <div class="modal-actions" style="margin-top:0">
+      <button type="button" class="btn btn-outline" onclick="cerrarAvisoMasivo()">No avisar</button>
+      <button type="button" class="btn btn-primary" id="btn-aviso-masivo" onclick="enviarAvisoMasivo()">📧 Avisar al equipo (${n})</button>
+    </div>`;
+  document.getElementById('m-preview').innerHTML=html;
+}
+function contarAvisoMasivo(){
+  const n=document.querySelectorAll('.m-av-chk:checked').length;
+  const b=document.getElementById('btn-aviso-masivo');
+  if(b){b.textContent=`📧 Avisar al equipo (${n})`;b.disabled=n===0;}
+}
+function cerrarAvisoMasivo(){cuposMasivosCreados=[];cerrarModal('modal-masivo');cargarAdmin();}
+async function enviarAvisoMasivo(){
+  const elegidos=Array.prototype.slice.call(document.querySelectorAll('.m-av-chk')).filter(c=>c.checked).map(c=>cuposMasivosCreados[+c.dataset.i]);
+  if(!elegidos.length){mostrarAlerta('modal-m-alert','No tildaste ningún cupo para avisar. Si no querés avisar, tocá "No avisar".','error');return;}
+  const listado=elegidos.map(lineaCupoNuevo).join('\n');
+  if(N8N_WEBHOOK_ITINERARIO){
+    if(!confirm(`Se manda UN mail a todo el equipo (vendedores + Operaciones) con ${elegidos.length} cupo${elegidos.length===1?'':'s'} nuevo${elegidos.length===1?'':'s'}:\n\n${listado}\n\n¿Confirmás?`))return;
+    const ok=await avisarCuposNuevos(elegidos);
+    alert(ok?'Aviso enviado al equipo.':'No se pudo mandar el aviso (no hay destinatarios cargados).');
+  }else{
+    alert(`El aviso por mail al equipo diría que hay ${elegidos.length} cupo(s) nuevo(s) a la venta:\n\n${listado}\n\nEn este ambiente el aviso por mail está apagado: no se envía nada.`);
+  }
+  cerrarAvisoMasivo();
 }
 
 // ── AUTH ─────────────────────────────────────────
