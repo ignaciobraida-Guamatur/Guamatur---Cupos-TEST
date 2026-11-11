@@ -383,7 +383,7 @@
       </div>
       <div class="form-group"><label class="form-label">Factura <span style="color:var(--muted)">(con Ficha cargada → pasa a Vendido)</span></label><input class="form-input" id="p-factura"/></div>
       <div class="form-group" id="p-fecha-reserva-group" style="display:none"><label class="form-label">Fecha de reserva <span style="color:var(--muted)">(admin)</span></label><input class="form-input" id="p-fecha-reserva" type="datetime-local"/></div>
-      <div class="form-group full"><label class="form-label">Comentarios <span style="color:var(--muted)">(condiciones legales, observaciones del pasajero)</span></label><textarea class="form-textarea" id="p-comentarios" placeholder="Ej: menor viaja con autorización notarial / pasaporte vence 2027..."></textarea></div>
+      <div class="form-group full"><label class="form-label">Comentarios y pedidos adicionales <span style="color:var(--muted)">(asiento, comida especial, asistencia en aeropuerto, condiciones legales…) · Aéreos los ve en la planilla del cupo</span></label><textarea class="form-textarea" id="p-comentarios" placeholder="Ej: pide ventanilla / comida sin gluten / silla de ruedas en el aeropuerto / menor viaja con autorización notarial..."></textarea></div>
     </div>
     <div style="border-top:1px solid var(--border);margin-top:4px;padding-top:14px">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
@@ -1025,7 +1025,7 @@ const sb=supabase.createClient(CONFIG.SUPABASE_URL,CONFIG.SUPABASE_ANON_KEY,{
 // ⚠️ Una sola versión por cadena y CORTA: el detalle va al CHANGELOG.md, no acá. Nacho ve este texto
 // completo en el encabezado (el resto ve solo el "bNN") y si es largo se desborda; además `APP_VERSION_CORTA`
 // saca el número con un match, así que dos "bNN" en la misma cadena confunden cuál es la versión.
-const APP_VERSION='Fase 2 · 2026-11-11 (b125-TEST · Pestaña "Reservas" para admin y Operaciones con las reservas de todos los vendedores · Delegación filtrada por asistente. Paquetes con IA prendido, solo TEST.)';
+const APP_VERSION='Fase 2 · 2026-11-11 (b126-TEST · Pedidos de Aéreos: fecha exacta, salida sin más lugares, PNR en el aviso, año del PNR, comentarios · sobre b125. Paquetes con IA prendido, solo TEST.)';
 // Columnas de 'vuelos' legibles por cualquier usuario. EXCLUYE precio_neto: el admin lo lee por RPC admin_get_precio_neto (gateada por es_admin). No usar select('*') sobre vuelos: la columna precio_neto quedó revocada a authenticated.
 // ⚠️ Toda columna que se agregue acá necesita `grant select (col) to authenticated` en la base, si no
 // PostgREST tira 400 y se cae la pantalla entera (gotcha #6). `emitido` viene de la migración 2026-08-06.
@@ -1291,7 +1291,11 @@ function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;',
     </tr>
     <tr>
       <td style="padding:3px 6px;font-size:11px;color:var(--muted)">Días antes de la salida</td>
-      ${CAL_EVENTOS.map(e=>`<td style="padding:3px 6px;text-align:center"><input class="form-input" id="${e.inputId}" type="number" min="0" placeholder="No aplica" style="width:96px;text-align:center;padding:5px 6px;margin:0 auto"/></td>`).join('')}
+      ${CAL_EVENTOS.map(e=>`<td style="padding:3px 6px;text-align:center"><input class="form-input" id="${e.inputId}" type="number" min="0" placeholder="No aplica" oninput="calDiasAFecha('${e.inputId}')" style="width:96px;text-align:center;padding:5px 6px;margin:0 auto"/></td>`).join('')}
+    </tr>
+    <tr>
+      <td style="padding:3px 6px;font-size:11px;color:var(--muted)" title="Elegí la fecha en el calendario y se calculan los días; o poné los días y se muestra la fecha">o fecha exacta 📅</td>
+      ${CAL_EVENTOS.map(e=>`<td style="padding:3px 6px;text-align:center"><input class="form-input" id="${e.inputId}-fecha" type="date" onchange="calFechaADias('${e.inputId}')" style="width:132px;padding:5px 6px;margin:0 auto;font-size:12px"/><div id="${e.inputId}-hint" style="font-size:10px;color:var(--muted);margin-top:2px;min-height:12px"></div></td>`).join('')}
     </tr>
   </thead>
   <tbody>
@@ -1334,6 +1338,10 @@ let ventasReducidasPorCupo={};
 // cupos". Sale de la RPC localizadores_temporada (una sola llamada por temporada; el Travel Partner
 // recibe vacío, igual que en get_localizador).
 let localizadoresPorCupo={};
+// b126 (pedido de Rodrigo, Aéreos): salidas en las que la aerolínea no da más lugares. vuelo_id → {nota,
+// marcado_por, marcado_en}. Viene de la RPC sin_mas_lugares_temporada, que ya devuelve TODAS las tandas de la
+// salida marcada (la marca cuelga del cupo original). La ven todos los usuarios habilitados (decisión de Nacho).
+let sinMasLugaresPorCupo={};
 // Texto blanco o negro sobre el color de la acción, según cuál se lea. El color lo elige el admin y
 // puede ser claro: un amarillo con texto blanco no se lee. Luminancia percibida (ITU-R BT.601).
 function textoSobre(hex){
@@ -2110,6 +2118,14 @@ async function cargarVuelos(){
       (locs||[]).forEach(r=>{localizadoresPorCupo[r.vuelo_id]=r.localizador;});
     }catch(e){console.warn('[PNR del listado]',e);}
   }
+  // b126: salidas marcadas "sin más lugares". Si falla, el listado sale igual, sin la pastilla.
+  sinMasLugaresPorCupo={};
+  if(rolEfectivo!=='travel_partner'){
+    try{
+      const {data:sm}=await sb.rpc('sin_mas_lugares_temporada',{p_temporada_id:temporadaActiva});
+      (sm||[]).forEach(r=>{sinMasLugaresPorCupo[r.vuelo_id]=r;});
+    }catch(e){console.warn('[sin más lugares]',e);}
+  }
   // b101: tandas. Si la consulta falla, no se oculta nada (se ve como antes de b101), nunca se cae el listado.
   // El Travel Partner queda afuera: su RPC no trae continua_de (y hoy no hay TP en uso).
   tandasInfo={};tandasOcultas=new Set();tandasSiguiente={};
@@ -2223,6 +2239,8 @@ function renderVuelos(lista){
     const vRed=ventasReducidasPorCupo[d.id];
     const alertaRed=vRed?` <span class="badge badge-red" style="font-weight:700" title="Hay ${vRed} venta(s) o reserva(s) VIVAS en lugares que se dieron de baja del stock. Un lugar reducido no debería tener pasajeros adentro: revisá qué pasó con esa gente. Además, el vendedor NO las ve (ni en el listado ni en Mis reservas).">🔴 ${vRed} venta${vRed===1?'':'s'} en lugares dados de baja</span>`:'';
     const emit=d.emitido?' <span class="badge badge-yellow" title="Cupo emitido: congelado, no se puede tocar">🎫 EMITIDO</span>':'';
+    const sm=sinMasLugaresPorCupo[d.id];
+    const sinMas=sm?` <span class="badge badge-red" title="La aerolínea no da más lugares para esta salida${sm.nota?': '+esc(sm.nota):''}. Lo marcó ${esc(sm.marcado_por||'Aéreos')}${sm.marcado_en?' el '+formatFechaHora(sm.marcado_en):''}.">🚫 Sin más lugares</span>`:'';
     // b87: pastilla por acción comercial con lugares libres. Va con el color de la acción y su nombre,
     // así el vendedor identifica la preventa sin entrar al cupo. El "N libres" evita el malentendido de
     // creer que TODO el cupo es de la acción.
@@ -2238,7 +2256,7 @@ function renderVuelos(lista){
     const sig=(!verTandas)?tandasSiguiente[d.id]:null;
     const masStock=sig?` <span class="badge badge-l" style="border-color:var(--accent2);color:var(--accent2)" title="Cuando se agote este cupo, siguen ${sig.lugares} lugar(es) a USD ${Number(sig.precio||0).toLocaleString('es-UY')}${sig.hayMas?' (y todavía otra tanda más)':''}">🔁 +${sig.lugares} a USD ${Number(sig.precio||0).toLocaleString('es-UY')}</span>`:'';
     return `<tr style="cursor:pointer" onclick="goToDetalle('${d.id}')">
-      <td style="color:var(--accent2);font-weight:500">${esc(d.nombre)}${oculto}${tanda}${masStock}${redu}${alertaRed}${emit}${acc}</td>
+      <td style="color:var(--accent2);font-weight:500">${esc(d.nombre)}${oculto}${tanda}${masStock}${redu}${alertaRed}${emit}${sinMas}${acc}</td>
       <td><span class="badge ${regionBadge(d.destino)}">${esc(d.destino)||'—'}</span></td>
       <td>${esc(d.ciudad_nombre)||'—'}</td>
       <td data-sort="${d.fecha||''}">${d.fecha?formatFecha(d.fecha):'—'}</td>
@@ -2388,6 +2406,12 @@ async function cargarDetalle(vueloId){
   // El localizador (PNR del operador) tampoco viaja en el select (revocado a authenticated); se trae por RPC gateada (excluye Travel Partner).
   let localizadorCupo=null;
   if(vuelo){const {data:loc}=await sb.rpc('get_localizador',{p_vuelo_id:vueloId});localizadorCupo=loc;}
+  // b126: ¿la salida está marcada "sin más lugares"? (la RPC ya resuelve la cadena de tandas)
+  let sinMasCupo=null;
+  if(vuelo&&vuelo.temporada_id&&rolEfectivo!=='travel_partner'){
+    try{const {data:sm}=await sb.rpc('sin_mas_lugares_temporada',{p_temporada_id:vuelo.temporada_id});sinMasCupo=(sm||[]).find(r=>r.vuelo_id===vueloId)||null;}
+    catch(e){console.warn('[sin más lugares]',e);}
+  }
   // b101: las tandas de esta salida (original + continuaciones), en orden.
   // b103: se cargan para TODOS los roles, con el stock y el precio de cada una. El vendedor sigue viendo
   // un solo cupo en la lista, pero acá adentro —donde cotiza— tiene que saber que hay más lugares y a
@@ -2487,6 +2511,7 @@ async function cargarDetalle(vueloId){
         ${esAdmin?`<button class="menu-item" onclick="this.closest('details').removeAttribute('open');abrirEditarVuelo('${vueloId}')">✏ Editar cupo</button>
         <button class="menu-item" title="Más lugares para esta misma salida, con otro PNR, otro neto y otro precio. El vendedor ve una sola tanda por vez." onclick="this.closest('details').removeAttribute('open');abrirNuevaTanda('${vueloId}')">➕ Nueva tanda (otro precio)</button>
         ${vuelo.emitido?`<button class="menu-item" title="La aerolínea cambió un horario: se ajustan las horas sin sacarle la marca de emitido, con aviso al equipo" onclick="this.closest('details').removeAttribute('open');abrirAjustarHorarios('${vueloId}')">🕓 Ajustar horarios</button>`:''}
+        <button class="menu-item" title="Para que todos sepan que no hay que pedirle más lugares a la aerolínea para esta salida (vale para todas sus tandas)" onclick="this.closest('details').removeAttribute('open');marcarSinMasLugares('${vueloId}',${sinMasCupo?'false':'true'})">${sinMasCupo?'✅ Sacar la marca de “sin más lugares”':'🚫 Marcar salida sin más lugares'}</button>
         <button class="menu-item" onclick="this.closest('details').removeAttribute('open');marcarEmitido('${vueloId}',${vuelo.emitido?'false':'true'})">${vuelo.emitido?'🔓 Sacar la marca de EMITIDO':'🎫 Marcar como EMITIDO (congela el cupo)'}</button>
         <button class="menu-item" onclick="this.closest('details').removeAttribute('open');imprimirItinerario('${vueloId}')">🖨 Imprimir / PDF</button>
         <button class="menu-item" onclick="this.closest('details').removeAttribute('open');abrirModalReducir('${vueloId}')">▾ Reducir plazas</button>
@@ -2500,6 +2525,14 @@ async function cargarDetalle(vueloId){
     </div>
   </div>`;
 
+  // b126: cartel de salida sin más lugares (lo ven todos).
+  if(sinMasCupo){
+    html+=`<div style="background:rgba(239,68,68,0.10);border:1px solid rgba(239,68,68,0.35);border-radius:10px;padding:10px 14px;margin-bottom:16px;color:var(--red);font-size:13px">
+      <b>🚫 SALIDA SIN MÁS LUGARES.</b> La aerolínea no da más lugares para esta salida${cadenaTandas.length?' (vale para todas sus tandas)':''}: no hace falta pedirle más.
+      ${sinMasCupo.nota?`<br>📝 ${esc(sinMasCupo.nota)}`:''}
+      <span style="color:var(--muted)">· Lo marcó ${esc(sinMasCupo.marcado_por||'Aéreos')}${sinMasCupo.marcado_en?' el '+formatFechaHora(sinMasCupo.marcado_en):''}.</span>
+    </div>`;
+  }
   // Cartel de cupo EMITIDO (pedido equipo admin, ago-2026): es lo primero que tiene que ver quien lo abre,
   // porque explica por qué todo lo demás va a rebotar.
   if(vuelo.emitido){
@@ -2721,7 +2754,7 @@ async function cargarDetalle(vueloId){
       <td>${libreSeat?'—':formatFechaHora(p?.fecha_reserva||p?.creado_en)}</td>
       <td class="${vencCls}">${st==='R'?(l.es_espera?'<span style="color:var(--muted)">sin venc. (espera)</span>':vText):(st==='V'?'<span style="color:var(--green)">Vendida</span>':'—')}</td>
       <td>${esc(p?.ficha)||'—'}</td>
-      <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(p?.comentarios)}">${esc(p?.comentarios)||'—'}</td>
+      <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(p?.comentarios)}">${(p?.comentarios&&!libreSeat)?`<span style="color:var(--yellow);font-weight:600">💬 ${esc(p.comentarios)}</span>`:'—'}</td>
       ${tdVoucher}
       ${hasAccion?`<td><div style="display:flex;gap:6px;flex-wrap:wrap">${accionCell}</div></td>`:''}
     </tr>`;
@@ -2734,7 +2767,7 @@ async function cargarDetalle(vueloId){
   }
 
   const thVoucher=colVoucher?`<th title="Tildar cuando el voucher ya se le envió al cliente. Lo ven y lo marcan Operaciones y los administradores.">🎫 Voucher enviado</th>`:'';
-  const headPlanilla=`<tr><th>#</th><th>Primer apellido</th><th>Segundo apellido</th><th>Primer nombre</th><th>Segundo nombre</th><th>Hotel</th><th>Vendedor</th><th>Status</th><th>Factura</th><th>Fecha reserva</th><th>Vencimiento</th><th>Ficha</th><th>Comentarios</th>${thVoucher}<th></th></tr>`;
+  const headPlanilla=`<tr><th>#</th><th>Primer apellido</th><th>Segundo apellido</th><th>Primer nombre</th><th>Segundo nombre</th><th>Hotel</th><th>Vendedor</th><th>Status</th><th>Factura</th><th>Fecha reserva</th><th>Vencimiento</th><th>Ficha</th><th title="Comentarios y pedidos adicionales del pasajero (asiento, comida, asistencia…)">Comentarios / pedidos</th>${thVoucher}<th></th></tr>`;
   html+=`<div class="table-wrap"><table class="planilla"><thead>${headPlanilla}</thead><tbody>`;
   lugaresActivos.forEach((l,idx)=>{html+=fila(l,'activo',true,numCols-1,idx+1);});
   if(lugaresReducidos.length){
@@ -3847,7 +3880,7 @@ async function exportarExcel(vueloId,nombreVuelo){
       if(st!=='V')return [''];
       return [p.voucher_enviado_en?`SÍ · ${formatFechaHora(p.voucher_enviado_en)}${p.voucher_enviado_por?' · '+p.voucher_enviado_por:''}`:'PENDIENTE'];
     };
-    const rows=[['#','Tipo','Primer Apellido','Segundo Apellido','Primer Nombre','Segundo Nombre','Hotel','Vendedor','Status','Factura','Fecha Reserva','Ficha','Comentarios'].concat(colVch?['Voucher enviado']:[])];
+    const rows=[['#','Tipo','Primer Apellido','Segundo Apellido','Primer Nombre','Segundo Nombre','Hotel','Vendedor','Status','Factura','Fecha Reserva','Ficha','Comentarios / pedidos adicionales'].concat(colVch?['Voucher enviado']:[])];
     const pushFila=(num,tipo,p,st)=>{
       rows.push([num,tipo,p.primer_apellido||'',p.segundo_apellido||'',p.primer_nombre||'',p.segundo_nombre||'',p.hotel||'',p.vendedor||'',st,p.factura||'',formatFechaHora(p.fecha_reserva),p.ficha||'',p.comentarios||''].concat(vchTxt(p,st)));
       const inf=p.id?infantMap[p.id]:null;
@@ -3888,7 +3921,7 @@ async function exportarTemporada(){
     const infantMap={};
     (infants||[]).forEach(inf=>{if(inf.pasajero_id)infantMap[inf.pasajero_id]=inf});
     const vueloInfo={};(vuelosData||[]).forEach(v=>{vueloInfo[v.id]=v;});
-    const rows=[['Cupo','Fecha salida','#','Tipo','Primer Apellido','Segundo Apellido','Primer Nombre','Segundo Nombre','Hotel','Vendedor','Status','Factura','Fecha Reserva','Ficha','Comentarios']];
+    const rows=[['Cupo','Fecha salida','#','Tipo','Primer Apellido','Segundo Apellido','Primer Nombre','Segundo Nombre','Hotel','Vendedor','Status','Factura','Fecha Reserva','Ficha','Comentarios / pedidos adicionales']];
     const pushFila=(vid,num,tipo,p,st)=>{
       const v=vueloInfo[vid]||{};
       rows.push([v.nombre||'',v.fecha?formatFecha(v.fecha):'',num,tipo,p.primer_apellido||'',p.segundo_apellido||'',p.primer_nombre||'',p.segundo_nombre||'',p.hotel||'',p.vendedor||'',st,p.factura||'',formatFechaHora(p.fecha_reserva),p.ficha||'',p.comentarios||'']);
@@ -4468,6 +4501,20 @@ async function marcarEmitido(vueloId,emitir){
   await asegurarTokenFresco();
   const {error}=await sb.rpc('marcar_cupo_emitido',{p_vuelo_id:vueloId,p_emitido:emitir});
   if(error){alert('No se pudo cambiar el estado del cupo: '+error.message);return;}
+  cargarDetalle(vueloId);
+}
+
+// b126 (pedido de Rodrigo): marcar/desmarcar una SALIDA sin más lugares. La marca cuelga del cupo original y
+// vale para todas las tandas; el candado real (solo admin) está en la RPC set_sin_mas_lugares.
+async function marcarSinMasLugares(vueloId,marcar){
+  let nota=null;
+  if(marcar){
+    nota=prompt('Marcar esta salida SIN MÁS LUGARES: la aerolínea no da más, no hay que pedirle.\nVale para todas las tandas de la salida y la ve todo el equipo.\n\nNota opcional (ej: "Azul no amplía", "confirmado por mail el 10/11"):','');
+    if(nota===null)return; // canceló
+  } else if(!confirm('Sacarle la marca de “sin más lugares” a esta salida.\n\n¿Confirmás?')) return;
+  await asegurarTokenFresco();
+  const {error}=await sb.rpc('set_sin_mas_lugares',{p_vuelo_id:vueloId,p_marcar:marcar,p_nota:nota});
+  if(error){alert('No se pudo cambiar la marca: '+error.message);return;}
   cargarDetalle(vueloId);
 }
 
@@ -5710,16 +5757,27 @@ function parsearItinerarioPegado(){
   const tramos=[];
   txt.split(/\r?\n/).forEach(l=>{const t=parsearLineaItinerario(l);if(t)tramos.push(t);});
   if(!tramos.length){msg.style.color='var(--red)';msg.textContent='No pude detectar tramos. Cargalos a mano o revisá el formato.';return;}
+  // b126 (pedido de Diego Busch): el AÑO. Antes cada tramo tomaba el año actual, así que un cupo de marzo
+  // cargado en noviembre quedaba en el marzo que ya pasó. Ahora, igual que la carga masiva (fechaISOInferida):
+  // el primer tramo va al año que viene si su fecha ya pasó este año, y los demás toman ese mismo año
+  // (+1 si cruzan diciembre → enero, como ya hacía fechaTramoAISO con mesSalida).
+  let anio0=null,mes0=null;
+  const f0=fechaTramoAISO(tramos[0].fecha);
+  if(/^\d{4}-\d{2}-\d{2}$/.test(f0)){
+    const [y,m,d]=f0.split('-').map(Number);
+    const hoy=ahoraUY(),hoy0=new Date(hoy.getFullYear(),hoy.getMonth(),hoy.getDate());
+    anio0=(new Date(y,m-1,d)<hoy0)?y+1:y; mes0=m;
+  }
   document.getElementById('tramos-wrap').innerHTML='';tramosCount=0;
   tramos.forEach(t=>{
     agregarTramo();const i=tramosCount-1;
     const set=(id,v)=>{const el=document.getElementById(id);if(el)el.value=v||'';};
     const selT=document.getElementById(`t-t-${i}`);if(selT)selT.value=t.tipo;
-    set(`t-f-${i}`,fechaTramoAISO(t.fecha));setTramoAerolinea(i,t.aerolinea);set(`t-v-${i}`,t.vuelo);
+    set(`t-f-${i}`,anio0?fechaTramoAISO(t.fecha,anio0,mes0):fechaTramoAISO(t.fecha));setTramoAerolinea(i,t.aerolinea);set(`t-v-${i}`,t.vuelo);
     set(`t-o-${i}`,t.origen);set(`t-d-${i}`,t.destino);set(`t-s-${i}`,t.salida);set(`t-l-${i}`,t.llegada);
   });
   onCambioItinerarioFechas();  // b75: refresca el resumen de fechas del cupo tras pegar el itinerario
-  msg.style.color='var(--green)';msg.textContent=`${tramos.length} tramo(s) detectado(s). ⚠️ Revisá el AÑO de cada fecha (se puso el actual por defecto) y ajustá lo que falte.`;
+  msg.style.color='var(--green)';msg.textContent=`${tramos.length} tramo(s) detectado(s). Revisá las fechas: el año se calcula solo (si la fecha ya pasó este año, va al que viene). Ajustá lo que falte.`;
 }
 
 // Opciones de aerolínea para los dropdowns de tramo (Mejora 3: evita tipeo manual)
@@ -5787,7 +5845,42 @@ function onCambioItinerarioFechas(){
   if(el){const f=iso=>iso?iso.split('-').reverse().join('/'):'—';
     el.innerHTML=salida?`Salida <b>${f(salida)}</b>${regreso?` · Regreso <b>${f(regreso)}</b>`:''}`:'<span style="color:var(--muted)">Cargá la fecha del tramo de ida para fijar la salida del cupo</span>';}
   sugerirNombreCupo();
+  calRefrescarFechas(); // b126: las fechas exactas de la agenda dependen de la salida
 }
+
+// ── FECHA EXACTA EN LA AGENDA (b126, pedido de Rodrigo) ──────────────────────
+// Pago final y cancelaciones: además de "X días antes de la salida", una fecha exacta con calendario.
+// Se GUARDA COMO DÍAS (decisión de Nacho, 11-nov: la forma simple, para que Aéreos lo pruebe): si después
+// cambia la fecha de salida, la fecha se corre con ella. Los días y el calendario se mantienen sincronizados.
+function _calSalida(){const s=fechasDelItinerario().salida;return s?new Date(s+'T00:00:00'):null;}
+function _isoLocal(d){return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;}
+// Mismo corrimiento que agendarEventosCupo: un recordatorio que cae sábado o domingo sale el viernes anterior.
+function _calHint(inputId,d,txt){
+  const h=document.getElementById(inputId+'-hint');if(!h)return;
+  if(txt){h.textContent=txt;return;}
+  if(!d){h.textContent='';return;}
+  const dow=d.getDay();
+  if(dow===6||dow===0){const v=new Date(d);v.setDate(v.getDate()-(dow===6?1:2));h.textContent=`Cae finde: el recordatorio sale el viernes ${String(v.getDate()).padStart(2,'0')}/${String(v.getMonth()+1).padStart(2,'0')}`;}
+  else h.textContent='';
+}
+function calDiasAFecha(inputId){
+  const dEl=document.getElementById(inputId),fEl=document.getElementById(inputId+'-fecha');if(!dEl||!fEl)return;
+  const sal=_calSalida(),v=String(dEl.value||'').trim();
+  if(v===''||!sal||isNaN(parseInt(v,10))){fEl.value='';_calHint(inputId,null);return;}
+  const d=new Date(sal);d.setDate(d.getDate()-parseInt(v,10));
+  fEl.value=_isoLocal(d);_calHint(inputId,d);
+}
+function calFechaADias(inputId){
+  const dEl=document.getElementById(inputId),fEl=document.getElementById(inputId+'-fecha');if(!dEl||!fEl)return;
+  if(!fEl.value){dEl.value='';_calHint(inputId,null);return;}
+  const sal=_calSalida();
+  if(!sal){fEl.value='';_calHint(inputId,null,'Primero cargá la fecha del tramo de ida');return;}
+  const f=new Date(fEl.value+'T00:00:00');
+  const dias=Math.round((sal-f)/86400000);
+  if(dias<0){fEl.value='';_calHint(inputId,null,'Esa fecha es posterior a la salida');return;}
+  dEl.value=String(dias);_calHint(inputId,f);
+}
+function calRefrescarFechas(){CAL_EVENTOS.forEach(e=>calDiasAFecha(e.inputId));}
 
 // ── CREAR CUPOS MASIVOS (pegar PNRs) ──────────────
 const IATA_CIUDAD={}; CIUDADES.forEach(c=>{IATA_CIUDAD[c.cod]={ciudad:c.nom,region:c.reg};});
