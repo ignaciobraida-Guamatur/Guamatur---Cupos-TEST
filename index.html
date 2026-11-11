@@ -211,6 +211,7 @@
     <button class="nav-link active" id="nav-dashboard" onclick="goTo('dashboard')">Dashboard</button>
     <button class="nav-link" onclick="goTo('vuelos')">Cupos</button>
     <button class="nav-link" id="nav-misreservas" onclick="goTo('misreservas')">Mis reservas</button>
+    <button class="nav-link" id="nav-grupos" onclick="goTo('grupos')">Grupos</button>
     <button class="nav-link" id="nav-admin" style="display:none" onclick="goTo('admin')">Administración</button>
   </div>
   <div class="nav-right">
@@ -243,6 +244,7 @@
     <button class="mobile-menu-btn" id="mobile-dashboard" onclick="goTo('dashboard');toggleMobileMenu()">📊 Dashboard</button>
     <button class="mobile-menu-btn" onclick="goTo('vuelos');toggleMobileMenu()">✈ Cupos</button>
     <button class="mobile-menu-btn" id="mobile-misreservas" onclick="goTo('misreservas');toggleMobileMenu()">🎫 Mis reservas</button>
+    <button class="mobile-menu-btn" id="mobile-grupos" onclick="goTo('grupos');toggleMobileMenu()">👥 Grupos</button>
     <button class="mobile-menu-btn" id="mobile-admin" style="display:none" onclick="goTo('admin');toggleMobileMenu()">⚙️ Administración</button>
     <button class="mobile-menu-btn" id="btn-mi-firma-mobile" onclick="toggleMobileMenu();abrirModalFirma()">✍️ Mi firma en los paquetes</button>
     <button class="mobile-menu-btn" onclick="cerrarSesion()" style="color:var(--red)">Cerrar sesión</button>
@@ -275,6 +277,18 @@
 <div id="screen-misreservas" class="screen">
   <div id="misreservas-titulo" style="font-size:18px;font-weight:600;margin-bottom:16px">Mis reservas</div>
   <div id="misreservas-content"><div class="loading"><div class="spinner"></div>Cargando...</div></div>
+</div>
+
+<!-- b127: SOLICITUDES DE GRUPO (vendedor → Aéreos) -->
+<div id="screen-grupos" class="screen">
+  <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:16px">
+    <div>
+      <div style="font-size:18px;font-weight:600">Solicitudes de grupo</div>
+      <div style="font-size:12px;color:var(--muted);margin-top:4px">Pedidos de grupo a Aéreos: cotización, bloqueo y vencimientos, todo en un lugar.</div>
+    </div>
+    <button class="btn btn-primary" onclick="abrirNuevaSolicitudGrupo()">+ Pedir un grupo a Aéreos</button>
+  </div>
+  <div id="grupos-content"><div class="loading"><div class="spinner"></div>Cargando...</div></div>
 </div>
 
 <div id="screen-vuelos" class="screen">
@@ -640,6 +654,39 @@
   </div>
 </div>
 
+<!-- b127: NUEVA SOLICITUD DE GRUPO -->
+<div id="modal-sg-nueva" class="modal-overlay" style="display:none">
+  <div class="modal" style="max-width:640px">
+    <div class="modal-title">👥 Pedir un grupo a Aéreos</div>
+    <div id="modal-sg-nueva-alert"></div>
+    <div class="form-grid">
+      <div class="form-group full" id="sg-vendedor-group" style="display:none"><label class="form-label">A nombre de</label><select class="form-select" id="sg-vendedor"></select></div>
+      <div class="form-group full"><label class="form-label">Grupo / cliente <span style="color:var(--red)">*</span></label><input class="form-input" id="sg-nombre" placeholder="Ej: Amigos del Patrimonio - Génova"/></div>
+      <div class="form-group"><label class="form-label">Pasajeros <span style="color:var(--red)">*</span></label><input class="form-input" id="sg-pax" type="number" min="1" placeholder="Ej: 22"/></div>
+      <div class="form-group"><label class="form-label">Aerolínea preferida</label><input class="form-input" id="sg-aerolinea" list="sg-aerolineas" placeholder="Vacío = la que convenga"/><datalist id="sg-aerolineas"></datalist></div>
+      <div class="form-group"><label class="form-label">Salida</label><input class="form-input" id="sg-salida" type="date"/></div>
+      <div class="form-group"><label class="form-label">Regreso</label><input class="form-input" id="sg-regreso" type="date"/></div>
+      <div class="form-group full"><label class="form-label">Equipaje</label><select class="form-select" id="sg-equipaje"><option value="mano_bodega">Mano + bodega</option><option value="mano">Solo de mano</option><option value="a_definir">A definir</option></select></div>
+      <div class="form-group full"><label class="form-label">Vuelos / itinerario <span style="color:var(--muted)">(pegá el itinerario del GDS o escribí los vuelos y fechas que quiere el cliente)</span></label><textarea class="form-textarea" id="sg-itinerario" rows="5" style="font-family:'DM Mono',monospace;font-size:12px" placeholder="IB 170 01MAY MVDMAD 1240 0530&#10;IB 169 15MAY MADMVD 0015 0805"></textarea></div>
+      <div class="form-group full"><label class="form-label">Notas para Aéreos</label><textarea class="form-textarea" id="sg-notas" rows="2" placeholder="Ej: necesitamos noche en Madrid a la vuelta / comparar con Air Europa"></textarea></div>
+    </div>
+    <div style="font-size:12px;color:var(--muted)">Al enviar, le llega un mail a Producto Aéreo y la solicitud queda acá para seguirla.</div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" onclick="cerrarModal('modal-sg-nueva')">Cancelar</button>
+      <button class="btn btn-primary" id="btn-sg-enviar" onclick="guardarSolicitudGrupo()">Enviar a Aéreos</button>
+    </div>
+  </div>
+</div>
+
+<!-- b127: DETALLE DE UNA SOLICITUD DE GRUPO (lo arma abrirSolicitudGrupo) -->
+<div id="modal-sg-detalle" class="modal-overlay" style="display:none">
+  <div class="modal" style="max-width:820px">
+    <div id="modal-sg-detalle-alert"></div>
+    <div id="sg-detalle-content"></div>
+    <div class="modal-actions"><button class="btn btn-outline" onclick="cerrarModal('modal-sg-detalle')">Cerrar</button></div>
+  </div>
+</div>
+
 <!-- MODAL ELIMINAR MIS RESERVAS (vendedor) -->
 <div id="modal-eliminar" class="modal-overlay" style="display:none">
   <div class="modal" style="max-width:520px">
@@ -961,6 +1008,8 @@ const CONFIG={
   //    la app va a mostrar el botón y la casilla pero esos cupos nunca van a avisar.
   // b100: Avianca, la quinta (pedido de Nacho, 14-sep).
   VOUCHER_AEROLINEAS:['SKY','Azul','GOL','JetSmart','Avianca'],
+  // b127: casilla de Aéreos que recibe las solicitudes de grupo (mail de aviso y agenda de vencimientos).
+  SOLICITUDES_GRUPO_MAIL:'productoaereo@guamatur.com',
   // Cómo se nombra a la aerolínea EN EL VOUCHER (razón social, como en el que hace Operaciones a mano).
   // Si una no está acá, se usa el nombre corto del cupo.
   VOUCHER_COMPANIA:{SKY:'SKY AIRLINE',Azul:'AZUL LINHAS AEREAS',GOL:'GOL LINHAS AEREAS','JetSmart':'JETSMART AIRLINES','Avianca':'AVIANCA'},
@@ -1025,7 +1074,7 @@ const sb=supabase.createClient(CONFIG.SUPABASE_URL,CONFIG.SUPABASE_ANON_KEY,{
 // ⚠️ Una sola versión por cadena y CORTA: el detalle va al CHANGELOG.md, no acá. Nacho ve este texto
 // completo en el encabezado (el resto ve solo el "bNN") y si es largo se desborda; además `APP_VERSION_CORTA`
 // saca el número con un match, así que dos "bNN" en la misma cadena confunden cuál es la versión.
-const APP_VERSION='Fase 2 · 2026-11-11 (b126-TEST · Pedidos de Aéreos: fecha exacta, salida sin más lugares, PNR en el aviso, año del PNR, comentarios · sobre b125. Paquetes con IA prendido, solo TEST.)';
+const APP_VERSION='Fase 2 · 2026-11-11 (b127-TEST · Solicitudes de grupo v1 · sobre b126 (pedidos de Aéreos) y b125 (Reservas). Paquetes con IA prendido, solo TEST.)';
 // Columnas de 'vuelos' legibles por cualquier usuario. EXCLUYE precio_neto: el admin lo lee por RPC admin_get_precio_neto (gateada por es_admin). No usar select('*') sobre vuelos: la columna precio_neto quedó revocada a authenticated.
 // ⚠️ Toda columna que se agregue acá necesita `grant select (col) to authenticated` en la base, si no
 // PostgREST tira 400 y se cae la pantalla entera (gotcha #6). `emitido` viene de la migración 2026-08-06.
@@ -1506,7 +1555,7 @@ function aplicarRolEfectivoUI(){
   // (ver cargarReservasTodas). Admin ve lo mismo; el vendedor sigue con "Mis reservas" (solo lo suyo).
   const sinDash=tp||rolEfectivo==='operaciones';
   ['nav-dashboard','mobile-dashboard'].forEach(id=>{const e=document.getElementById(id);if(e)e.style.display=sinDash?'none':'';});
-  ['nav-misreservas','mobile-misreservas'].forEach(id=>{const e=document.getElementById(id);if(e)e.style.display=tp?'none':'';});
+  ['nav-misreservas','mobile-misreservas','nav-grupos','mobile-grupos'].forEach(id=>{const e=document.getElementById(id);if(e)e.style.display=tp?'none':'';});
   const todas=verReservasDeTodos();
   const nmr=document.getElementById('nav-misreservas'); if(nmr) nmr.textContent=todas?'Reservas':'Mis reservas';
   const mmr=document.getElementById('mobile-misreservas'); if(mmr) mmr.textContent=todas?'🎫 Reservas':'🎫 Mis reservas';
@@ -1533,6 +1582,7 @@ function cambiarVista(rol){
   if(id==='screen-dashboard') cargarDashboard();
   else if(id==='screen-vuelos') cargarVuelos();
   else if(id==='screen-misreservas') cargarMisReservas();
+  else if(id==='screen-grupos') cargarGrupos();
   else if(id==='screen-admin') cargarAdmin();
   else if(id==='screen-detalle'&&currentVueloId) cargarDetalle(currentVueloId);
   else goTo(rolEfectivo==='admin'?'dashboard':'vuelos');
@@ -1548,12 +1598,13 @@ function goTo(s){
   document.querySelectorAll('.screen').forEach(x=>x.classList.remove('active'));
   document.querySelectorAll('.nav-link').forEach(x=>x.classList.remove('active'));
   document.getElementById('screen-'+s).classList.add('active');
-  const idx={dashboard:0,vuelos:1,misreservas:2,admin:3};
+  const idx={dashboard:0,vuelos:1,misreservas:2,grupos:3,admin:4}; // b127: "Grupos" va antes de Administración
   const links=document.querySelectorAll('.nav-link');
   if(idx[s]!==undefined&&links[idx[s]]) links[idx[s]].classList.add('active');
   if(s==='dashboard') cargarDashboard();
   if(s==='vuelos'){vuelosCargado=false;cargarVuelos();}
   if(s==='misreservas') cargarMisReservas();
+  if(s==='grupos') cargarGrupos();
   if(s==='admin'){adminCargado=false;cargarAdmin();}
 }
 
@@ -1992,6 +2043,289 @@ function renderReservasTodas(){
     html+='</tbody></table></div>';
   }
   cont.innerHTML=html;
+}
+
+// ── SOLICITUDES DE GRUPO (b127, v1) ──────────────────────────────────────────
+// Pedido de Nacho (11-nov): que el vendedor le pida un grupo a Aéreos desde la plataforma (hoy es un mail a
+// productoaereo@), que Aéreos lo gestione acá y calendarice los vencimientos. Circuito tomado del caso real
+// de Pablo (grupo IB de 22 plazas, 3 al 5-nov): solicitada → pedida a la aerolínea → cotizada → bloqueo
+// pedido → confirmada (· rechazada · cancelada). El candado real está en las RPC (solo admin gestiona; el
+// vendedor solo ve las suyas). ⚠️ El valor de la cotización NO viaja en los mails (información reservada):
+// el mail avisa y lleva a la plataforma.
+const SG_ESTADOS={
+  solicitada:['badge-blue','Solicitada','Aéreos tiene que pedirla a la aerolínea'],
+  pedida:['badge-yellow','Pedida a la aerolínea','Esperando la cotización de la aerolínea'],
+  cotizada:['badge-orange','Cotizada','El vendedor decide si pide el bloqueo'],
+  bloqueo_pedido:['badge-orange','Bloqueo pedido','Aéreos tiene que confirmar el bloqueo con la aerolínea'],
+  confirmada:['badge-green','Confirmada','Grupo bloqueado: seguir los vencimientos'],
+  rechazada:['badge-red','Rechazada',''],
+  cancelada:['badge-l','Cancelada','']
+};
+const SG_VENC=[
+  {campo:'fecha_bloqueo_gratis',titulo:'Fin del bloqueo sin costo'},
+  {campo:'fecha_cancel_sin_gastos',titulo:'Cancelación sin gastos'},
+  {campo:'fecha_pago',titulo:'Pago / seña'},
+  {campo:'fecha_nominacion',titulo:'Nominación (nombres)'},
+  {campo:'fecha_emision',titulo:'Emisión'}
+];
+const SG_EQUIPAJE={mano_bodega:'Mano + bodega',mano:'Solo de mano',a_definir:'A definir'};
+let _sgLista=[],_sgFiltro='activas';
+const _sgEsAereos=()=>rolEfectivo==='admin';
+const _sgHoy=()=>{const h=ahoraUY();return `${h.getFullYear()}-${String(h.getMonth()+1).padStart(2,'0')}-${String(h.getDate()).padStart(2,'0')}`;};
+function _sgBadge(e){const x=SG_ESTADOS[e]||['badge-l',e,''];return `<span class="badge ${x[0]}" title="${esc(x[2])}">${esc(x[1])}</span>`;}
+function _sgEsMia(s){return String(s.vendedor_email||'').toLowerCase()===String(currentUser?.email||'').toLowerCase();}
+// Próximo vencimiento que todavía no pasó (la validez de la cotización cuenta mientras está cotizada).
+function _sgProxVenc(s){
+  const hoy=_sgHoy();const cands=SG_VENC.map(v=>({t:v.titulo,f:s[v.campo]})).filter(x=>x.f&&x.f>=hoy);
+  if(s.estado==='cotizada'&&s.validez_cotizacion&&s.validez_cotizacion>=hoy)cands.push({t:'Validez de la cotización',f:s.validez_cotizacion});
+  cands.sort((a,b)=>a.f.localeCompare(b.f));return cands[0]||null;
+}
+// ¿A quién le toca mover la solicitud? (para la marca "te toca")
+function _sgTeToca(s){
+  if(_sgEsAereos()) return s.estado==='solicitada'||s.estado==='bloqueo_pedido'||(s.estado==='confirmada'&&!s.calendarizado_en&&SG_VENC.some(v=>s[v.campo]));
+  return _sgEsMia(s)&&s.estado==='cotizada';
+}
+
+async function cargarGrupos(){
+  const cont=document.getElementById('grupos-content');
+  cont.innerHTML='<div class="loading"><div class="spinner"></div>Cargando...</div>';
+  const {data,error}=await sb.from('solicitudes_grupo').select('*').order('actualizado_en',{ascending:false});
+  if(error){console.error('[Grupos]',error);cont.innerHTML='<div class="loading" style="color:var(--red)">Error al cargar</div>';return;}
+  _sgLista=data||[];
+  renderGrupos();
+}
+function renderGrupos(){
+  const cont=document.getElementById('grupos-content');if(!cont)return;
+  const verVendedor=rolEfectivo==='admin'||rolEfectivo==='operaciones';
+  const filas=_sgLista.filter(s=>_sgFiltro==='todas'?true:_sgFiltro==='activas'?!['rechazada','cancelada'].includes(s.estado):s.estado===_sgFiltro);
+  const pend=_sgLista.filter(_sgTeToca).length;
+  const opt=(v,t)=>`<option value="${v}"${_sgFiltro===v?' selected':''}>${esc(t)}</option>`;
+  let html=`<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px">
+    <select class="form-select" style="width:230px" onchange="_sgFiltro=this.value;renderGrupos()">${opt('activas','Activas')}${opt('todas','Todas')}${Object.entries(SG_ESTADOS).map(([k,v])=>opt(k,v[1])).join('')}</select>
+    ${pend?`<span class="badge badge-orange" style="font-weight:700">👉 ${pend} te toca${pend===1?'':'n'} a vos</span>`:''}
+  </div>`;
+  if(!filas.length){
+    html+=`<div style="padding:16px;color:var(--muted);font-size:14px">${_sgLista.length?'No hay solicitudes con este filtro.':'Todavía no hay solicitudes de grupo. Para pedir uno, usá “+ Pedir un grupo a Aéreos”.'}</div>`;
+  } else {
+    html+=`<div class="table-wrap"><table class="sortable"><thead><tr><th>Grupo</th>${verVendedor?'<th>Vendedor</th>':''}<th>Pax</th><th>Aerolínea</th><th>Salida</th><th>Estado</th><th>Próximo vencimiento</th><th>Actualizada</th></tr></thead><tbody>`;
+    filas.forEach(s=>{
+      const pv=_sgProxVenc(s);
+      const toca=_sgTeToca(s)?' <span class="badge badge-orange" title="Te toca mover esta solicitud">👉</span>':'';
+      html+=`<tr style="cursor:pointer" onclick="abrirSolicitudGrupo('${s.id}')">
+        <td style="color:var(--accent2);font-weight:500">${esc(s.nombre_grupo)}${toca}</td>
+        ${verVendedor?`<td>${esc(s.vendedor_nombre||s.vendedor_email)}</td>`:''}
+        <td>${esc(s.pax)}</td>
+        <td>${esc(s.aerolinea||'—')}</td>
+        <td data-sort="${esc(s.fecha_salida||'')}">${s.fecha_salida?formatFecha(s.fecha_salida):'—'}</td>
+        <td>${_sgBadge(s.estado)}</td>
+        <td data-sort="${esc(pv?pv.f:'9999')}" style="font-size:12px">${pv?`${formatFecha(pv.f)} · ${esc(pv.t)}`:'—'}</td>
+        <td data-sort="${esc(s.actualizado_en||'')}" style="font-family:'DM Mono',monospace;font-size:12px">${formatFechaHora(s.actualizado_en)}</td>
+      </tr>`;
+    });
+    html+='</tbody></table></div>';
+  }
+  cont.innerHTML=html;
+}
+
+function abrirNuevaSolicitudGrupo(){
+  ['sg-nombre','sg-pax','sg-aerolinea','sg-salida','sg-regreso','sg-itinerario','sg-notas'].forEach(id=>{const e=document.getElementById(id);if(e)e.value='';});
+  document.getElementById('sg-equipaje').value='mano_bodega';
+  document.getElementById('sg-aerolineas').innerHTML=AEROLINEAS.map(a=>`<option value="${esc(a)}">`).join('');
+  document.getElementById('modal-sg-nueva-alert').innerHTML='';
+  // Admin y Operaciones pueden cargarla a nombre de un vendedor (como al reservar).
+  const g=document.getElementById('sg-vendedor-group'),sel=document.getElementById('sg-vendedor');
+  if(rolEfectivo==='admin'||rolEfectivo==='operaciones'){
+    const lista=[...vendedores].filter(v=>v&&v.nombre&&v.activo!==false&&v.rol!=='travel_partner').sort((a,b)=>a.nombre.localeCompare(b.nombre));
+    sel.innerHTML=lista.map(v=>`<option value="${esc(v.email)}"${v.email===currentUser?.email?' selected':''}>${esc(v.nombre)}</option>`).join('');
+    g.style.display='';
+  } else g.style.display='none';
+  document.getElementById('modal-sg-nueva').style.display='flex';
+}
+
+async function guardarSolicitudGrupo(){
+  const v=id=>(document.getElementById(id)?.value||'').trim();
+  const p={nombre_grupo:v('sg-nombre'),pax:v('sg-pax'),aerolinea:v('sg-aerolinea'),equipaje:v('sg-equipaje'),
+    fecha_salida:v('sg-salida'),fecha_regreso:v('sg-regreso'),itinerario:v('sg-itinerario'),notas_vendedor:v('sg-notas')};
+  if(document.getElementById('sg-vendedor-group').style.display!=='none')p.vendedor_email=v('sg-vendedor');
+  if(!p.nombre_grupo){mostrarAlerta('modal-sg-nueva-alert','Poné el nombre del grupo o del cliente.','error');return;}
+  if(!(parseInt(p.pax,10)>0)){mostrarAlerta('modal-sg-nueva-alert','Poné la cantidad de pasajeros.','error');return;}
+  if(!p.itinerario&&!p.fecha_salida){mostrarAlerta('modal-sg-nueva-alert','Poné el itinerario o al menos la fecha de salida.','error');return;}
+  if(p.fecha_salida&&p.fecha_regreso&&p.fecha_regreso<p.fecha_salida){mostrarAlerta('modal-sg-nueva-alert','El regreso es anterior a la salida.','error');return;}
+  if(!confirm(`Enviar a Aéreos el pedido de grupo "${p.nombre_grupo}" (${p.pax} pax).\n\nLe llega un mail a Producto Aéreo (${CONFIG.SOLICITUDES_GRUPO_MAIL}) y la solicitud queda en "Grupos" para seguirla.\n\n¿Confirmás?`))return;
+  const btn=document.getElementById('btn-sg-enviar');btn.disabled=true;
+  try{
+    await asegurarTokenFresco();
+    const {data:id,error}=await sb.rpc('crear_solicitud_grupo',{p});
+    if(error){mostrarAlerta('modal-sg-nueva-alert','No se pudo enviar: '+error.message,'error');return;}
+    const {data:s}=await sb.from('solicitudes_grupo').select('*').eq('id',id).single();
+    const mandado=s?await avisarSolicitudGrupo(s,'nueva',p.notas_vendedor):false;
+    cerrarModal('modal-sg-nueva');
+    await cargarGrupos();
+    abrirSolicitudGrupo(id,mandado?'Solicitud enviada. Producto Aéreo recibió el aviso por mail.':'Solicitud guardada. (En este ambiente no salen mails: en producción le llega el aviso a Producto Aéreo.)');
+  } finally {btn.disabled=false;}
+}
+
+async function abrirSolicitudGrupo(id,aviso){
+  const {data:s,error}=await sb.from('solicitudes_grupo').select('*').eq('id',id).single();
+  if(error||!s){alert('No se pudo abrir la solicitud'+(error?': '+error.message:''));return;}
+  const aereos=_sgEsAereos(),mia=_sgEsMia(s),hoy=_sgHoy();
+  const fila=(k,val)=>val?`<div style="display:flex;gap:10px;padding:3px 0;font-size:13px"><div style="width:150px;color:var(--muted);flex-shrink:0">${k}</div><div>${val}</div></div>`:'';
+  const pre=t=>t?`<pre style="white-space:pre-wrap;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:8px 10px;font-family:'DM Mono',monospace;font-size:11.5px;margin:6px 0 0;max-height:220px;overflow:auto">${esc(t)}</pre>`:'';
+  const usd=n=>(n===null||n===undefined||n==='')?'':'USD '+Number(n).toLocaleString('es-UY');
+  const vencida=s.estado==='cotizada'&&s.validez_cotizacion&&s.validez_cotizacion<hoy;
+  let h=`<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:6px"><div class="modal-title" style="margin:0">👥 ${esc(s.nombre_grupo)}</div>${_sgBadge(s.estado)}</div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:14px">${esc((SG_ESTADOS[s.estado]||[])[2]||'')}</div>
+    ${aviso?`<div class="alert alert-success" style="margin-bottom:12px">${esc(aviso)}</div>`:''}
+    <div class="section-title" style="margin-bottom:6px">Lo que pidió el vendedor</div>
+    ${fila('Vendedor',esc(s.vendedor_nombre||s.vendedor_email))}
+    ${fila('Pasajeros',esc(s.pax))}
+    ${fila('Aerolínea',esc(s.aerolinea||'La que convenga'))}
+    ${fila('Equipaje',esc(SG_EQUIPAJE[s.equipaje]||s.equipaje||''))}
+    ${fila('Fechas',[s.fecha_salida?'Salida '+formatFecha(s.fecha_salida):'',s.fecha_regreso?'Regreso '+formatFecha(s.fecha_regreso):''].filter(Boolean).join(' · '))}
+    ${fila('Pedida el',formatFechaHora(s.creado_en))}
+    ${s.itinerario?`<div style="font-size:13px;color:var(--muted);margin-top:6px">Vuelos / itinerario</div>${pre(s.itinerario)}`:''}
+    ${s.notas_vendedor?`<div style="font-size:13px;color:var(--muted);margin-top:8px">Notas</div><div style="font-size:13px">${esc(s.notas_vendedor)}</div>`:''}`;
+  // Cotización y datos de Aéreos (los ve el vendedor de esa solicitud, Operaciones y Aéreos)
+  const hayCot=s.codigo_referencia||s.total||s.cotizacion||s.condiciones||s.pnr||s.motivo;
+  if(hayCot){
+    h+=`<div class="section-title" style="margin:16px 0 6px">Lo que cargó Aéreos${s.gestionado_por?` <span style="font-weight:400;color:var(--muted);text-transform:none">· ${esc(s.gestionado_por)}</span>`:''}</div>
+      ${fila('Código de referencia',esc(s.codigo_referencia||''))}
+      ${fila('Tarifa',usd(s.tarifa))}${fila('Impuestos y tasas',usd(s.impuestos))}
+      ${fila('Total por pasajero',s.total?`<b>${usd(s.total)}</b> <span style="color:var(--muted)">(aprox.)</span>`:'')}
+      ${fila('Validez',s.validez_cotizacion?`${formatFecha(s.validez_cotizacion)}${vencida?' <span class="badge badge-red">vencida</span>':''}`:'')}
+      ${fila('Condiciones',esc(s.condiciones||''))}
+      ${fila('PNR del grupo',s.pnr?`<span style="font-family:'DM Mono',monospace;color:var(--accent2)">${esc(s.pnr)}</span>`:'')}
+      ${fila(s.estado==='cancelada'?'Motivo de la cancelación':'Motivo',esc(s.motivo||''))}
+      ${s.cotizacion?`<div style="font-size:13px;color:var(--muted);margin-top:6px">Detalle de la cotización</div>${pre(s.cotizacion)}`:''}`;
+  }
+  const vencs=SG_VENC.filter(v=>s[v.campo]);
+  if(vencs.length){
+    h+=`<div class="section-title" style="margin:16px 0 6px">Vencimientos</div>`+vencs.map(v=>fila(v.titulo,`${formatFecha(s[v.campo])}${s[v.campo]<hoy?' <span style="color:var(--muted)">(pasó)</span>':''}`)).join('')
+      +`<div style="font-size:12px;color:var(--muted);margin-top:4px">${s.calendarizado_en?`📅 Calendarizado por ${esc(s.calendarizado_por||'')} el ${formatFechaHora(s.calendarizado_en)}`:'📅 Todavía no se mandó a la agenda'}</div>`;
+  }
+  // Acciones del vendedor (el dueño; Aéreos también puede comentar)
+  const cerrada=['cancelada','rechazada'].includes(s.estado);
+  if((mia||aereos)&&!cerrada){
+    h+=`<div class="section-title" style="margin:16px 0 6px">Acciones</div><div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-start">`;
+    if(mia&&s.estado==='cotizada') h+=vencida
+      ?`<div class="alert alert-warning" style="margin:0">La cotización venció el ${formatFecha(s.validez_cotizacion)}: para pedir el bloqueo, pedile a Aéreos que la actualice (con un comentario).</div>`
+      :`<button class="btn btn-success" onclick="accionVendedorGrupo('${s.id}','pedir_bloqueo')">✅ Pedir el bloqueo a Aéreos</button>`;
+    if(mia&&s.estado!=='confirmada') h+=`<button class="btn btn-outline" onclick="accionVendedorGrupo('${s.id}','cancelar')">✖ Cancelar la solicitud</button>`;
+    h+=`</div><div style="display:flex;gap:8px;margin-top:10px"><input class="form-input" id="sg-comentario" placeholder="Dejá un comentario${mia?' para Aéreos':' para el vendedor'} (ej: el cliente quiere comparar con Air Europa)"/><button class="btn btn-outline" onclick="accionVendedorGrupo('${s.id}','comentar')">💬 Comentar</button></div>`;
+  }
+  // Panel de Aéreos
+  if(aereos){
+    const iv=(campo,tipo,ph)=>`<input class="form-input" id="sga-${campo}" type="${tipo}" value="${esc(s[campo]??'')}" placeholder="${esc(ph||'')}"/>`;
+    h+=`<details style="margin-top:18px;border:1px solid var(--border2);border-radius:10px;padding:10px 12px"${['solicitada','pedida','bloqueo_pedido'].includes(s.estado)||(s.estado==='confirmada'&&!s.calendarizado_en)?' open':''}>
+      <summary style="cursor:pointer;font-weight:600">✈ Gestión de Aéreos</summary>
+      <div class="form-grid" style="margin-top:12px">
+        <div class="form-group"><label class="form-label">Estado</label><select class="form-select" id="sga-estado">${Object.entries(SG_ESTADOS).map(([k,v])=>`<option value="${k}"${k===s.estado?' selected':''}>${esc(v[1])}</option>`).join('')}</select></div>
+        <div class="form-group"><label class="form-label">Código de referencia (aerolínea)</label>${iv('codigo_referencia','text','Ej: ECUYGCZM01')}</div>
+        <div class="form-group"><label class="form-label">Tarifa (USD)</label>${iv('tarifa','number','1165')}</div>
+        <div class="form-group"><label class="form-label">Impuestos y tasas (USD)</label>${iv('impuestos','number','228')}</div>
+        <div class="form-group"><label class="form-label">Total por pasajero (USD)</label>${iv('total','number','1393')}</div>
+        <div class="form-group"><label class="form-label">Validez de la cotización</label>${iv('validez_cotizacion','date')}</div>
+        <div class="form-group full"><label class="form-label">Condiciones</label>${iv('condiciones','text','Ej: 30 días de bloqueo gratis, después USD 500 hasta 91 días antes')}</div>
+        <div class="form-group full"><label class="form-label">Detalle de la cotización <span style="color:var(--muted)">(vuelos cotizados, desglose)</span></label><textarea class="form-textarea" id="sga-cotizacion" rows="4" style="font-family:'DM Mono',monospace;font-size:12px">${esc(s.cotizacion||'')}</textarea></div>
+        <div class="form-group"><label class="form-label">PNR del grupo</label>${iv('pnr','text','Ej: 96ZODA')}</div>
+        <div class="form-group"><label class="form-label">Motivo (si se rechaza)</label>${iv('motivo','text','Ej: la aerolínea no tiene lugar')}</div>
+        ${SG_VENC.map(v=>`<div class="form-group"><label class="form-label">${esc(v.titulo)}</label>${iv(v.campo,'date')}</div>`).join('')}
+        <div class="form-group full"><label class="form-label">Nota para el historial</label><input class="form-input" id="sga-nota" placeholder="Ej: pedido a IB, contestan en 48 h"/></div>
+      </div>
+      <label style="display:flex;gap:8px;align-items:center;font-size:13px;margin-bottom:10px"><input type="checkbox" id="sga-avisar" checked/> Si cambia el estado, avisar por mail al vendedor y a Producto Aéreo</label>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn btn-primary" onclick="guardarGestionGrupo('${s.id}')">Guardar</button>
+        <button class="btn btn-outline" onclick="calendarizarSolicitudGrupo('${s.id}')" title="Manda los vencimientos cargados a la agenda (Google Calendar) de Producto Aéreo, del vendedor y tuya">📅 Calendarizar vencimientos</button>
+      </div>
+    </details>`;
+  }
+  // Historial
+  const hist=Array.isArray(s.historial)?[...s.historial].reverse():[];
+  if(hist.length){
+    const ev={creada:'Pidió el grupo',aereos:'Aéreos actualizó',pedir_bloqueo:'Pidió el bloqueo',cancelar:'Canceló',comentar:'Comentó',calendarizada:'Calendarizó'};
+    h+=`<div class="section-title" style="margin:16px 0 6px">Historial</div>`+hist.map(x=>`<div style="font-size:12.5px;padding:5px 0;border-bottom:1px solid var(--border)"><span style="font-family:'DM Mono',monospace;color:var(--muted)">${formatFechaHora(x.en)}</span> · <b>${esc(x.por||'')}</b> · ${esc(ev[x.evento]||x.evento)}${x.evento!=='comentar'&&x.estado?` → ${esc((SG_ESTADOS[x.estado]||[])[1]||x.estado)}`:''}${x.nota?`<div style="color:var(--text);margin-top:2px">“${esc(x.nota)}”</div>`:''}</div>`).join('');
+  }
+  document.getElementById('sg-detalle-content').innerHTML=h;
+  document.getElementById('modal-sg-detalle-alert').innerHTML='';
+  document.getElementById('modal-sg-detalle').style.display='flex';
+}
+
+async function accionVendedorGrupo(id,accion){
+  const nota=(document.getElementById('sg-comentario')?.value||'').trim();
+  if(accion==='comentar'&&!nota){mostrarAlerta('modal-sg-detalle-alert','Escribí el comentario.','error');return;}
+  const msg={pedir_bloqueo:'Pedirle a Aéreos que BLOQUEE este grupo con la aerolínea.\n\nAéreos recibe el aviso por mail. Ojo: el bloqueo puede tener costo según las condiciones.\n\n¿Confirmás?',
+    cancelar:'Cancelar esta solicitud de grupo.\n\nAéreos recibe el aviso por mail. ¿Confirmás?',comentar:null}[accion];
+  if(msg&&!confirm(msg))return;
+  await asegurarTokenFresco();
+  const {error}=await sb.rpc('solicitud_grupo_vendedor',{p_id:id,p_accion:accion,p_nota:nota||null});
+  if(error){mostrarAlerta('modal-sg-detalle-alert','No se pudo: '+error.message,'error');return;}
+  const {data:s}=await sb.from('solicitudes_grupo').select('*').eq('id',id).single();
+  const mandado=s?await avisarSolicitudGrupo(s,accion,nota):false;
+  await cargarGrupos();
+  abrirSolicitudGrupo(id,{pedir_bloqueo:'Bloqueo pedido.',cancelar:'Solicitud cancelada.',comentar:'Comentario guardado.'}[accion]+(mandado?' Se avisó por mail.':' (En este ambiente no salen mails.)'));
+}
+
+async function guardarGestionGrupo(id){
+  const g=c=>document.getElementById('sga-'+c)?.value??'';
+  const p={estado:g('estado'),nota:g('nota').trim()};
+  ['codigo_referencia','tarifa','impuestos','total','validez_cotizacion','condiciones','cotizacion','pnr','motivo'].concat(SG_VENC.map(v=>v.campo)).forEach(c=>{p[c]=String(g(c)).trim();});
+  const antes=_sgLista.find(x=>x.id===id);
+  await asegurarTokenFresco();
+  const {error}=await sb.rpc('solicitud_grupo_aereos',{p_id:id,p});
+  if(error){mostrarAlerta('modal-sg-detalle-alert','No se pudo guardar: '+error.message,'error');return;}
+  let txt='Guardado.';
+  if(antes&&antes.estado!==p.estado&&document.getElementById('sga-avisar')?.checked){
+    const {data:s}=await sb.from('solicitudes_grupo').select('*').eq('id',id).single();
+    const mandado=s?await avisarSolicitudGrupo(s,'estado',p.nota):false;
+    txt+=mandado?' Se avisó por mail al vendedor y a Producto Aéreo.':' (En este ambiente no salen mails.)';
+  }
+  await cargarGrupos();
+  abrirSolicitudGrupo(id,txt);
+}
+
+// Calendarizar: misma agenda que los cupos (workflow "cupo-agenda" → Google Calendar "Cupos - Agenda"), sin
+// vuelo_id: crea los eventos pero NO reemplaza los de una calendarización anterior (por eso se avisa antes).
+// Mismo corrimiento que los cupos: si cae sábado o domingo, el recordatorio sale el viernes anterior.
+async function calendarizarSolicitudGrupo(id){
+  const {data:s}=await sb.from('solicitudes_grupo').select('*').eq('id',id).single();
+  if(!s)return;
+  const vencs=SG_VENC.filter(v=>s[v.campo]);
+  if(!vencs.length){mostrarAlerta('modal-sg-detalle-alert','No hay vencimientos guardados para calendarizar (cargalos y guardá primero).','error');return;}
+  if(!N8N_WEBHOOK_AGENDA){mostrarAlerta('modal-sg-detalle-alert','En este ambiente la agenda está apagada: no se crea ningún evento. En producción, este botón manda los '+vencs.length+' vencimiento(s) a Google Calendar.','warning');return;}
+  const attendees=[...new Set([CONFIG.SOLICITUDES_GRUPO_MAIL,s.vendedor_email,currentUser?.email].filter(e=>e&&/@guamatur\.com$/i.test(e)))];
+  const lista=vencs.map(v=>`· ${v.titulo}: ${formatFecha(s[v.campo])}`).join('\n');
+  if(!confirm(`Calendarizar ${vencs.length} vencimiento(s) del grupo "${s.nombre_grupo}":\n${lista}\n\nInvitados: ${attendees.join(', ')}`+(s.calendarizado_en?`\n\n⚠️ Ya se calendarizó el ${formatFechaHora(s.calendarizado_en)}: los eventos anteriores NO se borran solos (borralos en el calendario si cambiaron las fechas).`:'')+'\n\n¿Confirmás?'))return;
+  const eventos=vencs.map(v=>{const d=new Date(s[v.campo]+'T00:00:00');const dow=d.getDay();if(dow===6)d.setDate(d.getDate()-1);else if(dow===0)d.setDate(d.getDate()-2);
+    return {tipo:'Grupo · '+v.titulo,fecha:`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`,attendees};});
+  try{
+    await fetch(N8N_WEBHOOK_AGENDA,{method:'POST',mode:'no-cors',body:JSON.stringify({secret:CUPOS_WEBHOOK_SECRET,vuelo_id:'',
+      cupo:`GRUPO ${s.nombre_grupo} (${s.pax} pax)`,localizador:s.pnr||'',aerolinea:s.aerolinea||'',fecha_salida:s.fecha_salida||'',
+      url:location.origin+location.pathname,attendees,eventos})});
+  }catch(e){mostrarAlerta('modal-sg-detalle-alert','No se pudo mandar a la agenda: '+e.message,'error');return;}
+  await asegurarTokenFresco();
+  const {error}=await sb.rpc('solicitud_grupo_calendarizada',{p_id:id,p_eventos:vencs.length});
+  if(error){mostrarAlerta('modal-sg-detalle-alert','Se mandó a la agenda, pero no se pudo marcar: '+error.message,'warning');return;}
+  await cargarGrupos();
+  abrirSolicitudGrupo(id,`Listo: ${vencs.length} vencimiento(s) a la agenda.`);
+}
+
+// Aviso por mail: va por el MISMO workflow que el aviso de cambios de cupo (tipo_aviso 'solicitud_grupo'),
+// como el aviso de cupo nuevo de b124: ese webhook está vacío en TEST, así que TEST nunca le manda un mail
+// real a nadie. To = quien hizo la acción; Bcc = Producto Aéreo + el vendedor. Sin montos (reservado).
+async function avisarSolicitudGrupo(s,evento,nota){
+  try{
+    if(!N8N_WEBHOOK_ITINERARIO) return false;
+    const destinatarios=[...new Set([CONFIG.SOLICITUDES_GRUPO_MAIL,s.vendedor_email].filter(Boolean))];
+    const payload={secret:CUPOS_WEBHOOK_SECRET,tipo_aviso:'solicitud_grupo',evento,
+      solicitud:{id:s.id,nombre_grupo:s.nombre_grupo,pax:s.pax,aerolinea:s.aerolinea||'',equipaje:SG_EQUIPAJE[s.equipaje]||'',
+        fecha_salida:s.fecha_salida||'',fecha_regreso:s.fecha_regreso||'',estado:s.estado,estado_txt:(SG_ESTADOS[s.estado]||[])[1]||s.estado,
+        vendedor:s.vendedor_nombre||s.vendedor_email,codigo_referencia:s.codigo_referencia||'',pnr:s.pnr||'',
+        validez_cotizacion:s.validez_cotizacion||'',motivo:s.motivo||'',itinerario:String(s.itinerario||'').slice(0,2000)},
+      nota:nota||'',editor:(vendedores.find(x=>x.email===currentUser?.email)?.nombre||currentUser?.email||'?'),
+      editor_email:currentUser?.email||'',destinatarios,url:location.origin+location.pathname};
+    await fetch(N8N_WEBHOOK_ITINERARIO,{method:'POST',mode:'no-cors',body:JSON.stringify(payload)});
+    return true;
+  }catch(e){console.warn('[Aviso grupo]',e);return false;}
 }
 
 // ── MIS RESERVAS (vista del vendedor: todas sus reservas y ventas) ──
