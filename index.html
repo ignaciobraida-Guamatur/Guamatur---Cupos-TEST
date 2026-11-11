@@ -157,6 +157,23 @@
   .alert{border-radius:8px;padding:10px 14px;font-size:13px;margin-bottom:14px}
   .alert-error{background:rgba(255,59,59,0.1);border:1px solid rgba(255,59,59,0.3);color:#ff6b6b}
   .alert-success{background:rgba(74,222,128,0.1);border:1px solid rgba(74,222,128,0.3);color:var(--green)}
+  /* b128: reportar un problema · sugerir una mejora (copia del canal del cotizador). El pie va FIJO abajo y
+     discreto: siempre a la vista sin competirle a la pantalla; el contenido le deja lugar para no tapar nada. */
+  .pie-reportar{position:fixed;left:0;right:0;bottom:0;z-index:40;display:none;justify-content:flex-end;gap:20px;padding:5px 22px calc(5px + env(safe-area-inset-bottom));background:rgba(15,15,20,0.94);border-top:1px solid var(--border);backdrop-filter:blur(4px)}
+  body.con-pie-reportar{padding-bottom:40px}
+  .pie-link{background:none;border:none;cursor:pointer;font:inherit;font-size:12.5px;color:var(--muted);padding:3px 4px}
+  .pie-link:hover{color:var(--accent2);text-decoration:underline}
+  @media (max-width:520px){.pie-reportar{justify-content:center;gap:14px}}
+  .aviso-reportes{display:none;background:rgba(74,222,128,0.10);border:1px solid rgba(74,222,128,0.35);color:var(--green);border-radius:10px;padding:10px 14px;margin:0 0 14px;font-size:13px;align-items:center;gap:12px;flex-wrap:wrap}
+  .aviso-reportes .cita{font-style:italic;color:var(--text)}
+  .rep-captura-prev{position:relative;display:inline-block;margin:8px 0}
+  .rep-captura-prev img{max-width:100%;max-height:180px;border:1px solid var(--border2);border-radius:8px;display:block}
+  .rep-item{border:1px solid var(--border);border-radius:10px;padding:10px 12px;margin-bottom:8px;background:var(--surface)}
+  .rep-item img.rep-shot{max-width:320px;max-height:200px;border:1px solid var(--border2);border-radius:6px;margin-top:8px;display:block;cursor:zoom-in}
+  .rep-meta{font-size:11.5px;color:var(--muted);margin-top:5px}
+  .rep-estado{font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.4px}
+  .rep-nuevo{color:#ff9933}.rep-curso{color:var(--blue)}.rep-listo{color:var(--green)}.rep-descartado{color:var(--muted)}
+  .badge-nuevos{display:inline-block;min-width:17px;margin-left:6px;padding:1px 5px;border-radius:9px;background:var(--red);color:#fff;font-size:11px;font-weight:700;line-height:15px;text-align:center}
   .alert-warning{background:rgba(251,191,36,0.1);border:1px solid rgba(251,191,36,0.3);color:var(--yellow)}
   .search-input{padding:8px 14px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;font-family:'DM Sans',sans-serif;width:240px}
   .search-input:focus{outline:none;border-color:var(--accent)}
@@ -213,6 +230,7 @@
     <button class="nav-link" id="nav-misreservas" onclick="goTo('misreservas')">Mis reservas</button>
     <button class="nav-link" id="nav-grupos" onclick="goTo('grupos')">Grupos</button>
     <button class="nav-link" id="nav-admin" style="display:none" onclick="goTo('admin')">Administración</button>
+    <button class="nav-link" id="nav-reportes" style="display:none" onclick="goTo('reportes')">Reportes<span id="nav-reportes-badge" class="badge-nuevos" style="display:none"></span></button>
   </div>
   <div class="nav-right">
     <select id="ver-como" onchange="cambiarVista(this.value)" title="Ver la app como Admin, Vendedor o Travel Partner" style="display:none;background:var(--surface2);color:var(--text);border:1px solid var(--border2);border-radius:8px;font-size:12px;padding:4px 8px;font-family:'DM Sans',sans-serif;cursor:pointer">
@@ -246,6 +264,7 @@
     <button class="mobile-menu-btn" id="mobile-misreservas" onclick="goTo('misreservas');toggleMobileMenu()">🎫 Mis reservas</button>
     <button class="mobile-menu-btn" id="mobile-grupos" onclick="goTo('grupos');toggleMobileMenu()">👥 Grupos</button>
     <button class="mobile-menu-btn" id="mobile-admin" style="display:none" onclick="goTo('admin');toggleMobileMenu()">⚙️ Administración</button>
+    <button class="mobile-menu-btn" id="mobile-reportes" style="display:none" onclick="goTo('reportes');toggleMobileMenu()">⚑ Reportes</button>
     <button class="mobile-menu-btn" id="btn-mi-firma-mobile" onclick="toggleMobileMenu();abrirModalFirma()">✍️ Mi firma en los paquetes</button>
     <button class="mobile-menu-btn" onclick="cerrarSesion()" style="color:var(--red)">Cerrar sesión</button>
   </div>
@@ -270,6 +289,10 @@
   </div>
 </div>
 
+<!-- b128: lo que el usuario reportó volvió con novedad (resuelto, descartado o con respuesta). Va ARRIBA: si no
+     ve que su reporte sirvió, la próxima vez manda un WhatsApp. -->
+<div id="aviso-reportes" class="aviso-reportes" style="max-width:1200px;margin:12px auto 0"></div>
+
 <div id="screen-dashboard" class="screen">
   <div id="dashboard-content"><div class="loading"><div class="spinner"></div>Cargando...</div></div>
 </div>
@@ -277,6 +300,13 @@
 <div id="screen-misreservas" class="screen">
   <div id="misreservas-titulo" style="font-size:18px;font-weight:600;margin-bottom:16px">Mis reservas</div>
   <div id="misreservas-content"><div class="loading"><div class="spinner"></div>Cargando...</div></div>
+</div>
+
+<!-- b128: REPORTES Y SUGERENCIAS (solo quien los gestiona: flag usuarios.gestiona_reportes) -->
+<div id="screen-reportes" class="screen">
+  <div style="font-size:18px;font-weight:600">Lo que reporta el equipo</div>
+  <div style="font-size:12px;color:var(--muted);margin:4px 0 14px">Cada reporte llega con la pantalla en la que estaba la persona, el cupo abierto y la versión. <b>Cambiá el estado</b> y, si escribís una respuesta, la ve quien lo reportó (le aparece un aviso en la app): es lo que hace que sigan reportando.</div>
+  <div id="reportes-content"><div class="loading"><div class="spinner"></div>Cargando...</div></div>
 </div>
 
 <!-- b127: SOLICITUDES DE GRUPO (vendedor → Aéreos) -->
@@ -651,6 +681,33 @@
       <button class="btn btn-outline" onclick="cerrarModal('modal-horarios')">Cerrar</button>
       <button class="btn btn-primary" id="btn-confirmar-horarios" onclick="confirmarAjustarHorarios()">Guardar horarios</button>
     </div>
+  </div>
+</div>
+
+<!-- b128: al pie y discreto. Son DOS entradas porque el tipo queda elegido al entrar (una decisión menos). -->
+<footer id="pie-reportar" class="pie-reportar">
+  <button class="pie-link" onclick="abrirReporte('error')" title="Se manda con la pantalla en la que estás: no hace falta que la expliques">⚑ Reportar un problema</button>
+  <button class="pie-link" onclick="abrirReporte('idea')">💡 Sugerir una mejora</button>
+</footer>
+
+<!-- b128: reportar = dos clics y una frase. Si pide más que eso, se manda un WhatsApp y se pierde la trazabilidad. -->
+<div id="modal-reporte" class="modal-overlay" style="display:none">
+  <div class="modal" style="max-width:600px">
+    <div class="modal-title" id="rep-titulo">Reportar un problema</div>
+    <div id="modal-rep-alert"></div>
+    <textarea class="form-textarea" id="rep-texto" rows="4" onpaste="pegarCapturaReporte(event)"></textarea>
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:8px 0 4px">
+      <span style="font-size:12px;color:var(--muted)">📷 Sacá la captura con <b>Windows + Shift + S</b> y pegala en el cuadro con <b>Ctrl+V</b></span>
+      <button class="btn-sm" type="button" onclick="document.getElementById('rep-captura-file').click()">o elegí un archivo</button>
+      <input type="file" id="rep-captura-file" accept="image/*" hidden onchange="tomarCapturaReporte(this.files[0]);this.value=''"/>
+    </div>
+    <div id="rep-captura-prev"></div>
+    <div id="rep-contexto" style="font-size:12px;color:var(--muted);margin:6px 0 2px"></div>
+    <div class="modal-actions" style="margin-top:12px">
+      <button class="btn btn-outline" onclick="cerrarModal('modal-reporte')">Cerrar</button>
+      <button class="btn btn-primary" id="btn-rep-enviar" onclick="enviarReporte()">Enviar</button>
+    </div>
+    <div id="rep-mios" style="margin-top:14px"></div>
   </div>
 </div>
 
@@ -1074,7 +1131,7 @@ const sb=supabase.createClient(CONFIG.SUPABASE_URL,CONFIG.SUPABASE_ANON_KEY,{
 // ⚠️ Una sola versión por cadena y CORTA: el detalle va al CHANGELOG.md, no acá. Nacho ve este texto
 // completo en el encabezado (el resto ve solo el "bNN") y si es largo se desborda; además `APP_VERSION_CORTA`
 // saca el número con un match, así que dos "bNN" en la misma cadena confunden cuál es la versión.
-const APP_VERSION='Fase 2 · 2026-11-11 (b127-TEST · Solicitudes de grupo v1 · sobre b126 (pedidos de Aéreos) y b125 (Reservas). Paquetes con IA prendido, solo TEST.)';
+const APP_VERSION='Fase 2 · 2026-11-11 (b128-TEST · Reportar un problema / sugerir una mejora · sobre b127 (grupos), b126 (pedidos de Aéreos) y b125 (Reservas). Paquetes con IA prendido, solo TEST.)';
 // Columnas de 'vuelos' legibles por cualquier usuario. EXCLUYE precio_neto: el admin lo lee por RPC admin_get_precio_neto (gateada por es_admin). No usar select('*') sobre vuelos: la columna precio_neto quedó revocada a authenticated.
 // ⚠️ Toda columna que se agregue acá necesita `grant select (col) to authenticated` en la base, si no
 // PostgREST tira 400 y se cae la pantalla entera (gotcha #6). `emitido` viene de la migración 2026-08-06.
@@ -1492,6 +1549,8 @@ async function iniciarSesion(session){
   rolEfectivo=(u.rol==='super_admin')?'admin':u.rol;
   // Gestor de Travel Partners (p.ej. Victoria K): flag sobre su cuenta de vendedor (no es un rol nuevo).
   esGestorTP=(u.gestiona_tp===true);
+  // b128: quién gestiona los reportes y sugerencias (flag usuarios.gestiona_reportes; el candado real es la RLS).
+  esGestorReportes=(u.gestiona_reportes===true);
   // Cargar vendedores
   const {data:vends,error:ve}=await sb.from('usuarios').select('nombre,email,rol,activo').order('nombre');
   console.log('vendedores cargados:',vends?.length,ve);
@@ -1527,6 +1586,7 @@ async function iniciarSesion(session){
   if(rolEfectivo==='admin'){const vc=document.getElementById('ver-como');if(vc){vc.style.display='inline-block';vc.value=rolEfectivo;}}
   else if(esGestorTP){const vc=document.getElementById('ver-como');if(vc){vc.innerHTML='<option value="vendedor">👁 Vista: Vendedora</option><option value="travel_partner">👁 Vista: Travel Partner</option>';vc.style.display='inline-block';vc.value='vendedor';}}
   aplicarRolEfectivoUI();
+  iniciarReportesUI();  // b128: pie "reportar / sugerir", pestaña Reportes del gestor y aviso de vuelta
   // El vencimiento de reservas corre server-side (función vencer_reservas() + pg_cron), no en el cliente.
   // El vendedor aterriza en Cupos (su pantalla operativa); el admin en el Dashboard de gestión.
   goTo(rolEfectivo==='admin'?'dashboard':'vuelos');
@@ -1583,6 +1643,7 @@ function cambiarVista(rol){
   else if(id==='screen-vuelos') cargarVuelos();
   else if(id==='screen-misreservas') cargarMisReservas();
   else if(id==='screen-grupos') cargarGrupos();
+  else if(id==='screen-reportes') cargarReportesGestion();
   else if(id==='screen-admin') cargarAdmin();
   else if(id==='screen-detalle'&&currentVueloId) cargarDetalle(currentVueloId);
   else goTo(rolEfectivo==='admin'?'dashboard':'vuelos');
@@ -1595,16 +1656,19 @@ function goTo(s){
   if(rolEfectivo==='travel_partner' && s!=='vuelos') s='vuelos';
   // Operaciones (Ola 2 #42): el Dashboard no aplica a la mesa. ("Reservas" sí, desde b125.)
   if(rolEfectivo==='operaciones' && s==='dashboard') s='vuelos';
+  // b128: "Reportes" solo para quien los gestiona (igual la RLS no le devolvería los ajenos a nadie más).
+  if(s==='reportes' && !esGestorReportes) s='vuelos';
   document.querySelectorAll('.screen').forEach(x=>x.classList.remove('active'));
   document.querySelectorAll('.nav-link').forEach(x=>x.classList.remove('active'));
   document.getElementById('screen-'+s).classList.add('active');
-  const idx={dashboard:0,vuelos:1,misreservas:2,grupos:3,admin:4}; // b127: "Grupos" va antes de Administración
+  const idx={dashboard:0,vuelos:1,misreservas:2,grupos:3,admin:4,reportes:5}; // b127: "Grupos" antes de Administración · b128: "Reportes" al final
   const links=document.querySelectorAll('.nav-link');
   if(idx[s]!==undefined&&links[idx[s]]) links[idx[s]].classList.add('active');
   if(s==='dashboard') cargarDashboard();
   if(s==='vuelos'){vuelosCargado=false;cargarVuelos();}
   if(s==='misreservas') cargarMisReservas();
   if(s==='grupos') cargarGrupos();
+  if(s==='reportes') cargarReportesGestion();
   if(s==='admin'){adminCargado=false;cargarAdmin();}
 }
 
@@ -2043,6 +2107,218 @@ function renderReservasTodas(){
     html+='</tbody></table></div>';
   }
   cont.innerHTML=html;
+}
+
+// ═══════════ REPORTAR UN PROBLEMA · SUGERIR UNA MEJORA (b128) ═══════════
+// Pedido de Nacho (11-nov): "al igual que tenemos en el cotizador, poder sugerir una mejora o reportar un problema,
+// para gestionar todo por ahí y no por mails". Copia del canal del cotizador (09/cotizador-interno): lo que un mail
+// pierde y esto guarda solo es el ESTADO (¿alguien lo miró?), el CONTEXTO (dónde estaba, con qué cupo) y el
+// HISTORIAL. El candado real está en la base (RLS + RPC): cada uno ve lo suyo, el gestor ve todo, el autor no
+// edita lo que reportó y nada se borra (se descarta).
+const REP_BUCKET='reportes-cupos';
+const REP_TITULO={error:'⚑ Reportar un problema',idea:'💡 Sugerir una mejora'};
+const REP_EJEMPLO={error:'Ej: reservé 3 lugares y me tomó 2 / no me deja guardar la factura del pasajero.',idea:'Ej: que en Mis reservas se pueda filtrar por temporada.'};
+const REP_ESTADO={nuevo:['Sin mirar','rep-nuevo'],en_curso:['En curso','rep-curso'],resuelto:['Resuelto','rep-listo'],descartado:['Descartado','rep-descartado']};
+const REP_PANTALLA={'screen-dashboard':'Dashboard','screen-vuelos':'Cupos','screen-detalle':'Detalle de un cupo','screen-misreservas':'Mis reservas / Reservas','screen-grupos':'Grupos','screen-admin':'Administración','screen-reportes':'Reportes'};
+let repTipo='error',repCaptura=null,_repFiltro='abiertos',_repUltimoChequeo=0;
+
+function iniciarReportesUI(){
+  const pie=document.getElementById('pie-reportar');
+  if(pie){pie.style.display='flex';document.body.classList.add('con-pie-reportar');}
+  ['nav-reportes','mobile-reportes'].forEach(id=>{const e=document.getElementById(id);if(e)e.style.display=esGestorReportes?'':'none';});
+  if(esGestorReportes) contarReportesNuevos();
+  chequearReportesNovedad();
+}
+// Lo que la persona NO tiene que escribir. Es la diferencia entre "no me anda" y algo que se puede reproducir.
+function contextoReporte(){
+  const act=document.querySelector('.screen.active');
+  const modal=[...document.querySelectorAll('.modal-overlay')].find(m=>m.id!=='modal-reporte'&&m.style.display&&m.style.display!=='none');
+  const c={pantalla:REP_PANTALLA[act?.id]||act?.id||'',rol:rolEfectivo||'',rol_real:currentRol||'',
+    version:(String(typeof APP_VERSION!=='undefined'?APP_VERSION:'').match(/b\d+[^ ·)]*/)||[''])[0],
+    navegador:navigator.userAgent,ventana:window.innerWidth+'×'+window.innerHeight};
+  if(act?.id==='screen-detalle'&&currentVueloId){c.cupo_id=currentVueloId;c.cupo=(document.querySelector('#screen-detalle .detalle-titulo')?.textContent||'').trim();}
+  const t=(Array.isArray(temporadas)?temporadas:[]).find(x=>x.id===temporadaActiva);if(t)c.temporada=t.nombre;
+  if(modal)c.ventana_abierta=(modal.querySelector('.modal-title')?.textContent||modal.id).trim().slice(0,80);
+  return c;
+}
+// Para mostrarlo alcanza con el NOMBRE del navegador (se guarda completo, que es lo que sirve). ⚠️ Edge también dice "Chrome".
+function navegadorCorto(ua){const s=String(ua||'');if(/Edg\//.test(s))return 'Edge';if(/OPR\/|Opera/.test(s))return 'Opera';if(/Chrome\//.test(s))return 'Chrome';if(/Firefox\//.test(s))return 'Firefox';if(/Safari\//.test(s))return 'Safari';return '';}
+
+// ---- La captura: Win+Shift+S y Ctrl+V acá adentro (el archivo es el plan B). Se reduce a 1600px/JPEG 0.8
+// ANTES de subir: una pantalla entera queda en ~200 KB y el envío no se cuelga.
+async function reducirImagenReporte(file){
+  const bmp=await createImageBitmap(file);
+  const k=Math.min(1,1600/Math.max(bmp.width,bmp.height));
+  const c=document.createElement('canvas');c.width=Math.round(bmp.width*k);c.height=Math.round(bmp.height*k);
+  c.getContext('2d').drawImage(bmp,0,0,c.width,c.height);
+  return new Promise(res=>c.toBlob(res,'image/jpeg',0.8));
+}
+function pintarCapturaReporte(){
+  const cont=document.getElementById('rep-captura-prev');if(!cont)return;
+  if(!repCaptura){cont.innerHTML='';return;}
+  cont.innerHTML=`<div class="rep-captura-prev"><img src="${repCaptura.url}" alt="captura"/><button class="btn-sm" style="position:absolute;top:6px;right:6px" type="button" onclick="quitarCapturaReporte()">Quitar</button></div><div style="font-size:12px;color:var(--muted)">${Math.round(repCaptura.blob.size/1024)} KB · se manda con el reporte</div>`;
+}
+function quitarCapturaReporte(){if(repCaptura)URL.revokeObjectURL(repCaptura.url);repCaptura=null;pintarCapturaReporte();}
+async function tomarCapturaReporte(file){
+  if(!file||!String(file.type||'').startsWith('image/'))return;
+  try{const blob=await reducirImagenReporte(file);quitarCapturaReporte();repCaptura={blob,url:URL.createObjectURL(blob)};pintarCapturaReporte();}
+  catch(e){mostrarAlerta('modal-rep-alert','No pude leer esa imagen: probá con otra o mandá el reporte sin captura.','warning');}
+}
+// Si lo que se pega es TEXTO, no se toca nada.
+function pegarCapturaReporte(e){
+  const it=[...((e.clipboardData&&e.clipboardData.items)||[])].find(i=>String(i.type).startsWith('image/'));
+  if(!it)return;e.preventDefault();tomarCapturaReporte(it.getAsFile());
+}
+
+function abrirReporte(tipo){
+  repTipo=tipo==='idea'?'idea':'error';
+  quitarCapturaReporte();
+  document.getElementById('rep-titulo').textContent=REP_TITULO[repTipo];
+  const tx=document.getElementById('rep-texto');tx.value='';tx.placeholder=REP_EJEMPLO[repTipo];
+  document.getElementById('modal-rep-alert').innerHTML='';
+  // Cada dato se nombra por lo que es (la pantalla, el cupo, el navegador), o el aviso no se entiende.
+  const c=contextoReporte();const p=['pantalla '+c.pantalla];
+  if(c.cupo)p.push('cupo '+c.cupo);if(c.ventana_abierta)p.push('ventana "'+c.ventana_abierta+'"');
+  const nav=navegadorCorto(c.navegador);if(nav)p.push(nav);if(c.version)p.push('versión '+c.version);
+  document.getElementById('rep-contexto').textContent='Esto viaja solo con tu reporte, no lo escribas: '+p.join(' · ')+'.';
+  document.getElementById('modal-reporte').style.display='flex';
+  tx.focus();
+  pintarMisReportes();
+  // Abrir sus reportes ya le muestra el estado y la respuesta: el aviso de arriba no hace falta.
+  sb.rpc('marcar_reportes_cupos_vistos').then(()=>{},()=>{});
+  const av=document.getElementById('aviso-reportes');if(av)av.style.display='none';
+}
+async function enviarReporte(){
+  const texto=document.getElementById('rep-texto').value.trim();
+  if(texto.length<5){mostrarAlerta('modal-rep-alert','Contá un poco más, así lo podemos buscar.','error');document.getElementById('rep-texto').focus();return;}
+  const b=document.getElementById('btn-rep-enviar');b.disabled=true;b.textContent='Enviando…';
+  try{
+    await asegurarTokenFresco();
+    // La captura primero. Si falla la subida, el reporte se manda IGUAL sin ella: perder la imagen es molesto,
+    // perder el reporte es peor (la persona ya escribió y cree que lo mandó).
+    let captura=null,sinCaptura=false;
+    if(repCaptura){
+      b.textContent='Subiendo la captura…';
+      try{
+        const uid=currentUser?.id||(await sb.auth.getUser()).data?.user?.id;
+        const ruta=uid+'/'+(crypto.randomUUID?crypto.randomUUID():Date.now()+'-'+Math.random().toString(36).slice(2))+'.jpg';
+        const {error}=await sb.storage.from(REP_BUCKET).upload(ruta,repCaptura.blob,{contentType:'image/jpeg'});
+        if(error)throw error;captura=ruta;
+      }catch(e){console.warn('[reporte] captura',e);sinCaptura=true;}
+    }
+    b.textContent='Enviando…';
+    const {error}=await sb.rpc('crear_reporte_cupos',{p_tipo:repTipo,p_texto:texto,p_contexto:contextoReporte(),p_captura:captura});
+    if(error)throw error;
+    document.getElementById('rep-texto').value='';quitarCapturaReporte();
+    mostrarAlerta('modal-rep-alert',(repTipo==='idea'?'Anotada ✓ — gracias.':'Reportado ✓ — lo miramos.')+(sinCaptura?' (No pude subir la captura: el reporte salió sin ella.)':' Cuando haya novedad te aparece un aviso acá arriba.'),'success');
+    await pintarMisReportes();
+    if(esGestorReportes)contarReportesNuevos();
+  }catch(e){
+    // Sin conexión el reporte se pierde: se le dice, en vez de dejarlo creyendo que lo mandó.
+    mostrarAlerta('modal-rep-alert','No se pudo enviar ('+(e.message||'sin conexión')+'). Probá de nuevo en un rato.','error');
+  }finally{b.disabled=false;b.textContent='Enviar';}
+}
+// Ver en qué quedó lo que uno reportó es lo que sostiene que sigan reportando.
+async function pintarMisReportes(){
+  const cont=document.getElementById('rep-mios');if(!cont)return;
+  try{
+    const {data}=await sb.from('reportes_cupos').select('id,tipo,texto,estado,respuesta,creado_en').eq('autor_email',String(currentUser?.email||'').toLowerCase()).order('creado_en',{ascending:false}).limit(5);
+    cont.innerHTML=!(data||[]).length?'':'<div style="font-size:12px;color:var(--muted);margin-bottom:6px">Lo que reportaste antes</div>'+data.map(r=>{
+      const [t,cls]=REP_ESTADO[r.estado]||['—',''];
+      return `<div class="rep-item"><span class="rep-estado ${cls}">${t}</span> · ${r.tipo==='idea'?'💡':'⚑'} ${esc(r.texto)}${r.respuesta?`<div class="rep-meta">↳ ${esc(r.respuesta)}</div>`:''}<div class="rep-meta">${formatFechaHora(r.creado_en)}</div></div>`;
+    }).join('');
+  }catch(e){cont.innerHTML='';}
+}
+
+// ---- El aviso de vuelta. Se marca visto SOLO cuando lo cierra o abre sus reportes (si se marcara al mostrarlo,
+// un parpadeo de la pantalla se llevaría la novedad). La pestaña queda abierta todo el día: al volver a ella se
+// vuelve a mirar, con un piso de 2 minutos para no pegarle a la base cada vez que se cambia de ventana.
+document.addEventListener('visibilitychange',()=>{
+  if(document.visibilityState!=='visible'||!currentUser)return;
+  if(Date.now()-_repUltimoChequeo<120000)return;
+  chequearReportesNovedad();if(esGestorReportes)contarReportesNuevos();
+});
+async function chequearReportesNovedad(){
+  const caja=document.getElementById('aviso-reportes');if(!caja||!currentUser)return;
+  _repUltimoChequeo=Date.now();
+  let nov=[];
+  try{
+    const {data,error}=await sb.from('reportes_cupos').select('id,tipo,texto,estado,respuesta')
+      .eq('autor_email',String(currentUser.email||'').toLowerCase()).is('visto_por_autor',null)
+      .or('estado.in.(resuelto,descartado),respuesta.not.is.null').order('actualizado_en',{ascending:false});
+    if(error)throw error;nov=data||[];
+  }catch(e){return;}
+  if(!nov.length){caja.style.display='none';caja.innerHTML='';return;}
+  const n=nov[0];
+  // Tres finales y cada uno se dice distinto: resolver, descartar y RESPONDER (una pregunta también tiene que llegar).
+  const enc=n.estado==='resuelto'?'✅ Lo que reportaste está resuelto':n.estado==='descartado'?'📌 Te contestamos lo que propusiste':'💬 Te respondimos lo que reportaste';
+  caja.innerHTML=`<span>${enc}: <span class="cita">“${esc(n.texto.slice(0,90))}${n.texto.length>90?'…':''}”</span>${nov.length>1?` (y ${nov.length-1} más)`:''}</span>${n.respuesta?`<span><b>Respuesta:</b> <span style="color:var(--text)">${esc(n.respuesta)}</span></span>`:''}<button class="btn-sm" onclick="abrirReporte('error')">Ver mis reportes</button><button class="btn-sm" onclick="cerrarAvisoReportes()">Listo</button>`;
+  caja.style.display='flex';
+}
+async function cerrarAvisoReportes(){
+  const c=document.getElementById('aviso-reportes');if(c)c.style.display='none';
+  try{await sb.rpc('marcar_reportes_cupos_vistos');}catch(e){}
+}
+
+// ---- Gestión (solo quien gestiona) ----
+async function contarReportesNuevos(){
+  const b=document.getElementById('nav-reportes-badge');if(!b)return;
+  try{
+    const {count,error}=await sb.from('reportes_cupos').select('id',{count:'exact',head:true}).eq('estado','nuevo');
+    if(error)throw error;
+    b.textContent=count||'';b.style.display=count?'inline-block':'none';
+  }catch(e){b.style.display='none';}
+}
+async function cargarReportesGestion(){
+  const cont=document.getElementById('reportes-content');if(!cont)return;
+  cont.innerHTML='<div class="loading"><div class="spinner"></div>Cargando...</div>';
+  const {data,error}=await sb.from('reportes_cupos').select('*').order('creado_en',{ascending:false});
+  if(error){cont.innerHTML='<div class="loading" style="color:var(--red)">No se pudieron cargar los reportes ('+esc(error.message)+')</div>';return;}
+  const todos=data||[];
+  const abiertos=r=>r.estado==='nuevo'||r.estado==='en_curso';
+  const rs=_repFiltro==='abiertos'?todos.filter(abiertos):_repFiltro==='ideas'?todos.filter(r=>r.tipo==='idea'):_repFiltro==='errores'?todos.filter(r=>r.tipo==='error'):todos;
+  const btn=(k,t,n)=>`<button class="btn-sm" style="${_repFiltro===k?'border-color:var(--accent2);color:var(--accent2)':''}" onclick="_repFiltro='${k}';cargarReportesGestion()">${t}${n!==undefined?` (${n})`:''}</button>`;
+  let h=`<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">${btn('abiertos','Abiertos',todos.filter(abiertos).length)}${btn('errores','⚑ Problemas')}${btn('ideas','💡 Ideas')}${btn('todos','Todos',todos.length)}</div>`;
+  if(!rs.length){
+    h+=`<div style="padding:16px;color:var(--muted);font-size:14px">${_repFiltro==='abiertos'?('No hay reportes abiertos. '+(todos.length?'Mirá "Todos" para ver los cerrados.':'')):'Todavía nadie reportó nada.'}</div>`;
+    cont.innerHTML=h;return;
+  }
+  h+=rs.map(r=>{
+    const [t,cls]=REP_ESTADO[r.estado]||['—',''];const c=r.contexto||{};
+    const ctx=[c.pantalla,c.cupo?'cupo '+c.cupo:null,c.ventana_abierta?'ventana "'+c.ventana_abierta+'"':null,c.temporada?'temporada '+c.temporada:null,c.rol?('rol '+c.rol+(c.rol_real&&c.rol_real!==c.rol?' (real: '+c.rol_real+')':'')):null,c.version,navegadorCorto(c.navegador),c.ventana].filter(Boolean).join(' · ');
+    return `<div class="rep-item">
+      <span class="rep-estado ${cls}">${t}</span> ${r.tipo==='idea'?'💡':'⚑'} <b>${esc(r.autor_nombre||r.autor_email)}</b> · <span style="color:var(--muted);font-size:12px">${formatFechaHora(r.creado_en)}</span>
+      <div style="margin:6px 0;white-space:pre-wrap">${esc(r.texto)}</div>
+      ${r.captura?`<img class="rep-shot" data-captura="${esc(r.captura)}" alt="captura" title="Clic para verla entera" onclick="abrirCapturaReporte(this.dataset.captura)"/>`:''}
+      ${ctx?`<div class="rep-meta">Estaba en: ${esc(ctx)}${c.cupo_id?` · <a href="#" style="color:var(--accent2)" onclick="event.preventDefault();goToDetalle('${esc(c.cupo_id)}')">abrir el cupo</a>`:''}</div>`:''}
+      ${r.respuesta&&r.respondido_por?`<div class="rep-meta">Respondió ${esc(r.respondido_por)} · ${r.visto_por_autor?'✓ ya lo vio':'todavía no lo vio'}</div>`:''}
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;align-items:center">
+        <select class="form-select" style="width:150px" id="rep-est-${r.id}">${Object.keys(REP_ESTADO).map(k=>`<option value="${k}"${k===r.estado?' selected':''}>${REP_ESTADO[k][0]}</option>`).join('')}</select>
+        <input class="form-input" style="flex:1;min-width:220px" id="rep-resp-${r.id}" placeholder="Respuesta para quien lo reportó (la ve en la app)" value="${esc(r.respuesta||'')}"/>
+        <button class="btn btn-primary" style="padding:6px 12px" onclick="guardarReporteGestion('${r.id}',this)">Guardar</button>
+      </div></div>`;
+  }).join('');
+  cont.innerHTML=h;
+  // Las capturas se piden DESPUÉS de pintar: el bucket es privado y cada una necesita su URL firmada (vence en 1 h).
+  // Si una falla, se cae esa imagen sola, no la pantalla.
+  cont.querySelectorAll('img[data-captura]').forEach(async img=>{
+    try{const {data:s,error:e}=await sb.storage.from(REP_BUCKET).createSignedUrl(img.dataset.captura,3600);if(e)throw e;img.src=s.signedUrl;}
+    catch(e){img.replaceWith(Object.assign(document.createElement('div'),{className:'rep-meta',textContent:'(no se pudo cargar la captura)'}));}
+  });
+}
+async function abrirCapturaReporte(ruta){
+  try{const {data,error}=await sb.storage.from(REP_BUCKET).createSignedUrl(ruta,3600);if(error)throw error;window.open(data.signedUrl,'_blank');}
+  catch(e){alert('No se pudo abrir la captura');}
+}
+async function guardarReporteGestion(id,btn){
+  const estado=document.getElementById('rep-est-'+id).value,respuesta=document.getElementById('rep-resp-'+id).value.trim();
+  btn.disabled=true;
+  try{
+    await asegurarTokenFresco();
+    const {error}=await sb.rpc('gestionar_reporte_cupos',{p_id:id,p_estado:estado,p_respuesta:respuesta||null});
+    if(error)throw error;
+    await cargarReportesGestion();await contarReportesNuevos();
+  }catch(e){alert('No se pudo guardar: '+(e.message||e));btn.disabled=false;}
 }
 
 // ── SOLICITUDES DE GRUPO (b127, v1) ──────────────────────────────────────────
@@ -3627,6 +3903,7 @@ let reservarModoEspera=false,reservarModoEsperaBulk=false,reservarBloqLibres=0,r
 // Delegación ("asiste en ventas"): nombres de las titulares que este usuario asiste (puede operar sus fichas).
 let misAsistidas=[];
 let esGestorTP=false;  // gestor de Travel Partners (flag usuarios.gestiona_tp): habilita toggle de vista + etiqueta TP
+let esGestorReportes=false;  // b128: gestiona los reportes y sugerencias (flag usuarios.gestiona_reportes)
 // Nombres que el usuario puede operar/atribuir: el propio + las titulares que asiste.
 function nombresQuePuedoOperar(){
   const propio=vendedores.find(v=>v.email===currentUser?.email)?.nombre||currentUser?.email||'';
