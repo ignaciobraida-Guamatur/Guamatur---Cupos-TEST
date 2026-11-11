@@ -2269,8 +2269,10 @@ async function guardarGestionGrupo(id){
   const g=c=>document.getElementById('sga-'+c)?.value??'';
   const p={estado:g('estado'),nota:g('nota').trim()};
   ['codigo_referencia','tarifa','impuestos','total','validez_cotizacion','condiciones','cotizacion','pnr','motivo'].concat(SG_VENC.map(v=>v.campo)).forEach(c=>{p[c]=String(g(c)).trim();});
-  const antes=_sgLista.find(x=>x.id===id);
   await asegurarTokenFresco();
+  // El estado anterior se lee de la base, no de _sgLista: la solicitud se puede abrir sin pasar por el listado
+  // (y entonces la lista está vacía y el mail del cambio de estado no salía; visto en la prueba del 11-nov).
+  const {data:antes}=await sb.from('solicitudes_grupo').select('estado').eq('id',id).single();
   const {error}=await sb.rpc('solicitud_grupo_aereos',{p_id:id,p});
   if(error){mostrarAlerta('modal-sg-detalle-alert','No se pudo guardar: '+error.message,'error');return;}
   let txt='Guardado.';
