@@ -2390,12 +2390,15 @@ function _sgEquipajeTxt(s){
   return `${lbl} — ${a.aer}: ${t}`;
 }
 // Tabla del cuadro (una aerolínea o todas), con la columna del nivel elegido resaltada.
+// Encabezados cortos y celdas que cortan línea: con los nombres largos la tabla se salía del modal y la columna
+// elegida (sobre todo "2 despachados") quedaba escondida a la derecha.
+const SG_NIVEL_CORTO=['Solo bolso','+ carry-on','+ 1 despachado','+ 2 despachados'];
 function _sgTablaTarifas(lista,iSel){
-  const th='padding:4px 6px;text-align:left;font-weight:600;color:var(--muted);border-bottom:1px solid var(--border2)';
-  const td='padding:4px 6px;border-bottom:1px solid var(--border);vertical-align:top';
-  const sel=';background:rgba(124,111,253,0.14)';
-  let h=`<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:11.5px"><thead><tr><th style="${th}">Aerolínea</th><th style="${th}">Ruta</th>`;
-  SG_NIVELES.forEach((k,i)=>h+=`<th style="${th}${i===iSel?sel:''}">${esc(SG_EQUIPAJE[k])}</th>`);
+  const th='padding:4px 6px;text-align:left;font-weight:600;color:var(--muted);border-bottom:1px solid var(--border2);white-space:normal;text-transform:none;letter-spacing:0;font-size:11px';
+  const td='padding:4px 6px;border-bottom:1px solid var(--border);vertical-align:top;white-space:normal';
+  const sel=';background:rgba(124,111,253,0.18)';
+  let h=`<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:11.5px;table-layout:fixed"><colgroup><col style="width:13%"><col style="width:17%"><col><col><col><col></colgroup><thead><tr><th style="${th}">Aerolínea</th><th style="${th}">Ruta</th>`;
+  SG_NIVELES.forEach((k,i)=>h+=`<th style="${th}${i===iSel?sel+';color:var(--text)':''}" title="${esc(SG_EQUIPAJE[k])}">${esc(SG_NIVEL_CORTO[i])}</th>`);
   h+=`</tr></thead><tbody>`;
   lista.forEach(a=>a.rutas.forEach((r,j)=>{
     h+=`<tr><td style="${td};font-weight:600">${j===0?esc(a.aer):''}</td><td style="${td};color:var(--muted)">${esc(r.ruta)}</td>`;
@@ -2417,6 +2420,8 @@ function _sgActualizarTarifa(){
   const box=document.getElementById('sg-equipaje-tarifa');if(!box)return;
   const aer=(document.getElementById('sg-aerolinea')?.value||'').trim(),eq=document.getElementById('sg-equipaje')?.value||'';
   const a=_sgTarifaDe(aer),i=SG_NIVELES.indexOf(eq);
+  // Si el cartel de arriba reclamaba el equipaje y ya lo eligió, se apaga.
+  const al=document.getElementById('modal-sg-nueva-alert');if(i>=0&&al&&/equipaje/i.test(al.textContent))al.innerHTML='';
   if(!aer){box.innerHTML=`<div style="font-size:12px;color:var(--muted)">Sin aerolínea elegida: Aéreos cotiza la que convenga con este equipaje.</div>`;return;}
   if(!a){box.innerHTML=`<div style="font-size:12px;color:var(--muted)">${esc(aer)} no está en el cuadro de tarifas de Aéreos: el pedido sale con el equipaje elegido.</div>`;return;}
   let aviso='';
