@@ -229,6 +229,7 @@
     <button class="nav-link" onclick="goTo('vuelos')">Cupos</button>
     <button class="nav-link" id="nav-misreservas" onclick="goTo('misreservas')">Mis reservas</button>
     <button class="nav-link" id="nav-grupos" onclick="goTo('grupos')">Grupos</button>
+    <button class="nav-link" id="nav-salidasgrupales" style="display:none" onclick="goTo('salidasgrupales')">Salidas grupales</button>
     <button class="nav-link" id="nav-admin" style="display:none" onclick="goTo('admin')">Administración</button>
     <button class="nav-link" id="nav-reportes" style="display:none" onclick="goTo('reportes')">Reportes<span id="nav-reportes-badge" class="badge-nuevos" style="display:none"></span></button>
   </div>
@@ -263,6 +264,7 @@
     <button class="mobile-menu-btn" onclick="goTo('vuelos');toggleMobileMenu()">✈ Cupos</button>
     <button class="mobile-menu-btn" id="mobile-misreservas" onclick="goTo('misreservas');toggleMobileMenu()">🎫 Mis reservas</button>
     <button class="mobile-menu-btn" id="mobile-grupos" onclick="goTo('grupos');toggleMobileMenu()">👥 Grupos</button>
+    <button class="mobile-menu-btn" id="mobile-salidasgrupales" style="display:none" onclick="goTo('salidasgrupales');toggleMobileMenu()">🌍 Salidas grupales</button>
     <button class="mobile-menu-btn" id="mobile-admin" style="display:none" onclick="goTo('admin');toggleMobileMenu()">⚙️ Administración</button>
     <button class="mobile-menu-btn" id="mobile-reportes" style="display:none" onclick="goTo('reportes');toggleMobileMenu()">⚑ Reportes</button>
     <button class="mobile-menu-btn" id="btn-mi-firma-mobile" onclick="toggleMobileMenu();abrirModalFirma()">✍️ Mi firma en los paquetes</button>
@@ -319,6 +321,11 @@
     <button class="btn btn-primary" onclick="abrirNuevaSolicitudGrupo()">+ Pedir un grupo a Aéreos</button>
   </div>
   <div id="grupos-content"><div class="loading"><div class="spinner"></div>Cargando...</div></div>
+</div>
+
+<!-- b131: SALIDAS GRUPALES (solo admin y Operaciones; lo arma cargarSalidasGrupales / abrirSalidaGrupal) -->
+<div id="screen-salidasgrupales" class="screen">
+  <div id="grp-content"><div class="loading"><div class="spinner"></div>Cargando...</div></div>
 </div>
 
 <div id="screen-vuelos" class="screen">
@@ -747,6 +754,14 @@
   </div>
 </div>
 
+<!-- b131: SALIDAS GRUPALES — un solo modal para salida, bloque aéreo y lugar (el contenido lo arma el JS) -->
+<div id="modal-grp" class="modal-overlay" style="display:none">
+  <div class="modal" style="max-width:780px">
+    <div id="modal-grp-alert"></div>
+    <div id="grp-modal-content"></div>
+  </div>
+</div>
+
 <!-- MODAL ELIMINAR MIS RESERVAS (vendedor) -->
 <div id="modal-eliminar" class="modal-overlay" style="display:none">
   <div class="modal" style="max-width:520px">
@@ -1134,7 +1149,7 @@ const sb=supabase.createClient(CONFIG.SUPABASE_URL,CONFIG.SUPABASE_ANON_KEY,{
 // ⚠️ Una sola versión por cadena y CORTA: el detalle va al CHANGELOG.md, no acá. Nacho ve este texto
 // completo en el encabezado (el resto ve solo el "bNN") y si es largo se desborda; además `APP_VERSION_CORTA`
 // saca el número con un match, así que dos "bNN" en la misma cadena confunden cuál es la versión.
-const APP_VERSION='Fase 2 · 2026-11-12 (b130-TEST · El Travel Partner ve el PNR de los cupos · sobre b129 (equipaje), b128 (reportes), b127 (grupos), b126 (pedidos de Aéreos) y b125 (Reservas). Paquetes con IA prendido, solo TEST.)';
+const APP_VERSION='Fase 2 · 2026-11-12 (b131-TEST · Salidas grupales, etapa 1 (solo admin y Operaciones) · sobre b130 (PNR para TP), b129 (equipaje), b128 (reportes), b127 (grupos), b126 (pedidos de Aéreos) y b125 (Reservas). Paquetes con IA prendido, solo TEST.)';
 // Columnas de 'vuelos' legibles por cualquier usuario. EXCLUYE precio_neto: el admin lo lee por RPC admin_get_precio_neto (gateada por es_admin). No usar select('*') sobre vuelos: la columna precio_neto quedó revocada a authenticated.
 // ⚠️ Toda columna que se agregue acá necesita `grant select (col) to authenticated` en la base, si no
 // PostgREST tira 400 y se cae la pantalla entera (gotcha #6). `emitido` viene de la migración 2026-08-06.
@@ -1619,6 +1634,8 @@ function aplicarRolEfectivoUI(){
   const sinDash=tp||rolEfectivo==='operaciones';
   ['nav-dashboard','mobile-dashboard'].forEach(id=>{const e=document.getElementById(id);if(e)e.style.display=sinDash?'none':'';});
   ['nav-misreservas','mobile-misreservas','nav-grupos','mobile-grupos'].forEach(id=>{const e=document.getElementById(id);if(e)e.style.display=tp?'none':'';});
+  // b131: Salidas grupales solo para admin y Operaciones (la RLS de grupal_* igual se lo niega al resto).
+  ['nav-salidasgrupales','mobile-salidasgrupales'].forEach(id=>{const e=document.getElementById(id);if(e)e.style.display=puedeGrupales()?'':'none';});
   const todas=verReservasDeTodos();
   const nmr=document.getElementById('nav-misreservas'); if(nmr) nmr.textContent=todas?'Reservas':'Mis reservas';
   const mmr=document.getElementById('mobile-misreservas'); if(mmr) mmr.textContent=todas?'🎫 Reservas':'🎫 Mis reservas';
@@ -1646,6 +1663,7 @@ function cambiarVista(rol){
   else if(id==='screen-vuelos') cargarVuelos();
   else if(id==='screen-misreservas') cargarMisReservas();
   else if(id==='screen-grupos') cargarGrupos();
+  else if(id==='screen-salidasgrupales'){if(!puedeGrupales()){goTo('vuelos');return;}cargarSalidasGrupales();}
   else if(id==='screen-reportes') cargarReportesGestion();
   else if(id==='screen-admin') cargarAdmin();
   else if(id==='screen-detalle'&&currentVueloId) cargarDetalle(currentVueloId);
@@ -1661,16 +1679,19 @@ function goTo(s){
   if(rolEfectivo==='operaciones' && s==='dashboard') s='vuelos';
   // b128: "Reportes" solo para quien los gestiona (igual la RLS no le devolvería los ajenos a nadie más).
   if(s==='reportes' && !esGestorReportes) s='vuelos';
+  // b131: "Salidas grupales" solo admin y Operaciones.
+  if(s==='salidasgrupales' && !puedeGrupales()) s='vuelos';
   document.querySelectorAll('.screen').forEach(x=>x.classList.remove('active'));
   document.querySelectorAll('.nav-link').forEach(x=>x.classList.remove('active'));
   document.getElementById('screen-'+s).classList.add('active');
-  const idx={dashboard:0,vuelos:1,misreservas:2,grupos:3,admin:4,reportes:5}; // b127: "Grupos" antes de Administración · b128: "Reportes" al final
+  const idx={dashboard:0,vuelos:1,misreservas:2,grupos:3,salidasgrupales:4,admin:5,reportes:6}; // b127: "Grupos" antes de Administración · b128: "Reportes" al final · b131: "Salidas grupales" después de Grupos
   const links=document.querySelectorAll('.nav-link');
   if(idx[s]!==undefined&&links[idx[s]]) links[idx[s]].classList.add('active');
   if(s==='dashboard') cargarDashboard();
   if(s==='vuelos'){vuelosCargado=false;cargarVuelos();}
   if(s==='misreservas') cargarMisReservas();
   if(s==='grupos') cargarGrupos();
+  if(s==='salidasgrupales'){_grpSalidaId=null;cargarSalidasGrupales();}   // desde la pestaña: siempre el tablero
   if(s==='reportes') cargarReportesGestion();
   if(s==='admin'){adminCargado=false;cargarAdmin();}
 }
@@ -2122,7 +2143,7 @@ const REP_BUCKET='reportes-cupos';
 const REP_TITULO={error:'⚑ Reportar un problema',idea:'💡 Sugerir una mejora'};
 const REP_EJEMPLO={error:'Ej: reservé 3 lugares y me tomó 2 / no me deja guardar la factura del pasajero.',idea:'Ej: que en Mis reservas se pueda filtrar por temporada.'};
 const REP_ESTADO={nuevo:['Sin mirar','rep-nuevo'],en_curso:['En curso','rep-curso'],resuelto:['Resuelto','rep-listo'],descartado:['Descartado','rep-descartado']};
-const REP_PANTALLA={'screen-dashboard':'Dashboard','screen-vuelos':'Cupos','screen-detalle':'Detalle de un cupo','screen-misreservas':'Mis reservas / Reservas','screen-grupos':'Grupos','screen-admin':'Administración','screen-reportes':'Reportes'};
+const REP_PANTALLA={'screen-dashboard':'Dashboard','screen-vuelos':'Cupos','screen-detalle':'Detalle de un cupo','screen-misreservas':'Mis reservas / Reservas','screen-grupos':'Grupos','screen-salidasgrupales':'Salidas grupales','screen-admin':'Administración','screen-reportes':'Reportes'};
 let repTipo='error',repCaptura=null,_repFiltro='abiertos',_repUltimoChequeo=0;
 
 function iniciarReportesUI(){
@@ -3093,6 +3114,393 @@ async function cargarDetalleTP(vueloId){
   }
   html+=`<details style="margin-top:16px"><summary style="cursor:pointer;font-size:13px;color:var(--accent2);font-weight:500;padding:6px 0">📋 Condiciones generales de contratación</summary><div style="padding:8px 0;font-size:13px;color:var(--muted);line-height:1.7">${CONDICIONES_ITINERARIO.map((c,i)=>`${String(i+1).padStart(2,'0')}. ${esc(c)}`).join('<br>')}<div style="margin-top:10px;font-style:italic">${esc(CONDICIONES_NOTA)}</div></div></details>`;
   cont.innerHTML=html;
+}
+
+// ── b131: SALIDAS GRUPALES (etapa 1) ─────────────────────────────
+// Reemplaza las planillas "SALIDAS GRUPALES <año> / PRIMER|SEGUNDO SEMESTRE" de Producto: una salida (programa +
+// fecha) con su itinerario, sus bloques aéreos (PNR, localizador) y sus lugares (pasajero, preventa, Beneficio Oro,
+// habitación, DAC). Solo admin y Operaciones: las ventas de los grupos no se comparten con el equipo comercial — la
+// RLS de grupal_* se lo niega al resto; esto solo esconde la pestaña. Escrituras por RPC (grupal_guardar_*).
+// Propuesta y preguntas abiertas: documentacion/propuesta-modulo-salidas-grupales.md (repo de infra).
+const GRP_LINEAS={arcadia:'Arcadia',esencial:'Esencial',formador:'Formador',otra:'Otra'};
+const GRP_ESTADOS={borrador:['badge-l','Borrador'],en_venta:['badge-green','En venta'],confirmada:['badge-blue','Confirmada'],cerrada:['badge-l','Cerrada'],no_sale:['badge-red','No sale']};
+const GRP_LUGAR={libre:['badge-l','Libre'],reservado:['badge-r','Reservado'],vendido:['badge-v','Vendido']};
+const GRP_BO={si:'Sí',no:'No',no_aplica:'No aplica'};
+const GRP_HAB=['SGL','DBL MAT','DBL TWIN','TPL'];
+var _grpSalidas=[],_grpResumen={},_grpAnio=null,_grpSem='todos',_grpFiltroEstado='activas',_grpSalidaId=null,_grpDet=null,_grpTramosForm=[];
+function puedeGrupales(){return rolEfectivo==='admin'||rolEfectivo==='operaciones';}
+const _grpUsd=n=>(n===null||n===undefined||n==='')?'':'USD '+Number(n).toLocaleString('es-UY');
+function _grpBadge(map,k){const x=map[k]||['badge-l',k||'—'];return `<span class="badge ${x[0]}">${esc(x[1])}</span>`;}
+// Conteos de una salida: los lugares del coordinador no cuentan como vendibles.
+function _grpConteo(lugares){
+  const pax=(lugares||[]).filter(l=>!l.es_coordinador);
+  const c={total:pax.length,vend:0,res:0,lib:0,dac:0,prev:0,oro:0,hab:{}};
+  pax.forEach(l=>{
+    if(l.estado==='vendido')c.vend++; else if(l.estado==='reservado')c.res++; else c.lib++;
+    if(l.estado!=='libre'){if(l.dac)c.dac++;if(l.preventa)c.prev++;if(l.beneficio_oro==='si')c.oro++;if(l.habitacion)c.hab[l.habitacion]=(c.hab[l.habitacion]||0)+1;}
+  });
+  return c;
+}
+// ¿Llegó al mínimo? Se confirma con señados: cuentan los vendidos (con factura), no los reservados.
+function _grpMinimo(s,c){
+  if(!s.minimo) return '<span style="color:var(--muted)">—</span>';
+  return c.vend>=s.minimo?`<span style="color:var(--green)" title="Vendidos ${c.vend} · mínimo ${s.minimo}">✓ llegó (${s.minimo})</span>`
+    :`<span style="color:var(--orange)" title="Vendidos ${c.vend} · mínimo ${s.minimo}">faltan ${s.minimo-c.vend}</span>`;
+}
+
+async function cargarSalidasGrupales(){
+  const cont=document.getElementById('grp-content'); if(!cont) return;
+  if(!puedeGrupales()){cont.innerHTML='<div class="loading">Esta sección es solo para admin y Operaciones.</div>';return;}
+  if(_grpSalidaId) return abrirSalidaGrupal(_grpSalidaId);
+  cont.innerHTML='<div class="loading"><div class="spinner"></div>Cargando...</div>';
+  const s=await sb.from('grupal_salidas').select('*').order('fecha_salida',{ascending:true,nullsFirst:false});
+  if(s.error){console.error('[Salidas grupales]',s.error);cont.innerHTML='<div class="loading" style="color:var(--red)">Error al cargar las salidas</div>';return;}
+  _grpSalidas=s.data||[];
+  const anios=[...new Set(_grpSalidas.map(x=>x.anio))].sort();
+  if(!_grpAnio||!anios.includes(_grpAnio)){const hoy=ahoraUY().getFullYear();_grpAnio=anios.find(a=>a>=hoy)||anios[anios.length-1]||hoy;}
+  // Lugares y bloques solo del año elegido (PostgREST corta en 1.000 filas: 21 lugares × muchas salidas lo pasa rápido).
+  const ids=_grpSalidas.filter(x=>x.anio===_grpAnio).map(x=>x.id);
+  _grpResumen={}; ids.forEach(id=>{_grpResumen[id]={lugares:[],bloques:[]};});
+  if(ids.length){
+    const [p,b]=await Promise.all([
+      sb.from('grupal_pasajeros').select('salida_id,estado,es_coordinador,dac,preventa,beneficio_oro,habitacion').in('salida_id',ids).limit(5000),
+      sb.from('grupal_bloques').select('salida_id,aerolinea,pnr,orden').in('salida_id',ids).order('orden')]);
+    if(p.error||b.error){console.error('[Salidas grupales]',p.error||b.error);cont.innerHTML='<div class="loading" style="color:var(--red)">Error al cargar los lugares</div>';return;}
+    (p.data||[]).forEach(l=>{if(_grpResumen[l.salida_id])_grpResumen[l.salida_id].lugares.push(l);});
+    (b.data||[]).forEach(x=>{if(_grpResumen[x.salida_id])_grpResumen[x.salida_id].bloques.push(x);});
+  }
+  renderSalidasGrupales();
+}
+
+function renderSalidasGrupales(){
+  const cont=document.getElementById('grp-content'); if(!cont) return;
+  const anios=[...new Set(_grpSalidas.map(x=>x.anio))].sort();
+  const lista=_grpSalidas.filter(x=>x.anio===_grpAnio&&(_grpSem==='todos'||String(x.semestre)===_grpSem)
+    &&(_grpFiltroEstado==='todas'||(_grpFiltroEstado==='activas'?!['cerrada','no_sale'].includes(x.estado):x.estado===_grpFiltroEstado)));
+  const opt=(v,t,cur)=>`<option value="${esc(v)}"${String(cur)===String(v)?' selected':''}>${esc(t)}</option>`;
+  const tot={vend:0,res:0,lib:0,dac:0};
+  const filas=lista.map(s=>{
+    const r=_grpResumen[s.id]||{lugares:[],bloques:[]}; const c=_grpConteo(r.lugares);
+    tot.vend+=c.vend;tot.res+=c.res;tot.lib+=c.lib;tot.dac+=c.dac;
+    const pnrs=r.bloques.filter(b=>b.pnr).map(b=>`<span title="${esc(b.aerolinea||'')}">${esc(b.pnr)}</span>`).join(' · ');
+    return `<tr style="cursor:pointer" onclick="abrirSalidaGrupal('${s.id}')">
+      <td style="color:var(--accent2);font-weight:500">${esc(s.nombre)}</td>
+      <td>${esc(GRP_LINEAS[s.linea]||s.linea)}</td>
+      <td data-sort="${esc(s.fecha_salida||'9999')}">${s.fecha_salida?formatFecha(s.fecha_salida):'—'}</td>
+      <td class="c-red" data-sort="${c.vend}">${c.vend}</td>
+      <td class="c-orange" data-sort="${c.res}">${c.res}</td>
+      <td class="c-green" data-sort="${c.lib}">${c.lib}</td>
+      <td data-sort="${c.total}">${c.total}</td>
+      <td data-sort="${s.minimo?c.vend-s.minimo:-999}">${_grpMinimo(s,c)}</td>
+      <td data-sort="${c.dac}">${c.dac||''}</td>
+      <td style="font-family:'DM Mono',monospace;font-size:12px;color:var(--accent2)">${pnrs||'—'}</td>
+      <td>${_grpBadge(GRP_ESTADOS,s.estado)}</td>
+    </tr>`;
+  }).join('');
+  cont.innerHTML=`<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:14px">
+      <div><div style="font-size:18px;font-weight:600">Salidas grupales</div>
+        <div style="font-size:12px;color:var(--muted);margin-top:4px">Solo admin y Operaciones: los vendedores no ven esta sección. Vendidos = con factura; el lugar del coordinador no cuenta.</div></div>
+      <button class="btn btn-primary" onclick="abrirFormSalidaGrupal()">+ Nueva salida</button>
+    </div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:14px">
+      <select class="form-select" style="width:100px" onchange="_grpAnio=Number(this.value);cargarSalidasGrupales()">${(anios.length?anios:[_grpAnio]).map(a=>opt(a,a,_grpAnio)).join('')}</select>
+      <select class="form-select" style="width:180px" onchange="_grpSem=this.value;renderSalidasGrupales()">${opt('todos','Todo el año',_grpSem)}${opt('1','Primer semestre',_grpSem)}${opt('2','Segundo semestre',_grpSem)}</select>
+      <select class="form-select" style="width:160px" onchange="_grpFiltroEstado=this.value;renderSalidasGrupales()">${opt('activas','Activas',_grpFiltroEstado)}${opt('todas','Todas',_grpFiltroEstado)}${Object.entries(GRP_ESTADOS).map(([k,v])=>opt(k,v[1],_grpFiltroEstado)).join('')}</select>
+      <span style="font-size:13px;color:var(--muted)">${lista.length} salida${lista.length===1?'':'s'} · <span class="c-red">${tot.vend} vendidos</span> · <span class="c-orange">${tot.res} reservados</span> · <span class="c-green">${tot.lib} libres</span>${tot.dac?` · ${tot.dac} DAC`:''}</span>
+    </div>
+    ${lista.length?`<div class="table-wrap"><table class="sortable"><thead><tr><th>Salida</th><th>Línea</th><th>Fecha</th><th>Vendidos</th><th>Reservados</th><th>Libres</th><th>Lugares</th><th>Mínimo</th><th>DAC</th><th>PNR</th><th>Estado</th></tr></thead><tbody>${filas}</tbody></table></div>`
+      :`<div style="padding:16px;color:var(--muted);font-size:14px">${_grpSalidas.length?'No hay salidas con este filtro.':'Todavía no hay salidas grupales cargadas. Usá “+ Nueva salida”.'}</div>`}`;
+}
+
+async function abrirSalidaGrupal(id,aviso){
+  _grpSalidaId=id;
+  const cont=document.getElementById('grp-content'); if(!cont) return;
+  if(!_grpDet||_grpDet.s.id!==id) cont.innerHTML='<div class="loading"><div class="spinner"></div>Cargando...</div>';
+  const [s,b,l]=await Promise.all([
+    sb.from('grupal_salidas').select('*').eq('id',id).single(),
+    sb.from('grupal_bloques').select('*').eq('salida_id',id).order('orden'),
+    sb.from('grupal_pasajeros').select('*').eq('salida_id',id).order('lugar')]);
+  if(s.error||!s.data){_grpSalidaId=null;cont.innerHTML=`<div class="loading" style="color:var(--red)">No se pudo abrir la salida${s.error?': '+esc(s.error.message):''}</div>`;return;}
+  _grpDet={s:s.data,bloques:b.data||[],lugares:l.data||[]};
+  renderSalidaGrupal(aviso);
+}
+function volverSalidasGrupales(){_grpSalidaId=null;_grpDet=null;cargarSalidasGrupales();}
+
+function renderSalidaGrupal(aviso){
+  const cont=document.getElementById('grp-content'); if(!cont||!_grpDet) return;
+  const {s,bloques,lugares}=_grpDet; const c=_grpConteo(lugares);
+  const coord=lugares.filter(l=>l.es_coordinador);
+  const dias=(s.fecha_salida&&s.fecha_regreso)?Math.round((new Date(s.fecha_regreso)-new Date(s.fecha_salida))/86400000)+1:null;
+  const item=(lab,val,cls)=>`<div class="info-item"><div class="info-item-label">${lab}</div><div class="info-item-value ${cls||''}">${val}</div></div>`;
+  const tarifas=[['Base doble',s.precio_doble],['Single',s.precio_single],['Doble a Compartir',s.precio_dac],['Oro doble',s.precio_oro_doble],['Oro single',s.precio_oro_single]].filter(x=>x[1]!=null&&x[1]!=='');
+  let h=`<div style="margin-bottom:10px"><a href="#" class="link-volver" onclick="event.preventDefault();volverSalidasGrupales()">← Salidas grupales</a></div>
+    ${aviso?`<div class="alert alert-success" style="margin-bottom:12px">${esc(aviso)}</div>`:''}
+    <div class="detalle-header"><div style="flex:1">
+      <div class="detalle-titulo">${esc(s.nombre)}</div>
+      <div class="detalle-meta">
+        ${_grpBadge(GRP_ESTADOS,s.estado)}
+        <span>${esc(GRP_LINEAS[s.linea]||s.linea)}</span>
+        <span>${esc(s.anio)} · ${s.semestre===1?'1er':'2do'} semestre</span>
+        ${s.fecha_salida?`<span>📅 ${formatFecha(s.fecha_salida)}${s.fecha_regreso?' → '+formatFecha(s.fecha_regreso):''}${dias?` · ${dias} días`:''}</span>`:''}
+        ${s.coordinador?`<span>🧭 ${esc(s.coordinador)}</span>`:''}
+      </div></div>
+      <div class="detalle-actions">
+        <button class="btn btn-outline" onclick="abrirFormSalidaGrupal('${s.id}')">✏ Editar salida</button>
+        <button class="btn btn-excel" onclick="exportarSalidaGrupal()">⬇ Excel</button>
+      </div></div>
+    <div class="info-panel">
+      ${item('Vendidos',c.vend,'c-red')}${item('Reservados',c.res,'c-orange')}${item('Libres',c.lib,'c-green')}
+      ${item('Lugares',`${c.total}${coord.length?` <span style="font-size:12px;color:var(--muted)">+ ${coord.length} coord.</span>`:''}`)}
+      ${item('Mínimo',_grpMinimo(s,c))}
+      ${item('Preventa',c.prev)}${item('Beneficio Oro',c.oro)}${item('DAC',c.dac)}
+    </div>`;
+  const habs=GRP_HAB.filter(k=>c.hab[k]).map(k=>`${k} ${c.hab[k]}`);
+  if(habs.length||tarifas.length) h+=`<div style="font-size:13px;color:var(--muted);margin:-6px 0 14px;display:flex;gap:18px;flex-wrap:wrap">
+    ${habs.length?`<span>Pasajeros por habitación: <b style="color:var(--text)">${esc(habs.join(' · '))}</b>${c.dac?` (${c.dac} a compartir)`:''}</span>`:''}
+    ${tarifas.length?`<span>Tarifas por persona: <b style="color:var(--text)">${tarifas.map(t=>`${esc(t[0])} ${esc(_grpUsd(t[1]))}`).join(' · ')}</b></span>`:''}</div>`;
+  // Itinerario aéreo del viaje
+  const tr=Array.isArray(s.tramos)?s.tramos:[];
+  h+=`<div class="section-title" style="margin:6px 0 8px">✈ Itinerario aéreo</div>`;
+  h+=tr.length?`<div class="table-wrap" style="margin-bottom:16px"><table class="itinerario-table"><thead><tr><th>Tipo</th><th>Fecha</th><th>Aerolínea</th><th>Vuelo</th><th>Desde</th><th>Hasta</th><th>Sale</th><th>Llega</th></tr></thead><tbody>${tr.map(t=>`<tr><td><span class="badge ${t.tipo==='Vuelta'?'badge-orange':'badge-green'}">${esc(t.tipo||'Ida')}</span></td><td>${/^\d{4}-\d{2}-\d{2}$/.test(t.fecha||'')?formatFecha(t.fecha):esc(t.fecha||'—')}</td><td>${esc(t.aerolinea||'—')}</td><td>${esc(t.vuelo||'—')}</td><td>${esc(t.origen||'—')}</td><td>${esc(t.destino||'—')}</td><td>${esc(t.salida||'—')}</td><td>${esc(t.llegada||'—')}</td></tr>`).join('')}</tbody></table></div>`
+    :`<div style="font-size:13px;color:var(--muted);margin-bottom:16px">Sin itinerario cargado. En “✏ Editar salida” se pega el PNR y se arma solo.</div>`;
+  // Bloques aéreos
+  h+=`<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin:6px 0 8px"><div class="section-title">Bloques aéreos</div><button class="btn btn-outline" style="padding:5px 10px;font-size:12px" onclick="abrirFormBloqueGrupal()">+ Bloque aéreo</button></div>`;
+  h+=bloques.length?`<div style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px">${bloques.map(b=>`<div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:10px 14px">
+      <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center;font-size:13px">
+        <b>${esc(b.aerolinea||'Aerolínea sin cargar')}</b>
+        ${b.pnr?`<span>PNR <span style="font-family:'DM Mono',monospace;color:var(--accent2)">${esc(b.pnr)}</span></span>`:'<span style="color:var(--muted)">sin PNR</span>'}
+        ${b.localizador?`<span>Localizador <span style="font-family:'DM Mono',monospace">${esc(b.localizador)}</span></span>`:''}
+        ${b.nombre_grupo?`<span>Grupo <span style="font-family:'DM Mono',monospace">${esc(b.nombre_grupo)}</span></span>`:''}
+        ${b.lugares?`<span>${esc(b.lugares)} lugares</span>`:''}
+        <a href="#" style="margin-left:auto;color:var(--accent2)" onclick="event.preventDefault();abrirFormBloqueGrupal('${b.id}')">✏ Editar</a>
+      </div>
+      ${b.notas?`<div style="font-size:12px;color:var(--muted);margin-top:4px">${esc(b.notas)}</div>`:''}
+      ${b.texto_pnr?`<details style="margin-top:6px"><summary style="cursor:pointer;font-size:12px;color:var(--accent2)">Ver el PNR del GDS</summary><pre style="white-space:pre-wrap;font-family:'DM Mono',monospace;font-size:11.5px;margin:6px 0 0;max-height:240px;overflow:auto">${esc(b.texto_pnr)}</pre></details>`:''}
+    </div>`).join('')}</div>`
+    :`<div style="font-size:13px;color:var(--muted);margin-bottom:16px">Sin bloques aéreos. Un bloque es cada reserva de grupo con su PNR (el vuelo largo, un interno, la vuelta por separado…).</div>`;
+  // Lugares (la grilla de la planilla)
+  h+=`<div class="section-title" style="margin:6px 0 8px">Lugares <span style="text-transform:none;font-weight:400">· tocá una fila para cargar o editar</span></div>
+    <div class="table-wrap"><table><thead><tr><th>#</th><th>Estado</th><th>Apellidos</th><th>Nombres</th><th>Vendedor</th><th>Ficha</th><th>Prev.</th><th>B. Oro</th><th>Hab.</th><th>Factura</th><th>Documento</th><th>Notas</th></tr></thead><tbody>
+    ${lugares.map(l=>`<tr style="cursor:pointer${l.es_coordinador?';background:rgba(124,111,253,0.08)':''}" onclick="abrirFormLugarGrupal('${l.id}')">
+      <td style="font-family:'DM Mono',monospace">${l.lugar}</td>
+      <td>${l.es_coordinador?'<span class="badge badge-blue">Coordinador</span> ':''}${l.estado!=='libre'||!l.es_coordinador?_grpBadge(GRP_LUGAR,l.estado):''}</td>
+      <td>${esc(l.apellidos||'')}</td><td>${esc(l.nombres||'')}</td>
+      <td>${esc(l.vendedor_nombre||l.vendedor_codigo||'')}</td>
+      <td style="font-family:'DM Mono',monospace;font-size:12px">${esc(l.ficha||'')}</td>
+      <td>${l.preventa?'✓':''}</td>
+      <td>${esc(GRP_BO[l.beneficio_oro]||'')}</td>
+      <td>${esc(l.habitacion||'')}${l.dac?' <span class="badge badge-yellow" title="Doble a Compartir: compró el seguro, Guamatur le busca compañera/o">DAC</span>':''}</td>
+      <td style="font-family:'DM Mono',monospace;font-size:12px">${esc(l.factura||'')}</td>
+      <td style="font-size:12px">${esc(l.documento||'')}</td>
+      <td style="font-size:12px;color:var(--muted);max-width:260px">${esc([l.pedidos,l.notas].filter(Boolean).join(' · '))}</td>
+    </tr>`).join('')}</tbody></table></div>`;
+  if(s.notas) h+=`<div class="section-title" style="margin:16px 0 6px">Notas de la salida</div><pre style="white-space:pre-wrap;font-family:'DM Sans',sans-serif;font-size:13px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin:0">${esc(s.notas)}</pre>`;
+  h+=`<div style="font-size:11px;color:var(--muted);margin-top:14px">Última actualización: ${formatFechaHora(s.actualizado_en)}</div>`;
+  cont.innerHTML=h;
+}
+
+// ── Formularios (un solo modal: modal-grp) ──
+function _grpModal(html){document.getElementById('modal-grp-alert').innerHTML='';document.getElementById('grp-modal-content').innerHTML=html;document.getElementById('modal-grp').style.display='flex';}
+const _grpV=id=>(document.getElementById(id)?.value||'').trim();
+const _grpChk=id=>!!document.getElementById(id)?.checked;
+
+function abrirFormSalidaGrupal(id){
+  const s=id&&_grpDet&&_grpDet.s.id===id?_grpDet.s:{linea:'arcadia',anio:_grpAnio||ahoraUY().getFullYear(),capacidad:21,estado:'en_venta'};
+  _grpTramosForm=Array.isArray(s.tramos)?JSON.parse(JSON.stringify(s.tramos)):[];
+  const opt=(v,t,cur)=>`<option value="${esc(v)}"${String(cur)===String(v)?' selected':''}>${esc(t)}</option>`;
+  const inp=(k,lab,type,ph)=>`<div class="form-group"><label class="form-label">${lab}</label><input class="form-input" id="grp-f-${k}" type="${type||'text'}" value="${esc(s[k]??'')}" placeholder="${esc(ph||'')}"/></div>`;
+  _grpModal(`<div class="modal-title">${id?'✏ Editar salida':'🌍 Nueva salida grupal'}</div>
+    <div class="form-grid">
+      <div class="form-group full"><label class="form-label">Nombre <span style="color:var(--red)">*</span></label><input class="form-input" id="grp-f-nombre" value="${esc(s.nombre||'')}" placeholder="Ej: El Alma de Galicia y el Fuego de San Juan"/></div>
+      <div class="form-group"><label class="form-label">Línea</label><select class="form-select" id="grp-f-linea">${Object.entries(GRP_LINEAS).map(([k,v])=>opt(k,v,s.linea)).join('')}</select></div>
+      <div class="form-group"><label class="form-label">Estado</label><select class="form-select" id="grp-f-estado">${Object.entries(GRP_ESTADOS).map(([k,v])=>opt(k,v[1],s.estado)).join('')}</select></div>
+      ${inp('fecha_salida','Salida','date')}${inp('fecha_regreso','Regreso','date')}
+      ${inp('anio','Año','number')}
+      <div class="form-group"><label class="form-label">Semestre</label><select class="form-select" id="grp-f-semestre">${opt('','Según la fecha de salida',s.semestre?'x':'')}${opt('1','Primero',s.semestre)}${opt('2','Segundo',s.semestre)}</select></div>
+      ${inp('capacidad','Lugares totales (con el coordinador)','number','21')}${inp('minimo','Mínimo para confirmar (vendidos)','number','Ej: 15')}
+      ${id?'':`${inp('coordinadores','Lugares del coordinador','number','1').replace(`value=""`,`value="1"`)}`}
+      ${inp('coordinador','Coordinador/a','text','Quién acompaña desde Montevideo')}
+      ${inp('precio_doble','Base doble (USD)','number')}${inp('precio_single','Base single (USD)','number')}
+      ${inp('precio_dac','Doble a Compartir (USD)','number')}${inp('precio_oro_doble','Beneficio Oro doble (USD)','number')}
+      ${inp('precio_oro_single','Beneficio Oro single (USD)','number')}
+      <div class="form-group full"><label class="form-label">Itinerario aéreo <span style="color:var(--muted)">(pegá el PNR o el itinerario del GDS y tocá “Interpretar”: el año se calcula solo)</span></label>
+        <div id="grp-f-tramos-lista"></div>
+        <textarea class="form-textarea" id="grp-f-pegar" rows="3" placeholder="1 UX 046 V 12JUN 6*MVDMAD DK1 1225 0510 13JUN …"></textarea>
+        <div style="display:flex;gap:10px;align-items:center;margin-top:6px"><button type="button" class="btn btn-outline" style="padding:5px 10px;font-size:12px" onclick="_grpInterpretarTramos()">Interpretar y reemplazar</button><span id="grp-f-tramos-msg" style="font-size:12px"></span></div>
+      </div>
+      <div class="form-group full"><label class="form-label">Notas de la salida</label><textarea class="form-textarea" id="grp-f-notas" rows="3">${esc(s.notas||'')}</textarea></div>
+    </div>
+    <div class="modal-actions">
+      ${id?`<button class="btn btn-outline" style="margin-right:auto;color:var(--red)" onclick="borrarSalidaGrupal('${id}')">Borrar salida</button>`:''}
+      <button class="btn btn-outline" onclick="cerrarModal('modal-grp')">Cancelar</button>
+      <button class="btn btn-primary" id="btn-grp-guardar" onclick="guardarSalidaGrupal(${id?`'${id}'`:''})">Guardar</button>
+    </div>`);
+  _grpRenderTramosForm();
+}
+function _grpRenderTramosForm(){
+  const box=document.getElementById('grp-f-tramos-lista'); if(!box) return;
+  box.innerHTML=_grpTramosForm.length?`<table class="itinerario-table" style="margin-bottom:6px"><tbody>${_grpTramosForm.map((t,i)=>`<tr><td>${esc(t.tipo||'Ida')}</td><td>${/^\d{4}-\d{2}-\d{2}$/.test(t.fecha||'')?formatFecha(t.fecha):esc(t.fecha||'')}</td><td>${esc(t.aerolinea||'')}</td><td>${esc(t.vuelo||'')}</td><td>${esc(t.origen||'')} → ${esc(t.destino||'')}</td><td>${esc(t.salida||'')}–${esc(t.llegada||'')}</td><td><button type="button" title="Sacar este tramo" onclick="_grpTramosForm.splice(${i},1);_grpRenderTramosForm()" style="background:transparent;border:none;color:var(--red);cursor:pointer">×</button></td></tr>`).join('')}</tbody></table>`
+    :'<div style="font-size:12px;color:var(--muted);margin-bottom:6px">Sin tramos.</div>';
+}
+// Reusa el intérprete de "Nuevo cupo" (parsearLineaItinerario) con la misma regla de año que b126.
+function _grpInterpretarTramos(){
+  const txt=_grpV('grp-f-pegar'), msg=document.getElementById('grp-f-tramos-msg');
+  const tramos=[]; txt.split(/\r?\n/).forEach(l=>{const t=parsearLineaItinerario(l);if(t)tramos.push(t);});
+  if(!tramos.length){msg.style.color='var(--red)';msg.textContent='No pude detectar tramos en lo pegado.';return;}
+  let anio0=null,mes0=null; const f0=fechaTramoAISO(tramos[0].fecha);
+  if(/^\d{4}-\d{2}-\d{2}$/.test(f0)){const [y,m,d]=f0.split('-').map(Number);const hoy=ahoraUY(),hoy0=new Date(hoy.getFullYear(),hoy.getMonth(),hoy.getDate());anio0=(new Date(y,m-1,d)<hoy0)?y+1:y;mes0=m;}
+  _grpTramosForm=tramos.map(t=>({...t,fecha:anio0?fechaTramoAISO(t.fecha,anio0,mes0):fechaTramoAISO(t.fecha)||t.fecha}));
+  _grpRenderTramosForm();
+  const fs=_grpTramosForm.map(t=>t.fecha).filter(f=>/^\d{4}-\d{2}-\d{2}$/.test(f)).sort();
+  if(fs.length){const a=document.getElementById('grp-f-fecha_salida'),b=document.getElementById('grp-f-fecha_regreso');if(a&&!a.value)a.value=fs[0];if(b&&!b.value)b.value=fs[fs.length-1];}
+  msg.style.color='var(--green)';msg.textContent=`${tramos.length} tramo(s). Revisá fechas y horarios antes de guardar.`;
+}
+async function guardarSalidaGrupal(id){
+  const p={nombre:_grpV('grp-f-nombre'),linea:_grpV('grp-f-linea'),estado:_grpV('grp-f-estado'),fecha_salida:_grpV('grp-f-fecha_salida'),
+    fecha_regreso:_grpV('grp-f-fecha_regreso'),anio:_grpV('grp-f-anio'),semestre:_grpV('grp-f-semestre'),capacidad:_grpV('grp-f-capacidad'),
+    minimo:_grpV('grp-f-minimo'),coordinador:_grpV('grp-f-coordinador'),precio_doble:_grpV('grp-f-precio_doble'),precio_single:_grpV('grp-f-precio_single'),
+    precio_dac:_grpV('grp-f-precio_dac'),precio_oro_doble:_grpV('grp-f-precio_oro_doble'),precio_oro_single:_grpV('grp-f-precio_oro_single'),
+    notas:_grpV('grp-f-notas'),tramos:_grpTramosForm};
+  if(id)p.id=id; else p.coordinadores=_grpV('grp-f-coordinadores')||'1';
+  if(!p.nombre){mostrarAlerta('modal-grp-alert','Poné el nombre de la salida.','error');return;}
+  if(!(parseInt(p.capacidad,10)>0)){mostrarAlerta('modal-grp-alert','Poné la cantidad de lugares (con el del coordinador).','error');return;}
+  if(p.fecha_salida&&p.fecha_regreso&&p.fecha_regreso<p.fecha_salida){mostrarAlerta('modal-grp-alert','El regreso es anterior a la salida.','error');return;}
+  if(id&&_grpDet&&parseInt(p.capacidad,10)!==_grpDet.s.capacidad&&!confirm(`Cambiás los lugares de ${_grpDet.s.capacidad} a ${p.capacidad}. ${parseInt(p.capacidad,10)<_grpDet.s.capacidad?'Se sacan los del final (solo si están libres).':'Se agregan al final.'}\n\n¿Seguís?`))return;
+  const btn=document.getElementById('btn-grp-guardar');btn.disabled=true;
+  try{
+    await asegurarTokenFresco();
+    const {data,error}=await sb.rpc('grupal_guardar_salida',{p});
+    if(error){mostrarAlerta('modal-grp-alert','No se pudo guardar: '+error.message,'error');return;}
+    cerrarModal('modal-grp');
+    if(!id&&p.anio)_grpAnio=Number(p.anio);
+    await abrirSalidaGrupal(data,id?'Salida guardada.':'Salida creada con sus lugares. Ahora cargá los bloques aéreos y los pasajeros.');
+  }finally{btn.disabled=false;}
+}
+async function borrarSalidaGrupal(id){
+  if(!confirm('¿Borrar esta salida? Solo se puede si no tiene pasajeros cargados (si ya tiene, marcala como “No sale”).'))return;
+  await asegurarTokenFresco();
+  const {error}=await sb.rpc('grupal_borrar_salida',{p_id:id});
+  if(error){mostrarAlerta('modal-grp-alert',error.message,'error');return;}
+  cerrarModal('modal-grp'); volverSalidasGrupales();
+}
+
+function abrirFormBloqueGrupal(id){
+  const b=id?(_grpDet.bloques.find(x=>x.id===id)||{}):{};
+  const aers=[...new Set([...AEROLINEAS,'Iberia','Air Europa','Finnair','Aegean','Royal Air Maroc','Aerolíneas Argentinas'])].sort((a,c)=>a.localeCompare(c));
+  const inp=(k,lab,type,ph,extra)=>`<div class="form-group"><label class="form-label">${lab}</label><input class="form-input" id="grp-b-${k}" type="${type||'text'}" value="${esc(b[k]??'')}" placeholder="${esc(ph||'')}" ${extra||''}/></div>`;
+  _grpModal(`<div class="modal-title">${id?'✏ Editar bloque aéreo':'✈ Nuevo bloque aéreo'}</div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:10px">Cada reserva de grupo con su PNR: el vuelo largo, un interno de otra aerolínea, la vuelta por separado, o un grupo partido en dos.</div>
+    <div class="form-grid">
+      ${inp('aerolinea','Aerolínea','text','Ej: Iberia','list="grp-b-aers"')}<datalist id="grp-b-aers">${aers.map(a=>`<option value="${esc(a)}">`).join('')}</datalist>
+      ${inp('pnr','PNR','text','Ej: 8WKCIS')}
+      ${inp('localizador','Localizador / Booking ID','text','Ej: 21ECUYDXBF')}
+      ${inp('nombre_grupo','Nombre del grupo en el GDS','text','Ej: AURORASFEBRERO')}
+      ${inp('lugares','Lugares del bloque','number','Ej: 21')}
+      <div class="form-group full"><label class="form-label">PNR del GDS <span style="color:var(--muted)">(pegalo tal cual; “Leer” completa PNR, lugares y aerolínea)</span></label>
+        <textarea class="form-textarea" id="grp-b-texto_pnr" rows="6" style="font-family:'DM Mono',monospace;font-size:12px">${esc(b.texto_pnr||'')}</textarea>
+        <div style="display:flex;gap:10px;align-items:center;margin-top:6px"><button type="button" class="btn btn-outline" style="padding:5px 10px;font-size:12px" onclick="_grpLeerTextoPNR()">Leer</button><span id="grp-b-msg" style="font-size:12px"></span></div></div>
+      <div class="form-group full"><label class="form-label">Notas</label><input class="form-input" id="grp-b-notas" value="${esc(b.notas||'')}" placeholder="Ej: la ruta no opera, mantenemos el bloqueo"/></div>
+    </div>
+    <div class="modal-actions">
+      ${id?`<button class="btn btn-outline" style="margin-right:auto;color:var(--red)" onclick="borrarBloqueGrupal('${id}')">Borrar bloque</button>`:''}
+      <button class="btn btn-outline" onclick="cerrarModal('modal-grp')">Cancelar</button>
+      <button class="btn btn-primary" id="btn-grp-guardar" onclick="guardarBloqueGrupal(${id?`'${id}'`:''})">Guardar</button>
+    </div>`);
+}
+// Del texto del GDS: PNR (última palabra de la línea RP/… o "RF *LA -XXXXXX"), lugares (HK21/TK11) y aerolínea del 1er tramo.
+function _grpLeerTextoPNR(){
+  const t=_grpV('grp-b-texto_pnr'), msg=document.getElementById('grp-b-msg'); const set=(k,v)=>{const e=document.getElementById('grp-b-'+k);if(e&&v&&!e.value)e.value=v;};
+  const rp=(t.match(/^RP\/.*$/m)||[''])[0]; const pnr=(rp.match(/\b([A-Z0-9]{6})\s*$/)||t.match(/^RF\s+\*\w+\s*-\s*([A-Z0-9]{6})/m)||[])[1];
+  const hk=(t.match(/\b[HT]K(\d{1,2})\b/)||[])[1]; const seg=(t.match(/^\s*\d+\s+([A-Z0-9]{2})\s?\d{1,4}\b/m)||[])[1];
+  const grupo=(t.match(/^0\.\s*([A-Z0-9]{6,})\/(\S+)/m)||[]);
+  set('pnr',pnr);set('lugares',hk);set('localizador',grupo[1]);set('nombre_grupo',grupo[2]);
+  const aer=seg?({AY:'Finnair',A3:'Aegean',AT:'Royal Air Maroc'}[seg]||IATA_AEROLINEA[seg]||null):null; if(aer)set('aerolinea',aer);
+  msg.style.color=pnr||hk?'var(--green)':'var(--muted)';msg.textContent=pnr||hk?'Listo: revisá lo que completó.':'No encontré PNR ni lugares en el texto.';
+}
+async function guardarBloqueGrupal(id){
+  const p={salida_id:_grpDet.s.id,aerolinea:_grpV('grp-b-aerolinea'),pnr:_grpV('grp-b-pnr'),localizador:_grpV('grp-b-localizador'),
+    nombre_grupo:_grpV('grp-b-nombre_grupo'),lugares:_grpV('grp-b-lugares'),texto_pnr:document.getElementById('grp-b-texto_pnr').value,notas:_grpV('grp-b-notas')};
+  if(id)p.id=id;
+  if(!p.pnr&&!p.localizador&&!p.aerolinea){mostrarAlerta('modal-grp-alert','Cargá al menos la aerolínea, el PNR o el localizador.','error');return;}
+  const btn=document.getElementById('btn-grp-guardar');btn.disabled=true;
+  try{
+    await asegurarTokenFresco();
+    const {error}=await sb.rpc('grupal_guardar_bloque',{p});
+    if(error){mostrarAlerta('modal-grp-alert','No se pudo guardar: '+error.message,'error');return;}
+    cerrarModal('modal-grp'); await abrirSalidaGrupal(_grpDet.s.id,'Bloque aéreo guardado.');
+  }finally{btn.disabled=false;}
+}
+async function borrarBloqueGrupal(id){
+  if(!confirm('¿Borrar este bloque aéreo? (Los lugares y pasajeros no se tocan.)'))return;
+  await asegurarTokenFresco();
+  const {error}=await sb.rpc('grupal_borrar_bloque',{p_id:id});
+  if(error){mostrarAlerta('modal-grp-alert',error.message,'error');return;}
+  cerrarModal('modal-grp'); await abrirSalidaGrupal(_grpDet.s.id,'Bloque borrado.');
+}
+
+function abrirFormLugarGrupal(id){
+  const l=_grpDet.lugares.find(x=>x.id===id); if(!l) return;
+  const opt=(v,t,cur)=>`<option value="${esc(v)}"${String(cur??'')===String(v)?' selected':''}>${esc(t)}</option>`;
+  const lista=[...vendedores].filter(v=>v&&v.nombre&&v.rol!=='travel_partner'&&(v.activo!==false||String(v.email).toLowerCase()===String(l.vendedor_email||'').toLowerCase())).sort((a,b)=>a.nombre.localeCompare(b.nombre));
+  const inp=(k,lab,ph)=>`<div class="form-group"><label class="form-label">${lab}</label><input class="form-input" id="grp-l-${k}" value="${esc(l[k]??'')}" placeholder="${esc(ph||'')}"/></div>`;
+  _grpModal(`<div class="modal-title">Lugar ${l.lugar}${l.es_coordinador?' · Coordinador':''} — ${esc(_grpDet.s.nombre)}</div>
+    <div class="form-grid">
+      <div class="form-group"><label class="form-label">Estado</label><select class="form-select" id="grp-l-estado">${Object.entries(GRP_LUGAR).map(([k,v])=>opt(k,v[1],l.estado)).join('')}</select></div>
+      <div class="form-group"><label class="form-label">Vendedor</label><select class="form-select" id="grp-l-vendedor_email"><option value="">— Sin vendedor —</option>${lista.map(v=>opt(String(v.email).toLowerCase(),v.nombre,String(l.vendedor_email||'').toLowerCase())).join('')}</select>
+        ${l.vendedor_codigo&&!l.vendedor_email?`<div style="font-size:11px;color:var(--yellow);margin-top:3px">En la planilla figuraba “${esc(l.vendedor_codigo)}”: elegilo de la lista si lo reconocés.</div>`:''}</div>
+      ${inp('apellidos','Apellidos','Como en el pasaporte')}${inp('nombres','Nombres','Como en el pasaporte')}
+      ${inp('ficha','Ficha (Atlas)','Ej: 105496')}${inp('factura','Factura','Ej: 99828')}
+      <div class="form-group"><label class="form-label">Habitación</label><select class="form-select" id="grp-l-habitacion"><option value="">—</option>${GRP_HAB.map(k=>opt(k,k,l.habitacion)).join('')}</select></div>
+      <div class="form-group"><label class="form-label">Beneficio Oro (65+)</label><select class="form-select" id="grp-l-beneficio_oro"><option value="">—</option>${Object.entries(GRP_BO).map(([k,v])=>opt(k,v,l.beneficio_oro)).join('')}</select></div>
+      <div class="form-group full" style="display:flex;gap:22px;flex-wrap:wrap;font-size:13px">
+        <label style="display:flex;gap:6px;align-items:center;cursor:pointer"><input type="checkbox" id="grp-l-preventa"${l.preventa?' checked':''}/> Preventa</label>
+        <label style="display:flex;gap:6px;align-items:center;cursor:pointer" title="Compró el seguro Doble a Compartir: Guamatur le busca compañera/o del mismo sexo; si no aparece, absorbe el single"><input type="checkbox" id="grp-l-dac"${l.dac?' checked':''}/> Doble a Compartir (DAC)</label>
+        <label style="display:flex;gap:6px;align-items:center;cursor:pointer"><input type="checkbox" id="grp-l-es_coordinador"${l.es_coordinador?' checked':''}/> Lugar del coordinador</label>
+      </div>
+      ${inp('documento','Documento','Ej: PSP ARGENTINO / CÉDULA')}${inp('pedidos','Pedidos especiales / viajero frecuente','Ej: asiento pasillo · IB 95763165')}
+      <div class="form-group full"><label class="form-label">Notas</label><input class="form-input" id="grp-l-notas" value="${esc(l.notas||'')}" placeholder="Ej: quieren cambiar la vuelta"/></div>
+    </div>
+    ${l.actualizado_por?`<div style="font-size:11px;color:var(--muted)">Último cambio: ${esc(l.actualizado_por)} · ${formatFechaHora(l.actualizado_en)}</div>`:''}
+    <div class="modal-actions">
+      ${l.estado!=='libre'?`<button class="btn btn-outline" style="margin-right:auto;color:var(--red)" onclick="guardarLugarGrupal('${id}',true)">Liberar lugar</button>`:''}
+      <button class="btn btn-outline" onclick="cerrarModal('modal-grp')">Cancelar</button>
+      <button class="btn btn-primary" id="btn-grp-guardar" onclick="guardarLugarGrupal('${id}')">Guardar</button>
+    </div>`);
+}
+async function guardarLugarGrupal(id,liberar){
+  const l=_grpDet.lugares.find(x=>x.id===id);
+  const p={id,estado:liberar?'libre':_grpV('grp-l-estado'),apellidos:_grpV('grp-l-apellidos'),nombres:_grpV('grp-l-nombres'),
+    vendedor_email:_grpV('grp-l-vendedor_email'),vendedor_codigo:l&&!_grpV('grp-l-vendedor_email')?(l.vendedor_codigo||''):'',ficha:_grpV('grp-l-ficha'),
+    factura:_grpV('grp-l-factura'),habitacion:_grpV('grp-l-habitacion'),beneficio_oro:_grpV('grp-l-beneficio_oro'),preventa:_grpChk('grp-l-preventa'),
+    dac:_grpChk('grp-l-dac'),es_coordinador:_grpChk('grp-l-es_coordinador'),documento:_grpV('grp-l-documento'),pedidos:_grpV('grp-l-pedidos'),notas:_grpV('grp-l-notas')};
+  if(liberar){if(!confirm(`¿Liberar el lugar ${l?l.lugar:''}${l&&l.apellidos?` (${l.apellidos})`:''}? Se borran los datos del pasajero de este lugar.`))return;}
+  else if(p.estado!=='libre'&&!p.apellidos&&!p.nombres){mostrarAlerta('modal-grp-alert','Poné el apellido o el nombre del pasajero.','error');return;}
+  else if(p.estado==='libre'&&(p.apellidos||p.nombres)&&!confirm('Marcaste el lugar como libre: se borran los datos del pasajero. ¿Seguís?'))return;
+  if(p.dac&&p.habitacion&&p.habitacion!=='DBL TWIN'&&!confirm(`DAC es para compartir una twin, y la habitación dice ${p.habitacion}. ¿Lo guardás así?`))return;
+  const btn=document.getElementById('btn-grp-guardar');if(btn)btn.disabled=true;
+  try{
+    await asegurarTokenFresco();
+    const {error}=await sb.rpc('grupal_guardar_lugar',{p});
+    if(error){mostrarAlerta('modal-grp-alert','No se pudo guardar: '+error.message,'error');return;}
+    cerrarModal('modal-grp'); await abrirSalidaGrupal(_grpDet.s.id,liberar?`Lugar ${l?l.lugar:''} liberado.`:`Lugar ${l?l.lugar:''} guardado.`);
+  }finally{if(btn)btn.disabled=false;}
+}
+
+// Excel con el formato de la planilla de hoy: cabecera, bloques, lugares e itinerario.
+function exportarSalidaGrupal(){
+  if(!_grpDet) return;
+  const {s,bloques,lugares}=_grpDet;
+  const rows=[[s.nombre],[`${GRP_LINEAS[s.linea]||s.linea} · ${s.anio} ${s.semestre===1?'1er':'2do'} semestre · ${s.fecha_salida||''}${s.fecha_regreso?' → '+s.fecha_regreso:''} · ${(GRP_ESTADOS[s.estado]||[])[1]||s.estado}`],[]];
+  bloques.forEach(b=>rows.push([`Bloque ${b.orden}`,b.aerolinea||'',`PNR ${b.pnr||'—'}`,`Localizador ${b.localizador||'—'}`,b.nombre_grupo||'',b.lugares?`${b.lugares} lugares`:'',b.notas||'']));
+  if(bloques.length) rows.push([]);
+  rows.push(['LUGAR','ESTADO','APELLIDOS','NOMBRES','VENDEDOR','FICHA','PREVENTA','BENEFICIO ORO','HAB','DAC','FACTURA','DOCUMENTO','PEDIDOS','NOTAS','COORDINADOR']);
+  lugares.forEach(l=>rows.push([l.lugar,(GRP_LUGAR[l.estado]||[])[1]||l.estado,l.apellidos||'',l.nombres||'',l.vendedor_nombre||l.vendedor_codigo||'',l.ficha||'',l.preventa?'SÍ':'',
+    GRP_BO[l.beneficio_oro]||'',l.habitacion||'',l.dac?'DAC':'',l.factura||'',l.documento||'',l.pedidos||'',l.notas||'',l.es_coordinador?'SÍ':'']));
+  const tr=Array.isArray(s.tramos)?s.tramos:[];
+  if(tr.length){rows.push([],['ITINERARIO AÉREO'],['TIPO','FECHA','AEROLÍNEA','VUELO','DESDE','HASTA','SALE','LLEGA']);tr.forEach(t=>rows.push([t.tipo||'',t.fecha||'',t.aerolinea||'',t.vuelo||'',t.origen||'',t.destino||'',t.salida||'',t.llegada||'']));}
+  const ws=XLSX.utils.aoa_to_sheet(rows),wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb,ws,String(s.nombre).replace(/[\\\/\?\*\[\]:]/g,'-').slice(0,31));
+  XLSX.writeFile(wb,`${String(s.nombre).replace(/[\\\/\?\*\[\]:]/g,'-')} - Salida grupal.xlsx`);
 }
 
 // ── DETALLE ──────────────────────────────────────
