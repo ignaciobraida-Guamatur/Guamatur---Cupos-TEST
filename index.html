@@ -213,7 +213,11 @@
   /* b132: MENÚ LATERAL (pedido de Nacho, 12-nov: "un menú lateral que pueda ocultarse"). Solo en pantallas de más de
      768 px; en el celular sigue el menú de siempre. NO reescribe los botones: reacomoda los mismos .nav-link de
      #nav-links en una columna fija a la izquierda, con el ícono por CSS (así funciona igual con o sin pestañas nuevas).
-     Plegado = solo íconos (60 px, para no comerle ancho a las tablas de 12 columnas); desplegado = ícono + nombre.
+     Plegado = solo íconos (60 px, para no comerle ancho a las tablas de 12 columnas); fijo abierto (☰) = ícono + nombre.
+     2ª vuelta (Nacho, 12-nov: "pasar por arriba y que se extienda"): plegado, al pasar el mouse se abre ENCIMA del
+     contenido con los nombres (clase body.lateral-flota, la pone initLateral) y al salir se pliega; no corre la tabla.
+     🔑 Los botones no se mueven entre plegado y abierto (misma altura, mismo lugar del ícono, mismos huecos de grupo):
+     si se movieran, al abrirse quedaría otro botón debajo del mouse.
      Lo prende la clase body.con-lateral, que pone _latSync() cuando #nav-links está visible (= hay sesión). */
   .lat-toggle{display:none}
   @media(min-width:769px){
@@ -222,12 +226,13 @@
     body.con-lateral .lat-toggle{display:flex;align-items:center;justify-content:center;width:32px;height:32px;border:none;border-radius:8px;background:transparent;color:var(--text);font-size:18px;cursor:pointer;margin-right:2px}
     body.con-lateral .lat-toggle:hover{background:var(--surface2)}
     body.con-lateral #hamburger{display:none!important}
-    body.con-lateral #nav-links{position:fixed;top:var(--lat-top,56px);left:0;bottom:0;width:var(--lat-w);flex-direction:column;gap:2px;padding:10px 8px 50px;background:var(--surface);border-right:1px solid var(--border);z-index:90;overflow-y:auto;overflow-x:hidden;transition:width .15s}
-    body.con-lateral .nav-link{position:relative;display:flex;align-items:center;gap:12px;width:100%;padding:9px 12px;text-align:left;white-space:nowrap;flex-shrink:0}
+    body.con-lateral #nav-links{position:fixed;top:var(--lat-top,56px);left:0;bottom:0;width:var(--lat-w);flex-direction:column;gap:2px;padding:10px 8px 50px;background:var(--surface);border-right:1px solid var(--border);z-index:90;overflow-y:auto;overflow-x:hidden;transition:width .15s,box-shadow .15s}
+    body.con-lateral.lateral-flota:not(.lateral-abierto) #nav-links{width:212px;box-shadow:10px 0 28px rgba(0,0,0,.45)}
+    body.con-lateral .nav-link{position:relative;display:flex;align-items:center;gap:12px;width:100%;height:40px;padding:0 12px;text-align:left;white-space:nowrap;flex-shrink:0}
     body.con-lateral .nav-link.active{box-shadow:inset 3px 0 0 var(--accent)}
     body.con-lateral .nav-link::before{font-size:17px;line-height:1;width:20px;text-align:center;flex-shrink:0}
-    body.con-lateral:not(.lateral-abierto) .nav-link{font-size:0;justify-content:center;padding:10px 0}
-    body.con-lateral:not(.lateral-abierto) .nav-link .badge-nuevos{position:absolute;top:2px;right:4px;margin:0;font-size:10px;min-width:15px;line-height:13px}
+    body.con-lateral:not(.lateral-abierto):not(.lateral-flota) .nav-link{font-size:0}
+    body.con-lateral:not(.lateral-abierto):not(.lateral-flota) .nav-link .badge-nuevos{position:absolute;top:2px;right:4px;margin:0;font-size:10px;min-width:15px;line-height:13px}
     /* Íconos y orden: Operación (Cupos, Reservas) · Grupales (Grupos, Salidas grupales) · Gestión (Dashboard, Administración, Reportes) */
     body.con-lateral .nav-link[onclick*="goTo('vuelos')"]{order:1} body.con-lateral .nav-link[onclick*="goTo('vuelos')"]::before{content:'✈'}
     body.con-lateral .nav-link[onclick*="goTo('misreservas')"]{order:2} body.con-lateral .nav-link[onclick*="goTo('misreservas')"]::before{content:'🎫'}
@@ -236,14 +241,14 @@
     body.con-lateral .nav-link[onclick*="goTo('dashboard')"]{order:5} body.con-lateral .nav-link[onclick*="goTo('dashboard')"]::before{content:'📊'}
     body.con-lateral .nav-link[onclick*="goTo('admin')"]{order:6} body.con-lateral .nav-link[onclick*="goTo('admin')"]::before{content:'⚙'}
     body.con-lateral .nav-link[onclick*="goTo('reportes')"]{order:7} body.con-lateral .nav-link[onclick*="goTo('reportes')"]::before{content:'⚑'}
-    /* Cabeceras de grupo (desplegado) o una rayita (plegado) arriba del primer botón de cada grupo */
-    body.con-lateral .nav-link[onclick*="goTo('grupos')"],body.con-lateral .nav-link[onclick*="goTo('dashboard')"]{margin-top:16px}
-    body.con-lateral.lateral-abierto .nav-link[onclick*="goTo('vuelos')"]{margin-top:16px}
+    /* Cabeceras de grupo (abierto) o una rayita (plegado) arriba del primer botón de cada grupo. El hueco de 16 px está
+       siempre, abierto o plegado, para que los botones no salten al abrirse. */
+    body.con-lateral .nav-link[onclick*="goTo('vuelos')"],body.con-lateral .nav-link[onclick*="goTo('grupos')"],body.con-lateral .nav-link[onclick*="goTo('dashboard')"]{margin-top:16px}
     body.con-lateral .nav-link[onclick*="goTo('vuelos')"]::after,body.con-lateral .nav-link[onclick*="goTo('grupos')"]::after,body.con-lateral .nav-link[onclick*="goTo('dashboard')"]::after{position:absolute;left:12px;top:-14px;font-size:10px;letter-spacing:.6px;text-transform:uppercase;color:var(--muted);opacity:.75;pointer-events:none}
-    body.con-lateral.lateral-abierto .nav-link[onclick*="goTo('vuelos')"]::after{content:'Operación'}
-    body.con-lateral.lateral-abierto .nav-link[onclick*="goTo('grupos')"]::after{content:'Grupales'}
-    body.con-lateral.lateral-abierto .nav-link[onclick*="goTo('dashboard')"]::after{content:'Gestión'}
-    body.con-lateral:not(.lateral-abierto) .nav-link[onclick*="goTo('grupos')"]::after,body.con-lateral:not(.lateral-abierto) .nav-link[onclick*="goTo('dashboard')"]::after{content:'';left:12px;right:12px;top:-9px;height:1px;background:var(--border2);opacity:1}
+    body.con-lateral.lateral-abierto .nav-link[onclick*="goTo('vuelos')"]::after,body.con-lateral.lateral-flota .nav-link[onclick*="goTo('vuelos')"]::after{content:'Operación'}
+    body.con-lateral.lateral-abierto .nav-link[onclick*="goTo('grupos')"]::after,body.con-lateral.lateral-flota .nav-link[onclick*="goTo('grupos')"]::after{content:'Grupales'}
+    body.con-lateral.lateral-abierto .nav-link[onclick*="goTo('dashboard')"]::after,body.con-lateral.lateral-flota .nav-link[onclick*="goTo('dashboard')"]::after{content:'Gestión'}
+    body.con-lateral:not(.lateral-abierto):not(.lateral-flota) .nav-link[onclick*="goTo('grupos')"]::after,body.con-lateral:not(.lateral-abierto):not(.lateral-flota) .nav-link[onclick*="goTo('dashboard')"]::after{content:'';left:12px;right:12px;top:-9px;height:1px;background:var(--border2);opacity:1}
     /* El contenido se corre lo justo: en pantallas anchas sigue centrado; si no entra, arranca después del menú */
     body.con-lateral .screen{margin-left:max(var(--lat-w),calc((100% - 1200px) / 2));margin-right:auto}
     body.con-lateral .pie-reportar{left:var(--lat-w)}
@@ -1188,7 +1193,7 @@ const sb=supabase.createClient(CONFIG.SUPABASE_URL,CONFIG.SUPABASE_ANON_KEY,{
 // ⚠️ Una sola versión por cadena y CORTA: el detalle va al CHANGELOG.md, no acá. Nacho ve este texto
 // completo en el encabezado (el resto ve solo el "bNN") y si es largo se desborda; además `APP_VERSION_CORTA`
 // saca el número con un match, así que dos "bNN" en la misma cadena confunden cuál es la versión.
-const APP_VERSION='Fase 2 · 2026-11-12 (b132-TEST · Menú lateral que se pliega · sobre b131 (salidas grupales), b130 (PNR para TP), b129 (equipaje), b128 (reportes), b127 (grupos), b126 (pedidos de Aéreos) y b125 (Reservas). Paquetes con IA prendido, solo TEST.)';
+const APP_VERSION='Fase 2 · 2026-11-12 (b132-TEST · Menú lateral: íconos que se abren con su nombre al pasar el mouse · sobre b131 (salidas grupales), b130 (PNR para TP), b129 (equipaje), b128 (reportes), b127 (grupos), b126 (pedidos de Aéreos) y b125 (Reservas). Paquetes con IA prendido, solo TEST.)';
 // Columnas de 'vuelos' legibles por cualquier usuario. EXCLUYE precio_neto: el admin lo lee por RPC admin_get_precio_neto (gateada por es_admin). No usar select('*') sobre vuelos: la columna precio_neto quedó revocada a authenticated.
 // ⚠️ Toda columna que se agregue acá necesita `grant select (col) to authenticated` en la base, si no
 // PostgREST tira 400 y se cae la pantalla entera (gotcha #6). `emitido` viene de la migración 2026-08-06.
@@ -1660,6 +1665,7 @@ function _latSync(){
 }
 function toggleLateral(){
   const abierto=document.body.classList.toggle('lateral-abierto');
+  document.body.classList.remove('lateral-flota');
   try{localStorage.setItem('cupos-lateral-abierto',abierto?'1':'0');}catch(e){}
 }
 function initLateral(){
@@ -1667,11 +1673,20 @@ function initLateral(){
   if(!brand||!nl||document.getElementById('lat-toggle')) return;
   const b=document.createElement('button');
   b.id='lat-toggle';b.className='lat-toggle';b.type='button';b.textContent='☰';
-  b.title='Mostrar u ocultar los nombres del menú';b.setAttribute('aria-label',b.title);
+  b.title='Dejar el menú abierto o plegarlo';b.setAttribute('aria-label',b.title);
   b.onclick=toggleLateral; brand.insertBefore(b,brand.firstChild);
   try{if(localStorage.getItem('cupos-lateral-abierto')==='1')document.body.classList.add('lateral-abierto');}catch(e){}
-  // Plegado solo se ven los íconos: el nombre sale al pasar el mouse (se toma del texto, que puede cambiar: "Mis reservas"/"Reservas").
-  nl.addEventListener('mouseover',e=>{const x=e.target.closest('.nav-link');if(x)x.title=x.textContent.trim();});
+  // Plegado: al pasar el mouse por la columna se abre encima del contenido con los nombres, y al salir se pliega
+  // (2ª vuelta, pedido de Nacho: esperar el cartelito del navegador enlentecía). Solo con mouse: en una pantalla táctil
+  // el toque no lo deja abierto tapando la tabla. Un respiro corto al entrar (90 ms) para que no se abra si el mouse
+  // solo cruza el borde de la pantalla, y otro al salir (140 ms) para que no parpadee si se pasa apenas del borde.
+  // Con teclado (Tab) también se abre.
+  let tFlota=null;
+  const flotar=on=>{clearTimeout(tFlota);tFlota=setTimeout(()=>{document.body.classList.toggle('lateral-flota',on&&!document.body.classList.contains('lateral-abierto'));},on?90:140);};
+  nl.addEventListener('pointerenter',e=>{if(e.pointerType==='mouse')flotar(true);});
+  nl.addEventListener('pointerleave',e=>{if(e.pointerType==='mouse')flotar(false);});
+  nl.addEventListener('focusin',e=>{try{if(e.target.matches(':focus-visible'))flotar(true);}catch(_){}});
+  nl.addEventListener('focusout',e=>{if(!nl.contains(e.relatedTarget)&&!nl.matches(':hover'))flotar(false);});
   // "Ver como" (lo usan solo los admin, y poco): al menú de la cuenta, para no ocupar la barra.
   const vc=document.getElementById('ver-como'), pop=document.getElementById('user-menu-pop'), mail=document.getElementById('user-menu-mail');
   if(vc&&pop&&mail){mail.insertAdjacentElement('afterend',vc);vc.addEventListener('change',()=>pop.classList.remove('open'));}
