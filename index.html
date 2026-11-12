@@ -1715,7 +1715,8 @@ document.addEventListener('click',e=>{
 function aplicarRolEfectivoUI(){
   const adminUI=rolEfectivo==='admin';
   const tp=rolEfectivo==='travel_partner';
-  const na=document.getElementById('nav-admin'); if(na) na.style.display=adminUI?'block':'none';
+  // b132: '' (no 'block') como las otras pestañas: un 'block' le gana al menú lateral y el ícono queda corrido y pegado al nombre.
+  const na=document.getElementById('nav-admin'); if(na) na.style.display=adminUI?'':'none';
   const ma=document.getElementById('mobile-admin'); if(ma) ma.style.display=adminUI?'block':'none';
   // Travel Partner: solo "Cupos" (oculta Dashboard, Mis reservas y el buscador de pasajeros).
   // Operaciones (Ola 2 #42): sin Dashboard.
