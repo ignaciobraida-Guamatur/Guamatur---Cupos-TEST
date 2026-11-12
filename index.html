@@ -1134,7 +1134,7 @@ const sb=supabase.createClient(CONFIG.SUPABASE_URL,CONFIG.SUPABASE_ANON_KEY,{
 // ⚠️ Una sola versión por cadena y CORTA: el detalle va al CHANGELOG.md, no acá. Nacho ve este texto
 // completo en el encabezado (el resto ve solo el "bNN") y si es largo se desborda; además `APP_VERSION_CORTA`
 // saca el número con un match, así que dos "bNN" en la misma cadena confunden cuál es la versión.
-const APP_VERSION='Fase 2 · 2026-11-12 (b129-TEST · Solicitudes de grupo: equipaje obligatorio con el cuadro de tarifas de Aéreos · sobre b128 (reportes), b127 (grupos), b126 (pedidos de Aéreos) y b125 (Reservas). Paquetes con IA prendido, solo TEST.)';
+const APP_VERSION='Fase 2 · 2026-11-12 (b130-TEST · El Travel Partner ve el PNR de los cupos · sobre b129 (equipaje), b128 (reportes), b127 (grupos), b126 (pedidos de Aéreos) y b125 (Reservas). Paquetes con IA prendido, solo TEST.)';
 // Columnas de 'vuelos' legibles por cualquier usuario. EXCLUYE precio_neto: el admin lo lee por RPC admin_get_precio_neto (gateada por es_admin). No usar select('*') sobre vuelos: la columna precio_neto quedó revocada a authenticated.
 // ⚠️ Toda columna que se agregue acá necesita `grant select (col) to authenticated` en la base, si no
 // PostgREST tira 400 y se cae la pantalla entera (gotcha #6). `emitido` viene de la migración 2026-08-06.
@@ -1444,8 +1444,8 @@ let accionesPorCupo={};
 // b121 — cupos con ventas vivas dentro de lugares reducidos. Solo se llena para admin/Operaciones.
 let ventasReducidasPorCupo={};
 // b124 — {vuelo_id: PNR}, para la columna del listado y para encontrar un cupo por su PNR en "Filtrar
-// cupos". Sale de la RPC localizadores_temporada (una sola llamada por temporada; el Travel Partner
-// recibe vacío, igual que en get_localizador).
+// cupos". Sale de la RPC localizadores_temporada (una sola llamada por temporada). Desde b130 el Travel
+// Partner también lo recibe, solo de los cupos visibles (igual que en get_localizador).
 let localizadoresPorCupo={};
 // b126 (pedido de Rodrigo, Aéreos): salidas en las que la aerolínea no da más lugares. vuelo_id → {nota,
 // marcado_por, marcado_en}. Viene de la RPC sin_mas_lugares_temporada, que ya devuelve TODAS las tandas de la
@@ -2819,14 +2819,13 @@ async function cargarVuelos(){
     }catch(e){console.warn('[ventas en reducidos]',e);}   // si falla, el listado sale igual
   }
   // b124 (pedido de Nacho): el PNR de cada cupo, para la última columna y para el filtro. Lo ve quien ya lo
-  // ve en el detalle del cupo; el Travel Partner no (ni se pide). Si falla, el listado sale igual, sin PNR.
+  // ve en el detalle del cupo. b130 (pedido de Victoria Kirzner, OK de Nacho 12-nov): también el Travel
+  // Partner, solo de los cupos visibles (lo filtra la RPC). Si falla, el listado sale igual, sin PNR.
   localizadoresPorCupo={};
-  if(rolEfectivo!=='travel_partner'){
-    try{
-      const {data:locs}=await sb.rpc('localizadores_temporada',{p_temporada_id:temporadaActiva});
-      (locs||[]).forEach(r=>{localizadoresPorCupo[r.vuelo_id]=r.localizador;});
-    }catch(e){console.warn('[PNR del listado]',e);}
-  }
+  try{
+    const {data:locs}=await sb.rpc('localizadores_temporada',{p_temporada_id:temporadaActiva});
+    (locs||[]).forEach(r=>{localizadoresPorCupo[r.vuelo_id]=r.localizador;});
+  }catch(e){console.warn('[PNR del listado]',e);}
   // b126: salidas marcadas "sin más lugares". Si falla, el listado sale igual, sin la pastilla.
   sinMasLugaresPorCupo={};
   if(rolEfectivo!=='travel_partner'){
@@ -2918,7 +2917,7 @@ function renderVuelos(lista){
   if(!lista.length){cont.innerHTML='<div class="loading">No hay cupos en esta temporada</div>';return;}
   const esAdmin=rolEfectivo==='admin';
   const verTandas=esAdmin||rolEfectivo==='operaciones';
-  const verPnr=rolEfectivo!=='travel_partner';   // b124
+  const verPnr=true;   // b124 · b130: también el Travel Partner
   const filas=lista.map(v=>{
     // b103 (pedido de Nacho): para quien ve UNA sola tanda por salida, esa fila ya no representa un cupo
     // sino LA SALIDA: los contadores suman toda la cadena. Si dijeran 12 cuando entre las dos tandas hay
@@ -2979,7 +2978,7 @@ function renderVuelos(lista){
       ${verPnr?`<td style="font-family:'DM Mono',monospace;font-size:12px;color:var(--accent2);white-space:nowrap">${esc(localizadoresPorCupo[d.id]||'')||'—'}</td>`:''}
     </tr>`;
   };
-  // b124: la columna PNR va al final y solo para quien puede ver el PNR (todos menos el Travel Partner).
+  // b124: la columna PNR va al final. Desde b130 la ven todos, también el Travel Partner.
   const tabla=(arr)=>`<div class="table-wrap"><table class="sortable"><thead><tr><th>Cupo</th><th>Región</th><th>Ciudad</th><th>Fecha</th><th>Precio</th><th>Total</th><th>Vendidos</th><th>Reservados</th><th>Libres</th><th>Ocup.</th><th>Alerta</th>${verPnr?'<th>PNR</th>':''}</tr></thead><tbody>${arr.map(filaHTML).join('')}</tbody></table></div>`;
   // b96 (pedido de Nacho): los cupos que YA VIAJARON bajan a una sección aparte, plegada, al fondo.
   // 🔑 "No está a la venta" y "ya viajó" no son lo mismo: un cupo completo sigue siendo trabajo (hay
@@ -3058,6 +3057,10 @@ async function cargarDetalleTP(vueloId){
   let c=(vuelosData||[]).find(v=>v.id===vueloId);
   if(!c){const {data:rpc}=await sb.rpc('tp_listar_cupos',{p_temporada_id:vuelo.temporada_id});c=(rpc||[]).find(v=>v.id===vueloId);}
   const tot=c?.total??'—',vV=c?.vendidos??'—',rV=c?.reservados??'—',lV=c?.libres??'—';
+  // b130 (pedido de Victoria Kirzner, OK de Nacho 12-nov): el PNR, por la misma RPC gateada que usa el resto
+  // (al TP le da el de los cupos visibles). Si falla, el detalle sale igual, sin PNR.
+  let localizadorTP=null;
+  try{const {data:loc}=await sb.rpc('get_localizador',{p_vuelo_id:vueloId});localizadorTP=loc;}catch(e){console.warn('[PNR del detalle TP]',e);}
   let html=`<div class="detalle-header">
     <div style="flex:1">
       <div class="detalle-titulo">${esc(vuelo.nombre)}</div>
@@ -3066,6 +3069,7 @@ async function cargarDetalleTP(vueloId){
         ${vuelo.destino?`<span class="badge ${regionBadge(vuelo.destino)}">${esc(vuelo.destino)}</span>`:''}
         ${vuelo.fecha?`<span>📅 ${formatFecha(vuelo.fecha)}</span>`:''}
         ${vuelo.aerolinea?`<span>✈ ${esc(vuelo.aerolinea)}</span>`:''}
+        ${localizadorTP?`<span style="color:var(--accent2)">🔑 ${esc(localizadorTP)}</span>`:''}
         ${vuelo.precio?`<span style="color:var(--green);font-weight:500">Precio de Venta: USD ${Number(vuelo.precio).toLocaleString('es-UY')}</span>`:''}
       </div>
     </div>
@@ -3112,7 +3116,7 @@ async function cargarDetalle(vueloId){
   // El precio neto no viaja en el select (revocado a authenticated); admin y operaciones lo traen por RPC gateada (13-jul: se sumó operaciones)
   let precioNetoAdmin=null;
   if((rolEfectivo==='admin'||rolEfectivo==='operaciones')&&vuelo){const {data:pn}=await sb.rpc('admin_get_precio_neto',{p_vuelo_id:vueloId});precioNetoAdmin=pn;}
-  // El localizador (PNR del operador) tampoco viaja en el select (revocado a authenticated); se trae por RPC gateada (excluye Travel Partner).
+  // El localizador (PNR del operador) tampoco viaja en el select (revocado a authenticated); se trae por RPC gateada (desde b130 el Travel Partner la recibe, solo de cupos visibles; su detalle es cargarDetalleTP).
   let localizadorCupo=null;
   if(vuelo){const {data:loc}=await sb.rpc('get_localizador',{p_vuelo_id:vueloId});localizadorCupo=loc;}
   // b126: ¿la salida está marcada "sin más lugares"? (la RPC ya resuelve la cadena de tandas)
