@@ -754,7 +754,7 @@
   </div>
 </div>
 
-<!-- b131: SALIDAS GRUPALES — un solo modal para salida, bloque aéreo y lugar (el contenido lo arma el JS) -->
+<!-- b131: SALIDAS GRUPALES — un solo modal para salida, bloqueo y lugar (el contenido lo arma el JS) -->
 <div id="modal-grp" class="modal-overlay" style="display:none">
   <div class="modal" style="max-width:780px">
     <div id="modal-grp-alert"></div>
@@ -3118,7 +3118,7 @@ async function cargarDetalleTP(vueloId){
 
 // ── b131: SALIDAS GRUPALES (etapa 1) ─────────────────────────────
 // Reemplaza las planillas "SALIDAS GRUPALES <año> / PRIMER|SEGUNDO SEMESTRE" de Producto: una salida (programa +
-// fecha) con su itinerario, sus bloques aéreos (PNR, localizador) y sus lugares (pasajero, preventa, Beneficio Oro,
+// fecha) con su itinerario, sus bloqueos aéreos (PNR, localizador) y sus lugares (pasajero, preventa, Beneficio Oro,
 // habitación, DAC). Solo admin y Operaciones: las ventas de los grupos no se comparten con el equipo comercial — la
 // RLS de grupal_* se lo niega al resto; esto solo esconde la pestaña. Escrituras por RPC (grupal_guardar_*).
 // Propuesta y preguntas abiertas: documentacion/propuesta-modulo-salidas-grupales.md (repo de infra).
@@ -3263,8 +3263,8 @@ function renderSalidaGrupal(aviso){
   h+=`<div class="section-title" style="margin:6px 0 8px">✈ Itinerario aéreo</div>`;
   h+=tr.length?`<div class="table-wrap" style="margin-bottom:16px"><table class="itinerario-table"><thead><tr><th>Tipo</th><th>Fecha</th><th>Aerolínea</th><th>Vuelo</th><th>Desde</th><th>Hasta</th><th>Sale</th><th>Llega</th></tr></thead><tbody>${tr.map(t=>`<tr><td><span class="badge ${t.tipo==='Vuelta'?'badge-orange':'badge-green'}">${esc(t.tipo||'Ida')}</span></td><td>${/^\d{4}-\d{2}-\d{2}$/.test(t.fecha||'')?formatFecha(t.fecha):esc(t.fecha||'—')}</td><td>${esc(t.aerolinea||'—')}</td><td>${esc(t.vuelo||'—')}</td><td>${esc(t.origen||'—')}</td><td>${esc(t.destino||'—')}</td><td>${esc(t.salida||'—')}</td><td>${esc(t.llegada||'—')}</td></tr>`).join('')}</tbody></table></div>`
     :`<div style="font-size:13px;color:var(--muted);margin-bottom:16px">Sin itinerario cargado. En “✏ Editar salida” se pega el PNR y se arma solo.</div>`;
-  // Bloques aéreos
-  h+=`<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin:6px 0 8px"><div class="section-title">Bloques aéreos</div><button class="btn btn-outline" style="padding:5px 10px;font-size:12px" onclick="abrirFormBloqueGrupal()">+ Bloque aéreo</button></div>`;
+  // Bloqueos aéreos
+  h+=`<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin:6px 0 8px"><div class="section-title">Bloqueos</div><button class="btn btn-outline" style="padding:5px 10px;font-size:12px" onclick="abrirFormBloqueGrupal()">+ Bloqueo</button></div>`;
   h+=bloques.length?`<div style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px">${bloques.map(b=>`<div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:10px 14px">
       <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center;font-size:13px">
         <b>${esc(b.aerolinea||'Aerolínea sin cargar')}</b>
@@ -3277,7 +3277,7 @@ function renderSalidaGrupal(aviso){
       ${b.notas?`<div style="font-size:12px;color:var(--muted);margin-top:4px">${esc(b.notas)}</div>`:''}
       ${b.texto_pnr?`<details style="margin-top:6px"><summary style="cursor:pointer;font-size:12px;color:var(--accent2)">Ver el PNR del GDS</summary><pre style="white-space:pre-wrap;font-family:'DM Mono',monospace;font-size:11.5px;margin:6px 0 0;max-height:240px;overflow:auto">${esc(b.texto_pnr)}</pre></details>`:''}
     </div>`).join('')}</div>`
-    :`<div style="font-size:13px;color:var(--muted);margin-bottom:16px">Sin bloques aéreos. Un bloque es cada reserva de grupo con su PNR (el vuelo largo, un interno, la vuelta por separado…).</div>`;
+    :`<div style="font-size:13px;color:var(--muted);margin-bottom:16px">Sin bloqueos. Un bloqueo es cada reserva de grupo con la aerolínea, con su PNR (el vuelo largo, un interno, la vuelta por separado…).</div>`;
   // Lugares (la grilla de la planilla)
   h+=`<div class="section-title" style="margin:6px 0 8px">Lugares <span style="text-transform:none;font-weight:400">· tocá una fila para cargar o editar</span></div>
     <div class="table-wrap"><table><thead><tr><th>#</th><th>Estado</th><th>Apellidos</th><th>Nombres</th><th>Vendedor</th><th>Ficha</th><th>Prev.</th><th>B. Oro</th><th>Hab.</th><th>Factura</th><th>Documento</th><th>Notas</th></tr></thead><tbody>
@@ -3373,7 +3373,7 @@ async function guardarSalidaGrupal(id){
     if(error){mostrarAlerta('modal-grp-alert','No se pudo guardar: '+error.message,'error');return;}
     cerrarModal('modal-grp');
     if(!id&&p.anio)_grpAnio=Number(p.anio);
-    await abrirSalidaGrupal(data,id?'Salida guardada.':'Salida creada con sus lugares. Ahora cargá los bloques aéreos y los pasajeros.');
+    await abrirSalidaGrupal(data,id?'Salida guardada.':'Salida creada con sus lugares. Ahora cargá los bloqueos y los pasajeros.');
   }finally{btn.disabled=false;}
 }
 async function borrarSalidaGrupal(id){
@@ -3388,21 +3388,21 @@ function abrirFormBloqueGrupal(id){
   const b=id?(_grpDet.bloques.find(x=>x.id===id)||{}):{};
   const aers=[...new Set([...AEROLINEAS,'Iberia','Air Europa','Finnair','Aegean','Royal Air Maroc','Aerolíneas Argentinas'])].sort((a,c)=>a.localeCompare(c));
   const inp=(k,lab,type,ph,extra)=>`<div class="form-group"><label class="form-label">${lab}</label><input class="form-input" id="grp-b-${k}" type="${type||'text'}" value="${esc(b[k]??'')}" placeholder="${esc(ph||'')}" ${extra||''}/></div>`;
-  _grpModal(`<div class="modal-title">${id?'✏ Editar bloque aéreo':'✈ Nuevo bloque aéreo'}</div>
-    <div style="font-size:12px;color:var(--muted);margin-bottom:10px">Cada reserva de grupo con su PNR: el vuelo largo, un interno de otra aerolínea, la vuelta por separado, o un grupo partido en dos.</div>
+  _grpModal(`<div class="modal-title">${id?'✏ Editar bloqueo':'✈ Nuevo bloqueo'}</div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:10px">Cada bloqueo con la aerolínea y su PNR: el vuelo largo, un interno de otra aerolínea, la vuelta por separado, o un grupo partido en dos.</div>
     <div class="form-grid">
       ${inp('aerolinea','Aerolínea','text','Ej: Iberia','list="grp-b-aers"')}<datalist id="grp-b-aers">${aers.map(a=>`<option value="${esc(a)}">`).join('')}</datalist>
       ${inp('pnr','PNR','text','Ej: 8WKCIS')}
       ${inp('localizador','Localizador / Booking ID','text','Ej: 21ECUYDXBF')}
       ${inp('nombre_grupo','Nombre del grupo en el GDS','text','Ej: AURORASFEBRERO')}
-      ${inp('lugares','Lugares del bloque','number','Ej: 21')}
+      ${inp('lugares','Lugares del bloqueo','number','Ej: 21')}
       <div class="form-group full"><label class="form-label">PNR del GDS <span style="color:var(--muted)">(pegalo tal cual; “Leer” completa PNR, lugares y aerolínea)</span></label>
         <textarea class="form-textarea" id="grp-b-texto_pnr" rows="6" style="font-family:'DM Mono',monospace;font-size:12px">${esc(b.texto_pnr||'')}</textarea>
         <div style="display:flex;gap:10px;align-items:center;margin-top:6px"><button type="button" class="btn btn-outline" style="padding:5px 10px;font-size:12px" onclick="_grpLeerTextoPNR()">Leer</button><span id="grp-b-msg" style="font-size:12px"></span></div></div>
       <div class="form-group full"><label class="form-label">Notas</label><input class="form-input" id="grp-b-notas" value="${esc(b.notas||'')}" placeholder="Ej: la ruta no opera, mantenemos el bloqueo"/></div>
     </div>
     <div class="modal-actions">
-      ${id?`<button class="btn btn-outline" style="margin-right:auto;color:var(--red)" onclick="borrarBloqueGrupal('${id}')">Borrar bloque</button>`:''}
+      ${id?`<button class="btn btn-outline" style="margin-right:auto;color:var(--red)" onclick="borrarBloqueGrupal('${id}')">Borrar bloqueo</button>`:''}
       <button class="btn btn-outline" onclick="cerrarModal('modal-grp')">Cancelar</button>
       <button class="btn btn-primary" id="btn-grp-guardar" onclick="guardarBloqueGrupal(${id?`'${id}'`:''})">Guardar</button>
     </div>`);
@@ -3427,15 +3427,15 @@ async function guardarBloqueGrupal(id){
     await asegurarTokenFresco();
     const {error}=await sb.rpc('grupal_guardar_bloque',{p});
     if(error){mostrarAlerta('modal-grp-alert','No se pudo guardar: '+error.message,'error');return;}
-    cerrarModal('modal-grp'); await abrirSalidaGrupal(_grpDet.s.id,'Bloque aéreo guardado.');
+    cerrarModal('modal-grp'); await abrirSalidaGrupal(_grpDet.s.id,'Bloqueo guardado.');
   }finally{btn.disabled=false;}
 }
 async function borrarBloqueGrupal(id){
-  if(!confirm('¿Borrar este bloque aéreo? (Los lugares y pasajeros no se tocan.)'))return;
+  if(!confirm('¿Borrar este bloqueo? (Los lugares y pasajeros no se tocan.)'))return;
   await asegurarTokenFresco();
   const {error}=await sb.rpc('grupal_borrar_bloque',{p_id:id});
   if(error){mostrarAlerta('modal-grp-alert',error.message,'error');return;}
-  cerrarModal('modal-grp'); await abrirSalidaGrupal(_grpDet.s.id,'Bloque borrado.');
+  cerrarModal('modal-grp'); await abrirSalidaGrupal(_grpDet.s.id,'Bloqueo borrado.');
 }
 
 function abrirFormLugarGrupal(id){
@@ -3486,12 +3486,12 @@ async function guardarLugarGrupal(id,liberar){
   }finally{if(btn)btn.disabled=false;}
 }
 
-// Excel con el formato de la planilla de hoy: cabecera, bloques, lugares e itinerario.
+// Excel con el formato de la planilla de hoy: cabecera, bloqueos, lugares e itinerario.
 function exportarSalidaGrupal(){
   if(!_grpDet) return;
   const {s,bloques,lugares}=_grpDet;
   const rows=[[s.nombre],[`${GRP_LINEAS[s.linea]||s.linea} · ${s.anio} ${s.semestre===1?'1er':'2do'} semestre · ${s.fecha_salida||''}${s.fecha_regreso?' → '+s.fecha_regreso:''} · ${(GRP_ESTADOS[s.estado]||[])[1]||s.estado}`],[]];
-  bloques.forEach(b=>rows.push([`Bloque ${b.orden}`,b.aerolinea||'',`PNR ${b.pnr||'—'}`,`Localizador ${b.localizador||'—'}`,b.nombre_grupo||'',b.lugares?`${b.lugares} lugares`:'',b.notas||'']));
+  bloques.forEach(b=>rows.push([`Bloqueo ${b.orden}`,b.aerolinea||'',`PNR ${b.pnr||'—'}`,`Localizador ${b.localizador||'—'}`,b.nombre_grupo||'',b.lugares?`${b.lugares} lugares`:'',b.notas||'']));
   if(bloques.length) rows.push([]);
   rows.push(['LUGAR','ESTADO','APELLIDOS','NOMBRES','VENDEDOR','FICHA','PREVENTA','BENEFICIO ORO','HAB','DAC','FACTURA','DOCUMENTO','PEDIDOS','NOTAS','COORDINADOR']);
   lugares.forEach(l=>rows.push([l.lugar,(GRP_LUGAR[l.estado]||[])[1]||l.estado,l.apellidos||'',l.nombres||'',l.vendedor_nombre||l.vendedor_codigo||'',l.ficha||'',l.preventa?'SÍ':'',
