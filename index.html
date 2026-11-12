@@ -720,10 +720,13 @@
       <div class="form-group full" id="sg-vendedor-group" style="display:none"><label class="form-label">A nombre de</label><select class="form-select" id="sg-vendedor"></select></div>
       <div class="form-group full"><label class="form-label">Grupo / cliente <span style="color:var(--red)">*</span></label><input class="form-input" id="sg-nombre" placeholder="Ej: Amigos del Patrimonio - Génova"/></div>
       <div class="form-group"><label class="form-label">Pasajeros <span style="color:var(--red)">*</span></label><input class="form-input" id="sg-pax" type="number" min="1" placeholder="Ej: 22"/></div>
-      <div class="form-group"><label class="form-label">Aerolínea preferida</label><input class="form-input" id="sg-aerolinea" list="sg-aerolineas" placeholder="Vacío = la que convenga"/><datalist id="sg-aerolineas"></datalist></div>
+      <div class="form-group"><label class="form-label">Aerolínea preferida</label><input class="form-input" id="sg-aerolinea" list="sg-aerolineas" placeholder="Vacío = la que convenga" oninput="_sgActualizarTarifa()"/><datalist id="sg-aerolineas"></datalist></div>
       <div class="form-group"><label class="form-label">Salida</label><input class="form-input" id="sg-salida" type="date"/></div>
       <div class="form-group"><label class="form-label">Regreso</label><input class="form-input" id="sg-regreso" type="date"/></div>
-      <div class="form-group full"><label class="form-label">Equipaje</label><select class="form-select" id="sg-equipaje"><option value="mano_bodega">Mano + bodega</option><option value="mano">Solo de mano</option><option value="a_definir">A definir</option></select></div>
+      <div class="form-group full"><label class="form-label">Equipaje <span style="color:var(--red)">*</span> <span style="color:var(--muted)">(bolso = bajo el asiento · carry-on = valija de cabina · despachado = va en bodega)</span></label><select class="form-select" id="sg-equipaje" onchange="_sgActualizarTarifa()"></select>
+        <div id="sg-equipaje-tarifa" style="margin-top:6px"></div>
+        <details style="margin-top:6px;font-size:12px"><summary style="cursor:pointer;color:var(--accent2)">Ver el cuadro de tarifas de Aéreos (todas las aerolíneas)</summary><div id="sg-cuadro-tarifas" style="margin-top:6px"></div></details>
+      </div>
       <div class="form-group full"><label class="form-label">Vuelos / itinerario <span style="color:var(--muted)">(pegá el itinerario del GDS o escribí los vuelos y fechas que quiere el cliente)</span></label><textarea class="form-textarea" id="sg-itinerario" rows="5" style="font-family:'DM Mono',monospace;font-size:12px" placeholder="IB 170 01MAY MVDMAD 1240 0530&#10;IB 169 15MAY MADMVD 0015 0805"></textarea></div>
       <div class="form-group full"><label class="form-label">Notas para Aéreos</label><textarea class="form-textarea" id="sg-notas" rows="2" placeholder="Ej: necesitamos noche en Madrid a la vuelta / comparar con Air Europa"></textarea></div>
     </div>
@@ -1131,7 +1134,7 @@ const sb=supabase.createClient(CONFIG.SUPABASE_URL,CONFIG.SUPABASE_ANON_KEY,{
 // ⚠️ Una sola versión por cadena y CORTA: el detalle va al CHANGELOG.md, no acá. Nacho ve este texto
 // completo en el encabezado (el resto ve solo el "bNN") y si es largo se desborda; además `APP_VERSION_CORTA`
 // saca el número con un match, así que dos "bNN" en la misma cadena confunden cuál es la versión.
-const APP_VERSION='Fase 2 · 2026-11-11 (b128-TEST · Reportar un problema / sugerir una mejora · sobre b127 (grupos), b126 (pedidos de Aéreos) y b125 (Reservas). Paquetes con IA prendido, solo TEST.)';
+const APP_VERSION='Fase 2 · 2026-11-12 (b129-TEST · Solicitudes de grupo: equipaje obligatorio con el cuadro de tarifas de Aéreos · sobre b128 (reportes), b127 (grupos), b126 (pedidos de Aéreos) y b125 (Reservas). Paquetes con IA prendido, solo TEST.)';
 // Columnas de 'vuelos' legibles por cualquier usuario. EXCLUYE precio_neto: el admin lo lee por RPC admin_get_precio_neto (gateada por es_admin). No usar select('*') sobre vuelos: la columna precio_neto quedó revocada a authenticated.
 // ⚠️ Toda columna que se agregue acá necesita `grant select (col) to authenticated` en la base, si no
 // PostgREST tira 400 y se cae la pantalla entera (gotcha #6). `emitido` viene de la migración 2026-08-06.
@@ -2344,7 +2347,87 @@ const SG_VENC=[
   {campo:'fecha_nominacion',titulo:'Nominación (nombres)'},
   {campo:'fecha_emision',titulo:'Emisión'}
 ];
-const SG_EQUIPAJE={mano_bodega:'Mano + bodega',mano:'Solo de mano',a_definir:'A definir'};
+// b129: el equipaje va siempre definido (Rodrigo, 11-nov: "no podemos «a definir»"), en los 4 niveles de su
+// cuadro. Las 3 claves viejas quedan solo para mostrar solicitudes cargadas antes; la base ya no las acepta.
+const SG_NIVELES=['bolso','bolso_carry','bolso_carry_1','bolso_carry_2'];
+const SG_EQUIPAJE={bolso:'Solo bolso de mano',bolso_carry:'Bolso + carry-on',bolso_carry_1:'Bolso + carry-on + 1 despachado',bolso_carry_2:'Bolso + carry-on + 2 despachados',
+  mano_bodega:'Mano + bodega',mano:'Solo de mano',a_definir:'A definir'};
+// Cuadro de tarifas por aerolínea que mandó Rodrigo Maulelo (Aéreos) el 11-nov. t = nombre de la tarifa en cada
+// nivel, en el orden de SG_NIVELES ("No hay…" = la compañía no lo tiene). Para cambiarlo, se edita acá.
+const SG_TARIFAS=[
+  {aer:'LATAM',alias:['latam','la'],rutas:[
+    {ruta:'Dentro de Sudamérica',t:['Basic','Light','Full','No hay en Economy']},
+    {ruta:'Dentro de Brasil o fuera de Sudamérica',t:['No hay','Light','Standard / Full','No hay en Economy']}],
+    nota:'Carry-on 12 kg, despachado 23 kg.'},
+  {aer:'JetSMART',alias:['jetsmart','ja'],rutas:[{ruta:'Todas',t:['Vuela Ligero','No hay (carry-on se paga aparte)','Pack Smart / Pack Full','No hay']}],
+    nota:'Contenido de los packs según Kayak: confirmar en el sistema de reservas.'},
+  {aer:'Iberia',alias:['iberia','ib'],rutas:[{ruta:'Largo radio',t:['No hay','Básica','Óptima / Confort / Flexible','Solo Premium / Business']}],
+    nota:'En vuelos dentro de Europa aplican otras reglas.'},
+  {aer:'Air Europa',alias:['aireuropa','ux'],rutas:[{ruta:'Largo radio',t:['No hay','Lite','Standard / Flex','No hay']}],
+    nota:'Carry-on 10 kg (55x35x25) + bolso bajo asiento; despachado 23 kg.'},
+  {aer:'GOL',alias:['gol','g3'],rutas:[{ruta:'Internacional',t:['Basic','Light','Classic / Flex','Premium Economy']}],
+    nota:'Bolso 10 kg, carry-on 12 kg, despachado 23 kg. En Light/Classic/Flex el carry-on puede despacharse en la puerta.'},
+  {aer:'Arajet',alias:['arajet','dm'],rutas:[{ruta:'Todas',t:['Basic','Classic','Extra','No hay']}],
+    nota:'Comfort = bolso + despachado 23 kg, sin carry-on. Bolso 6 kg (10 kg en Brasil), carry-on 12 kg.'},
+  {aer:'Avianca',alias:['avianca','av'],rutas:[{ruta:'Internacional (Américas)',t:['No hay','Light','Classic / Flex','No hay']}],
+    nota:'Carry-on 10 kg, despachado 23 kg. Basic solo existe en vuelos dentro de un mismo país.'},
+  {aer:'SKY',alias:['sky','h2'],rutas:[{ruta:'Todas',t:['Basic','Light','Max','Max Flex']}],
+    nota:'Nombres desde 2025: Zero > Basic, Plus > Max, Full > Max Flex. Fuente de terceros: confirmar.'}
+];
+const _sgNoHay=t=>/^no hay/i.test(String(t||''));
+// Aerolínea escrita a mano → fila del cuadro. Nombre: empieza con el alias ("Sky Airline", "GOL Linhas");
+// código IATA de 2 letras: tiene que ser exacto (si no, "la" agarraría cualquier cosa).
+function _sgTarifaDe(aerolinea){
+  const n=String(aerolinea||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase().replace(/[^a-z0-9]/g,'');
+  if(!n)return null;
+  return SG_TARIFAS.find(a=>a.alias.some(x=>x.length<=2?n===x:n.startsWith(x)))||null;
+}
+// Una línea de texto con la tarifa de esa compañía para el nivel elegido (detalle y mail).
+function _sgEquipajeTxt(s){
+  const lbl=SG_EQUIPAJE[s.equipaje]||s.equipaje||'';const i=SG_NIVELES.indexOf(s.equipaje);const a=_sgTarifaDe(s.aerolinea);
+  if(!a||i<0)return lbl;
+  const t=a.rutas.length===1?a.rutas[0].t[i]:a.rutas.map(r=>`${r.t[i]} (${r.ruta})`).join(' · ');
+  return `${lbl} — ${a.aer}: ${t}`;
+}
+// Tabla del cuadro (una aerolínea o todas), con la columna del nivel elegido resaltada.
+function _sgTablaTarifas(lista,iSel){
+  const th='padding:4px 6px;text-align:left;font-weight:600;color:var(--muted);border-bottom:1px solid var(--border2)';
+  const td='padding:4px 6px;border-bottom:1px solid var(--border);vertical-align:top';
+  const sel=';background:rgba(124,111,253,0.14)';
+  let h=`<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:11.5px"><thead><tr><th style="${th}">Aerolínea</th><th style="${th}">Ruta</th>`;
+  SG_NIVELES.forEach((k,i)=>h+=`<th style="${th}${i===iSel?sel:''}">${esc(SG_EQUIPAJE[k])}</th>`);
+  h+=`</tr></thead><tbody>`;
+  lista.forEach(a=>a.rutas.forEach((r,j)=>{
+    h+=`<tr><td style="${td};font-weight:600">${j===0?esc(a.aer):''}</td><td style="${td};color:var(--muted)">${esc(r.ruta)}</td>`;
+    r.t.forEach((t,i)=>h+=`<td style="${td}${i===iSel?sel:''}${_sgNoHay(t)?';color:var(--muted)':''}">${esc(t)}</td>`);
+    h+='</tr>';
+  }));
+  h+='</tbody></table></div>';
+  if(lista.length===1)h+=`<div style="font-size:11.5px;color:var(--muted);margin-top:4px">${esc(lista[0].nota)}</div>`;
+  else h+=lista.map(a=>`<div style="font-size:11.5px;color:var(--muted);margin-top:3px"><b>${esc(a.aer)}:</b> ${esc(a.nota)}</div>`).join('');
+  return h;
+}
+// ¿La compañía elegida no tiene el nivel elegido en ninguna de sus rutas? (devuelve el texto del cuadro)
+function _sgNivelInexistente(aerolinea,equipaje){
+  const a=_sgTarifaDe(aerolinea),i=SG_NIVELES.indexOf(equipaje);
+  if(!a||i<0||!a.rutas.every(r=>_sgNoHay(r.t[i])))return null;
+  return {aer:a.aer,txt:a.rutas[0].t[i]};
+}
+function _sgActualizarTarifa(){
+  const box=document.getElementById('sg-equipaje-tarifa');if(!box)return;
+  const aer=(document.getElementById('sg-aerolinea')?.value||'').trim(),eq=document.getElementById('sg-equipaje')?.value||'';
+  const a=_sgTarifaDe(aer),i=SG_NIVELES.indexOf(eq);
+  if(!aer){box.innerHTML=`<div style="font-size:12px;color:var(--muted)">Sin aerolínea elegida: Aéreos cotiza la que convenga con este equipaje.</div>`;return;}
+  if(!a){box.innerHTML=`<div style="font-size:12px;color:var(--muted)">${esc(aer)} no está en el cuadro de tarifas de Aéreos: el pedido sale con el equipaje elegido.</div>`;return;}
+  let aviso='';
+  if(i>=0){
+    const nh=_sgNivelInexistente(aer,eq);
+    if(nh)aviso=`<div style="font-size:12px;color:var(--red);margin-bottom:4px">⚠ Según el cuadro de Aéreos, ${esc(a.aer)} no tiene esta opción (“${esc(nh.txt)}”). Elegí otro equipaje u otra aerolínea, o explicá en las notas qué necesita el cliente.</div>`;
+    else{const sin=a.rutas.filter(r=>_sgNoHay(r.t[i]));
+      if(sin.length)aviso=`<div style="font-size:12px;color:var(--yellow);margin-bottom:4px">Ojo: ${esc(a.aer)} no la tiene en esta ruta: ${sin.map(r=>esc(r.ruta)).join(' · ')}.</div>`;}
+  }
+  box.innerHTML=aviso+_sgTablaTarifas([a],i);
+}
 let _sgLista=[],_sgFiltro='activas';
 const _sgEsAereos=()=>rolEfectivo==='admin';
 const _sgHoy=()=>{const h=ahoraUY();return `${h.getFullYear()}-${String(h.getMonth()+1).padStart(2,'0')}-${String(h.getDate()).padStart(2,'0')}`;};
@@ -2405,8 +2488,12 @@ function renderGrupos(){
 
 function abrirNuevaSolicitudGrupo(){
   ['sg-nombre','sg-pax','sg-aerolinea','sg-salida','sg-regreso','sg-itinerario','sg-notas'].forEach(id=>{const e=document.getElementById(id);if(e)e.value='';});
-  document.getElementById('sg-equipaje').value='mano_bodega';
-  document.getElementById('sg-aerolineas').innerHTML=AEROLINEAS.map(a=>`<option value="${esc(a)}">`).join('');
+  // b129: sin valor por defecto: el vendedor tiene que elegir (un default sería un "a definir" disfrazado).
+  document.getElementById('sg-equipaje').innerHTML='<option value="">— Elegí el equipaje —</option>'+SG_NIVELES.map(k=>`<option value="${k}">${esc(SG_EQUIPAJE[k])}</option>`).join('');
+  document.getElementById('sg-cuadro-tarifas').innerHTML=_sgTablaTarifas(SG_TARIFAS,-1);
+  const aers=[...new Set([...AEROLINEAS,...SG_TARIFAS.map(a=>a.aer)].map(a=>a==='JetSmart'?'JetSMART':a))].sort((a,b)=>a.localeCompare(b));
+  document.getElementById('sg-aerolineas').innerHTML=aers.map(a=>`<option value="${esc(a)}">`).join('');
+  _sgActualizarTarifa();
   document.getElementById('modal-sg-nueva-alert').innerHTML='';
   // Admin y Operaciones pueden cargarla a nombre de un vendedor (como al reservar).
   const g=document.getElementById('sg-vendedor-group'),sel=document.getElementById('sg-vendedor');
@@ -2427,7 +2514,12 @@ async function guardarSolicitudGrupo(){
   if(!(parseInt(p.pax,10)>0)){mostrarAlerta('modal-sg-nueva-alert','Poné la cantidad de pasajeros.','error');return;}
   if(!p.itinerario&&!p.fecha_salida){mostrarAlerta('modal-sg-nueva-alert','Poné el itinerario o al menos la fecha de salida.','error');return;}
   if(p.fecha_salida&&p.fecha_regreso&&p.fecha_regreso<p.fecha_salida){mostrarAlerta('modal-sg-nueva-alert','El regreso es anterior a la salida.','error');return;}
-  if(!confirm(`Enviar a Aéreos el pedido de grupo "${p.nombre_grupo}" (${p.pax} pax).\n\nLe llega un mail a Producto Aéreo (${CONFIG.SOLICITUDES_GRUPO_MAIL}) y la solicitud queda en "Grupos" para seguirla.\n\n¿Confirmás?`))return;
+  if(!SG_NIVELES.includes(p.equipaje)){mostrarAlerta('modal-sg-nueva-alert','Elegí el equipaje: Aéreos necesita saberlo para cotizar.','error');return;}
+  // Una combinación que el cuadro dice que no existe se avisa pero no se frena (ej: LATAM con 2 despachados
+  // comprando una valija extra es un pedido válido; y el cuadro tiene datos "a confirmar").
+  const nh=_sgNivelInexistente(p.aerolinea,p.equipaje);
+  if(nh&&!confirm(`Según el cuadro de Aéreos, ${nh.aer} no tiene "${SG_EQUIPAJE[p.equipaje]}" ("${nh.txt}").\n\nSi el cliente lo necesita igual, explicalo en las notas para Aéreos.\n\n¿La mandás así?`))return;
+  if(!confirm(`Enviar a Aéreos el pedido de grupo "${p.nombre_grupo}" (${p.pax} pax).\nEquipaje: ${_sgEquipajeTxt(p)}\n\nLe llega un mail a Producto Aéreo (${CONFIG.SOLICITUDES_GRUPO_MAIL}) y la solicitud queda en "Grupos" para seguirla.\n\n¿Confirmás?`))return;
   const btn=document.getElementById('btn-sg-enviar');btn.disabled=true;
   try{
     await asegurarTokenFresco();
@@ -2456,7 +2548,7 @@ async function abrirSolicitudGrupo(id,aviso){
     ${fila('Vendedor',esc(s.vendedor_nombre||s.vendedor_email))}
     ${fila('Pasajeros',esc(s.pax))}
     ${fila('Aerolínea',esc(s.aerolinea||'La que convenga'))}
-    ${fila('Equipaje',esc(SG_EQUIPAJE[s.equipaje]||s.equipaje||''))}
+    ${fila('Equipaje',esc(_sgEquipajeTxt(s)))}
     ${fila('Fechas',[s.fecha_salida?'Salida '+formatFecha(s.fecha_salida):'',s.fecha_regreso?'Regreso '+formatFecha(s.fecha_regreso):''].filter(Boolean).join(' · '))}
     ${fila('Pedida el',formatFechaHora(s.creado_en))}
     ${s.itinerario?`<div style="font-size:13px;color:var(--muted);margin-top:6px">Vuelos / itinerario</div>${pre(s.itinerario)}`:''}
@@ -2595,7 +2687,7 @@ async function avisarSolicitudGrupo(s,evento,nota){
     if(!N8N_WEBHOOK_ITINERARIO) return false;
     const destinatarios=[...new Set([CONFIG.SOLICITUDES_GRUPO_MAIL,s.vendedor_email].filter(Boolean))];
     const payload={secret:CUPOS_WEBHOOK_SECRET,tipo_aviso:'solicitud_grupo',evento,
-      solicitud:{id:s.id,nombre_grupo:s.nombre_grupo,pax:s.pax,aerolinea:s.aerolinea||'',equipaje:SG_EQUIPAJE[s.equipaje]||'',
+      solicitud:{id:s.id,nombre_grupo:s.nombre_grupo,pax:s.pax,aerolinea:s.aerolinea||'',equipaje:_sgEquipajeTxt(s),
         fecha_salida:s.fecha_salida||'',fecha_regreso:s.fecha_regreso||'',estado:s.estado,estado_txt:(SG_ESTADOS[s.estado]||[])[1]||s.estado,
         vendedor:s.vendedor_nombre||s.vendedor_email,codigo_referencia:s.codigo_referencia||'',pnr:s.pnr||'',
         validez_cotizacion:s.validez_cotizacion||'',motivo:s.motivo||'',itinerario:String(s.itinerario||'').slice(0,2000)},
