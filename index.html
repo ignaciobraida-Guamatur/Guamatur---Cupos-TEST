@@ -69,6 +69,10 @@
   .badge-orange{background:rgba(255,128,0,0.2);color:#ff9933}
   .badge-red{background:rgba(255,59,59,0.2);color:#ff6b6b}
   .badge-yellow{background:rgba(251,191,36,0.12);color:var(--yellow)}
+  /* b134: "Pago" en el listado de cupos (solo admin) */
+  .pago-btn{border:1px solid var(--border2);background:transparent;color:var(--muted);border-radius:6px;padding:2px 9px;font-size:12px;cursor:pointer;font-family:inherit;white-space:nowrap}
+  .pago-btn:hover{border-color:var(--accent2);color:var(--text)}
+  .pago-btn.si{background:rgba(74,222,128,0.15);color:var(--green);border-color:rgba(74,222,128,0.35)}
   .badge-blue{background:rgba(96,165,250,0.18);color:var(--blue)}
   .badge-cancelado{background:rgba(255,59,59,0.12);color:#ff8a8a;border:1px solid rgba(255,59,59,0.25)}
   .section-title{font-size:13px;font-weight:500;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px}
@@ -1193,7 +1197,7 @@ const sb=supabase.createClient(CONFIG.SUPABASE_URL,CONFIG.SUPABASE_ANON_KEY,{
 // ⚠️ Una sola versión por cadena y CORTA: el detalle va al CHANGELOG.md, no acá. Nacho ve este texto
 // completo en el encabezado (el resto ve solo el "bNN") y si es largo se desborda; además `APP_VERSION_CORTA`
 // saca el número con un match, así que dos "bNN" en la misma cadena confunden cuál es la versión.
-const APP_VERSION='Fase 2 · 2026-11-12 (b133-TEST · Salidas grupales etapa 2: el vendedor reserva y confirma · sobre b132 (menú lateral), b131 (salidas grupales), b130 (PNR para TP), b129 (equipaje), b128 (reportes), b127 (grupos), b126 (pedidos de Aéreos) y b125 (Reservas). Paquetes con IA prendido, solo TEST.)';
+const APP_VERSION='Fase 2 · 2026-11-13 (b134-TEST · Columna «Pago» en el listado de cupos, solo admin · sobre b133 (salidas grupales etapa 2), b132 (menú lateral), b131 (salidas grupales), b130 (PNR para TP), b129 (equipaje), b128 (reportes), b127 (grupos), b126 (pedidos de Aéreos) y b125 (Reservas). Paquetes con IA prendido, solo TEST.)';
 // Columnas de 'vuelos' legibles por cualquier usuario. EXCLUYE precio_neto: el admin lo lee por RPC admin_get_precio_neto (gateada por es_admin). No usar select('*') sobre vuelos: la columna precio_neto quedó revocada a authenticated.
 // ⚠️ Toda columna que se agregue acá necesita `grant select (col) to authenticated` en la base, si no
 // PostgREST tira 400 y se cae la pantalla entera (gotcha #6). `emitido` viene de la migración 2026-08-06.
@@ -1506,6 +1510,10 @@ let ventasReducidasPorCupo={};
 // cupos". Sale de la RPC localizadores_temporada (una sola llamada por temporada). Desde b130 el Travel
 // Partner también lo recibe, solo de los cupos visibles (igual que en get_localizador).
 let localizadoresPorCupo={};
+// b134 (pedido de Diego Busch, Aéreos; definición de Nacho: "es pago sí o no, solo usuario admin") — {vuelo_id:
+// {pagado, actualizado_por, actualizado_en}}: si el cupo ya se le pagó a la aerolínea. Solo se llena para admin, de
+// la RPC admin_cupos_pago (la tabla cupo_pago está cerrada para todos los demás). Sin fila = no está pago.
+let pagoPorCupo={};
 // b126 (pedido de Rodrigo, Aéreos): salidas en las que la aerolínea no da más lugares. vuelo_id → {nota,
 // marcado_por, marcado_en}. Viene de la RPC sin_mas_lugares_temporada, que ya devuelve TODAS las tandas de la
 // salida marcada (la marca cuelga del cupo original). La ven todos los usuarios habilitados (decisión de Nacho).
@@ -2941,6 +2949,14 @@ async function cargarVuelos(){
     const {data:locs}=await sb.rpc('localizadores_temporada',{p_temporada_id:temporadaActiva});
     (locs||[]).forEach(r=>{localizadoresPorCupo[r.vuelo_id]=r.localizador;});
   }catch(e){console.warn('[PNR del listado]',e);}
+  // b134: columna "Pago" (¿ya se le pagó a la aerolínea?), solo admin. Si falla, el listado sale igual, sin la columna llena.
+  pagoPorCupo={};
+  if(rolEfectivo==='admin'){
+    try{
+      const {data:pg}=await sb.rpc('admin_cupos_pago',{p_temporada_id:temporadaActiva});
+      (pg||[]).forEach(r=>{pagoPorCupo[r.vuelo_id]=r;});
+    }catch(e){console.warn('[cupo pago]',e);}
+  }
   // b126: salidas marcadas "sin más lugares". Si falla, el listado sale igual, sin la pastilla.
   sinMasLugaresPorCupo={};
   if(rolEfectivo!=='travel_partner'){
@@ -3024,6 +3040,28 @@ function totalesDeLaSalida(v,info,todos){
     cadena.slice().sort((a,b)=>info[a.id].n-info[b.id].n).map(x=>`${x.total||0} en la tanda ${info[x.id].n}`).join(' + ');
   return s;
 }
+// b134 — "Pago": ¿el cupo ya se le pagó a la aerolínea? Sí/no, solo admin. Un toque marca o desmarca (pregunta antes).
+// La celda frena el click para que no abra el detalle del cupo.
+function celdaPago(d){
+  const pg=pagoPorCupo[d.id], si=!!(pg&&pg.pagado);
+  const tit=si?`Pago${pg.actualizado_por?' · lo marcó '+pg.actualizado_por:''}${pg.actualizado_en?' el '+formatFechaHora(pg.actualizado_en):''}. Tocá para sacarle la marca.`
+              :'No está marcado como pago a la aerolínea. Tocá para marcarlo.';
+  return `<td data-sort="${si?1:0}" onclick="event.stopPropagation()"><button type="button" class="pago-btn${si?' si':''}" data-pago="${d.id}" title="${esc(tit)}" onclick="marcarCupoPago('${d.id}')">${si?'✓ Sí':'No'}</button></td>`;
+}
+async function marcarCupoPago(id){
+  if(rolEfectivo!=='admin') return;
+  const v=(vuelosData||[]).find(x=>x.id===id), nombre=v?v.nombre:'este cupo';
+  const nuevo=!(pagoPorCupo[id]&&pagoPorCupo[id].pagado);
+  if(!confirm(nuevo?`¿Marcar "${nombre}" como PAGO a la aerolínea?`:`¿Sacarle la marca de pago a "${nombre}"?`)) return;
+  await asegurarTokenFresco();
+  const {error}=await sb.rpc('admin_marcar_cupo_pago',{p_vuelo_id:id,p_pagado:nuevo});
+  if(error){alert('No se pudo guardar: '+error.message);return;}
+  const quien=(vendedores.find(u=>String(u.email).toLowerCase()===String(currentUser?.email||'').toLowerCase())||{}).nombre||currentUser?.email||'';
+  pagoPorCupo[id]={vuelo_id:id,pagado:nuevo,actualizado_por:quien,actualizado_en:new Date().toISOString()};
+  // Se actualiza la celda en el lugar (sin recargar el listado ni perder el filtro o el scroll).
+  document.querySelectorAll(`[data-pago="${id}"]`).forEach(b=>{const td=b.closest('td');if(td)td.outerHTML=celdaPago({id});});
+}
+
 function renderVuelos(lista){
   const cont=document.getElementById('vuelos-content');
   // b101: el vendedor ve una sola tanda por salida (tandasDeCupos). Se filtra acá y no en vuelosData para
@@ -3033,6 +3071,7 @@ function renderVuelos(lista){
   const esAdmin=rolEfectivo==='admin';
   const verTandas=esAdmin||rolEfectivo==='operaciones';
   const verPnr=true;   // b124 · b130: también el Travel Partner
+  const verPago=esAdmin;   // b134: "cupo pago", solo admin (con "Ver como" otro rol, no se ve)
   const filas=lista.map(v=>{
     // b103 (pedido de Nacho): para quien ve UNA sola tanda por salida, esa fila ya no representa un cupo
     // sino LA SALIDA: los contadores suman toda la cadena. Si dijeran 12 cuando entre las dos tandas hay
@@ -3090,11 +3129,12 @@ function renderVuelos(lista){
       <td class="c-green">${d.lV}</td>
       <td>${d.pct}%</td>
       <td><span class="badge ${d.cls}">${d.txt}</span></td>
+      ${verPago?celdaPago(d):''}
       ${verPnr?`<td style="font-family:'DM Mono',monospace;font-size:12px;color:var(--accent2);white-space:nowrap">${esc(localizadoresPorCupo[d.id]||'')||'—'}</td>`:''}
     </tr>`;
   };
   // b124: la columna PNR va al final. Desde b130 la ven todos, también el Travel Partner.
-  const tabla=(arr)=>`<div class="table-wrap"><table class="sortable"><thead><tr><th>Cupo</th><th>Región</th><th>Ciudad</th><th>Fecha</th><th>Precio</th><th>Total</th><th>Vendidos</th><th>Reservados</th><th>Libres</th><th>Ocup.</th><th>Alerta</th>${verPnr?'<th>PNR</th>':''}</tr></thead><tbody>${arr.map(filaHTML).join('')}</tbody></table></div>`;
+  const tabla=(arr)=>`<div class="table-wrap"><table class="sortable"><thead><tr><th>Cupo</th><th>Región</th><th>Ciudad</th><th>Fecha</th><th>Precio</th><th>Total</th><th>Vendidos</th><th>Reservados</th><th>Libres</th><th>Ocup.</th><th>Alerta</th>${verPago?'<th title="¿Ya se le pagó a la aerolínea? Solo lo ven los admin">Pago</th>':''}${verPnr?'<th>PNR</th>':''}</tr></thead><tbody>${arr.map(filaHTML).join('')}</tbody></table></div>`;
   // b96 (pedido de Nacho): los cupos que YA VIAJARON bajan a una sección aparte, plegada, al fondo.
   // 🔑 "No está a la venta" y "ya viajó" no son lo mismo: un cupo completo sigue siendo trabajo (hay
   // pasajeros que gestionar), pero uno que ya despegó no tiene por qué competir por la atención del
