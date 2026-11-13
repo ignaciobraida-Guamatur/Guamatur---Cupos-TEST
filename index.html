@@ -378,14 +378,16 @@
 
 <div id="screen-vuelos" class="screen">
   <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:16px;gap:16px;flex-wrap:wrap">
-    <div style="flex:1">
+    <!-- b135: las temporadas se reservan un ancho (460 px): si las herramientas de la derecha no entran al lado, bajan
+         a su propia línea en vez de apretar las temporadas en una columna angosta (pasó al sumar "Margen de la temporada"). -->
+    <div style="flex:1 1 460px;min-width:0">
       <div style="font-size:18px;font-weight:600;margin-bottom:10px">Cupos</div>
       <div id="temp-selector-wrap" class="temp-selector"></div>
     </div>
-    <div style="display:flex;gap:12px;flex-wrap:wrap">
+    <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">
       <div style="display:flex;flex-direction:column;gap:3px"><label class="form-label" style="font-size:10px;margin:0">Filtrar cupos</label><input class="search-input" type="text" placeholder="Por nombre, ciudad, región o PNR" oninput="filtrarVuelos(this.value)"/></div>
       <div id="tp-buscar-pax" style="display:flex;flex-direction:column;gap:3px"><label class="form-label" style="font-size:10px;margin:0">Buscar pasajero</label><input class="search-input" type="text" placeholder="🔎 En todos los cupos" oninput="buscarPasajeros(this.value)"/></div>
-      <div id="btn-margen-temp-wrap" style="display:none;align-items:flex-end"><button class="btn btn-outline" onclick="abrirMargenTemporada()" title="Poner el margen de toda la temporada sobre los netos (solo admin)">💲 Margen de la temporada</button></div>
+      <div id="btn-margen-temp-wrap" style="display:none;align-items:flex-end"><button class="btn btn-excel" onclick="abrirMargenTemporada()" title="Poner el margen de toda la temporada sobre los netos (solo admin)">💲 Margen de la temporada</button></div>
       <div id="btn-export-temp-wrap" style="display:none;align-items:flex-end"><button class="btn btn-excel" onclick="exportarTemporada()" title="Una fila por lugar de todos los cupos de la temporada, para conciliar con la planilla">⬇ Exportar temporada</button></div>
     </div>
   </div>
