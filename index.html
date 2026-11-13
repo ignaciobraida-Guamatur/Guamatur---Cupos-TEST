@@ -1193,7 +1193,7 @@ const sb=supabase.createClient(CONFIG.SUPABASE_URL,CONFIG.SUPABASE_ANON_KEY,{
 // ⚠️ Una sola versión por cadena y CORTA: el detalle va al CHANGELOG.md, no acá. Nacho ve este texto
 // completo en el encabezado (el resto ve solo el "bNN") y si es largo se desborda; además `APP_VERSION_CORTA`
 // saca el número con un match, así que dos "bNN" en la misma cadena confunden cuál es la versión.
-const APP_VERSION='Fase 2 · 2026-11-12 (b132-TEST · Menú lateral: íconos que se abren con su nombre al pasar el mouse · sobre b131 (salidas grupales), b130 (PNR para TP), b129 (equipaje), b128 (reportes), b127 (grupos), b126 (pedidos de Aéreos) y b125 (Reservas). Paquetes con IA prendido, solo TEST.)';
+const APP_VERSION='Fase 2 · 2026-11-12 (b133-TEST · Salidas grupales etapa 2: el vendedor reserva y confirma · sobre b132 (menú lateral), b131 (salidas grupales), b130 (PNR para TP), b129 (equipaje), b128 (reportes), b127 (grupos), b126 (pedidos de Aéreos) y b125 (Reservas). Paquetes con IA prendido, solo TEST.)';
 // Columnas de 'vuelos' legibles por cualquier usuario. EXCLUYE precio_neto: el admin lo lee por RPC admin_get_precio_neto (gateada por es_admin). No usar select('*') sobre vuelos: la columna precio_neto quedó revocada a authenticated.
 // ⚠️ Toda columna que se agregue acá necesita `grant select (col) to authenticated` en la base, si no
 // PostgREST tira 400 y se cae la pantalla entera (gotcha #6). `emitido` viene de la migración 2026-08-06.
@@ -1725,8 +1725,9 @@ function aplicarRolEfectivoUI(){
   const sinDash=tp||rolEfectivo==='operaciones';
   ['nav-dashboard','mobile-dashboard'].forEach(id=>{const e=document.getElementById(id);if(e)e.style.display=sinDash?'none':'';});
   ['nav-misreservas','mobile-misreservas','nav-grupos','mobile-grupos'].forEach(id=>{const e=document.getElementById(id);if(e)e.style.display=tp?'none':'';});
-  // b131: Salidas grupales solo para admin y Operaciones (la RLS de grupal_* igual se lo niega al resto).
-  ['nav-salidasgrupales','mobile-salidasgrupales'].forEach(id=>{const e=document.getElementById(id);if(e)e.style.display=puedeGrupales()?'':'none';});
+  // b131: Salidas grupales · b133: también el vendedor (ve las salidas a la venta sin cantidades y reserva a su
+  // nombre); el travel partner no. La RLS de grupal_* le sigue negando las tablas: el vendedor va por RPC.
+  ['nav-salidasgrupales','mobile-salidasgrupales'].forEach(id=>{const e=document.getElementById(id);if(e)e.style.display=veGrupales()?'':'none';});
   const todas=verReservasDeTodos();
   const nmr=document.getElementById('nav-misreservas'); if(nmr) nmr.textContent=todas?'Reservas':'Mis reservas';
   const mmr=document.getElementById('mobile-misreservas'); if(mmr) mmr.textContent=todas?'🎫 Reservas':'🎫 Mis reservas';
@@ -1754,7 +1755,7 @@ function cambiarVista(rol){
   else if(id==='screen-vuelos') cargarVuelos();
   else if(id==='screen-misreservas') cargarMisReservas();
   else if(id==='screen-grupos') cargarGrupos();
-  else if(id==='screen-salidasgrupales'){if(!puedeGrupales()){goTo('vuelos');return;}cargarSalidasGrupales();}
+  else if(id==='screen-salidasgrupales'){if(!veGrupales()){goTo('vuelos');return;}cargarSalidasGrupales();}
   else if(id==='screen-reportes') cargarReportesGestion();
   else if(id==='screen-admin') cargarAdmin();
   else if(id==='screen-detalle'&&currentVueloId) cargarDetalle(currentVueloId);
@@ -1770,8 +1771,8 @@ function goTo(s){
   if(rolEfectivo==='operaciones' && s==='dashboard') s='vuelos';
   // b128: "Reportes" solo para quien los gestiona (igual la RLS no le devolvería los ajenos a nadie más).
   if(s==='reportes' && !esGestorReportes) s='vuelos';
-  // b131: "Salidas grupales" solo admin y Operaciones.
-  if(s==='salidasgrupales' && !puedeGrupales()) s='vuelos';
+  // b131: "Salidas grupales" · b133: admin, Operaciones y vendedores (cada uno con su vista); el TP no.
+  if(s==='salidasgrupales' && !veGrupales()) s='vuelos';
   document.querySelectorAll('.screen').forEach(x=>x.classList.remove('active'));
   document.querySelectorAll('.nav-link').forEach(x=>x.classList.remove('active'));
   document.getElementById('screen-'+s).classList.add('active');
@@ -3207,19 +3208,35 @@ async function cargarDetalleTP(vueloId){
   cont.innerHTML=html;
 }
 
-// ── b131: SALIDAS GRUPALES (etapa 1) ─────────────────────────────
+// ── b131: SALIDAS GRUPALES (etapa 1) · b133: el vendedor reserva y confirma (etapa 2) ─────────
 // Reemplaza las planillas "SALIDAS GRUPALES <año> / PRIMER|SEGUNDO SEMESTRE" de Producto: una salida (programa +
 // fecha) con su itinerario, sus bloqueos aéreos (PNR, localizador) y sus lugares (pasajero, preventa, Beneficio Oro,
-// habitación, DAC). Solo admin y Operaciones: las ventas de los grupos no se comparten con el equipo comercial — la
-// RLS de grupal_* se lo niega al resto; esto solo esconde la pestaña. Escrituras por RPC (grupal_guardar_*).
+// habitación, DAC). Dos vistas en la misma pestaña:
+//   · Salidas Grupales (admin y Operaciones, puedeGrupales): todo — tablero con conteos, ficha, bloqueos, grilla.
+//   · Vendedor (b133, veGrupales sin puedeGrupales): las salidas a la venta SIN cantidades (a lo sumo "últimos
+//     lugares"), reservar a su nombre, sus reservas, confirmar con ficha y factura, liberar. Pedido de Nacho: las
+//     salidas con pocos vendidos desestimulan la venta, así que el vendedor nunca ve cuántos hay. Las tablas grupal_*
+//     siguen cerradas para él (RLS): todo pasa por RPC (grupal_salidas_a_la_venta, grupal_mis_reservas,
+//     grupal_reservar, grupal_confirmar_venta, grupal_editar_mi_pasajero, grupal_liberar_mi_reserva).
+// La reserva NO vence sola; a los 3 días sin confirmar le llega un aviso a Salidas Grupales (n8n →
+// grupal_avisos_seguimiento_*) y en el tablero aparece en "Reservas para seguir".
 // Propuesta y preguntas abiertas: documentacion/propuesta-modulo-salidas-grupales.md (repo de infra).
 const GRP_LINEAS={arcadia:'Arcadia',esencial:'Esencial',formador:'Formador',otra:'Otra'};
 const GRP_ESTADOS={borrador:['badge-l','Borrador'],en_venta:['badge-green','En venta'],confirmada:['badge-blue','Confirmada'],cerrada:['badge-l','Cerrada'],no_sale:['badge-red','No sale']};
 const GRP_LUGAR={libre:['badge-l','Libre'],reservado:['badge-r','Reservado'],vendido:['badge-v','Vendido']};
 const GRP_BO={si:'Sí',no:'No',no_aplica:'No aplica'};
 const GRP_HAB=['SGL','DBL MAT','DBL TWIN','TPL'];
+const GRP_DIAS_SEGUIMIENTO=3;   // misma cifra que _grupal_dias_seguimiento() en la base (el aviso a Salidas Grupales)
+const GRP_UMBRAL_ULTIMOS=4;     // misma cifra que _grupal_umbral_ultimos(): desde cuántos libres el vendedor ve "últimos lugares"
+// Habitación como la elige el vendedor: DAC no es una habitación sino una twin compartida con el seguro.
+const GRP_HAB_VEND=[['','A definir'],['DBL MAT','Doble matrimonial'],['DBL TWIN','Doble twin (dos camas)'],['DAC','Doble a compartir (DAC)'],['SGL','Single'],['TPL','Triple']];
 var _grpSalidas=[],_grpResumen={},_grpAnio=null,_grpSem='todos',_grpFiltroEstado='activas',_grpSalidaId=null,_grpDet=null,_grpTramosForm=[];
 function puedeGrupales(){return rolEfectivo==='admin'||rolEfectivo==='operaciones';}
+function veGrupales(){return puedeGrupales()||rolEfectivo==='vendedor';}
+// Días que lleva reservada (entero, para abajo) y si ya pasó el plazo del aviso.
+function _grpDiasReserva(l){if(!l||l.estado!=='reservado'||!l.reservado_en)return null;return Math.floor((Date.now()-new Date(l.reservado_en).getTime())/86400000);}
+const _grpParaSeguir=l=>!l.es_coordinador&&l.estado==='reservado'&&l.reservado_en&&(Date.now()-new Date(l.reservado_en).getTime())>GRP_DIAS_SEGUIMIENTO*86400000;
+function _grpHace(d){return d===null?'':d<=0?'hoy':d===1?'hace 1 día':`hace ${d} días`;}
 const _grpUsd=n=>(n===null||n===undefined||n==='')?'':'USD '+Number(n).toLocaleString('es-UY');
 function _grpBadge(map,k){const x=map[k]||['badge-l',k||'—'];return `<span class="badge ${x[0]}">${esc(x[1])}</span>`;}
 // Conteos de una salida: los lugares del coordinador no cuentan como vendibles.
@@ -3241,7 +3258,7 @@ function _grpMinimo(s,c){
 
 async function cargarSalidasGrupales(){
   const cont=document.getElementById('grp-content'); if(!cont) return;
-  if(!puedeGrupales()){cont.innerHTML='<div class="loading">Esta sección es solo para admin y Operaciones.</div>';return;}
+  if(!puedeGrupales()) return veGrupales()?cargarGrupalesVendedor():void(cont.innerHTML='<div class="loading">Esta sección no está disponible para tu usuario.</div>');
   if(_grpSalidaId) return abrirSalidaGrupal(_grpSalidaId);
   cont.innerHTML='<div class="loading"><div class="spinner"></div>Cargando...</div>';
   const s=await sb.from('grupal_salidas').select('*').order('fecha_salida',{ascending:true,nullsFirst:false});
@@ -3254,13 +3271,48 @@ async function cargarSalidasGrupales(){
   _grpResumen={}; ids.forEach(id=>{_grpResumen[id]={lugares:[],bloques:[]};});
   if(ids.length){
     const [p,b]=await Promise.all([
-      sb.from('grupal_pasajeros').select('salida_id,estado,es_coordinador,dac,preventa,beneficio_oro,habitacion').in('salida_id',ids).limit(5000),
+      sb.from('grupal_pasajeros').select('id,salida_id,lugar,estado,es_coordinador,dac,preventa,beneficio_oro,habitacion,apellidos,nombres,vendedor_nombre,vendedor_codigo,fecha_reserva,reservado_en,vendido_en,aviso_seguimiento_en').in('salida_id',ids).limit(5000),
       sb.from('grupal_bloques').select('salida_id,aerolinea,pnr,orden').in('salida_id',ids).order('orden')]);
     if(p.error||b.error){console.error('[Salidas grupales]',p.error||b.error);cont.innerHTML='<div class="loading" style="color:var(--red)">Error al cargar los lugares</div>';return;}
     (p.data||[]).forEach(l=>{if(_grpResumen[l.salida_id])_grpResumen[l.salida_id].lugares.push(l);});
     (b.data||[]).forEach(x=>{if(_grpResumen[x.salida_id])_grpResumen[x.salida_id].bloques.push(x);});
   }
+  // b133: reservas vivas y ventas de la semana de TODAS las salidas (no solo del año elegido), para los paneles de
+  // "Reservas para seguir" y "Movimientos de la semana".
+  const hace7=new Date(Date.now()-7*86400000).toISOString();
+  const mv=await sb.from('grupal_pasajeros').select('id,salida_id,estado,es_coordinador,apellidos,nombres,vendedor_nombre,vendedor_codigo,fecha_reserva,reservado_en,vendido_en,aviso_seguimiento_en')
+    .eq('es_coordinador',false).or(`estado.eq.reservado,vendido_en.gte.${hace7}`).limit(2000);
+  _grpMov=mv.error?[]:(mv.data||[]);
+  if(mv.error) console.error('[Salidas grupales] movimientos',mv.error);
   renderSalidasGrupales();
+}
+var _grpMov=[];
+// Agrupa pasajeros por salida + vendedor (una "reserva" de un vendedor suele ser varios lugares).
+function _grpAgrupar(rows,campoFecha){
+  const g={};
+  rows.forEach(l=>{const k=l.salida_id+'|'+(l.vendedor_nombre||l.vendedor_codigo||'')+'|'+String(l[campoFecha]||'').slice(0,10);
+    (g[k]=g[k]||{salida_id:l.salida_id,vendedor:l.vendedor_nombre||l.vendedor_codigo||'Sin vendedor',fecha:l[campoFecha],pax:[],aviso:l.aviso_seguimiento_en}).pax.push(l);
+    if(new Date(l[campoFecha])<new Date(g[k].fecha))g[k].fecha=l[campoFecha];});
+  return Object.values(g).sort((a,b)=>new Date(a.fecha)-new Date(b.fecha));
+}
+// Paneles de arriba del tablero (b133): lo que pide seguimiento y lo que se movió en la semana.
+function _grpPanelesTablero(){
+  const nom=id=>(_grpSalidas.find(s=>s.id===id)||{}).nombre||'Salida';
+  const pax=g=>g.pax.map(l=>esc([l.apellidos,l.nombres].filter(Boolean).join(' ')||'(sin nombre)')).join(', ');
+  const seguir=_grpAgrupar(_grpMov.filter(_grpParaSeguir),'reservado_en');
+  let h='';
+  if(seguir.length) h+=`<div style="background:rgba(255,128,0,0.08);border:1px solid rgba(255,128,0,0.35);border-radius:10px;padding:10px 14px;margin-bottom:14px">
+    <div style="font-weight:600;margin-bottom:6px">⏰ Reservas para seguir <span style="font-weight:400;color:var(--muted);font-size:12px">· más de ${GRP_DIAS_SEGUIMIENTO} días sin confirmar: consultale al vendedor cómo viene el cliente</span></div>
+    ${seguir.map(g=>{const d=Math.floor((Date.now()-new Date(g.fecha).getTime())/86400000);
+      return `<div style="font-size:13px;padding:3px 0;cursor:pointer" onclick="abrirSalidaGrupal('${g.salida_id}')"><b>${esc(g.vendedor)}</b> · ${esc(nom(g.salida_id))} · ${g.pax.length} lugar${g.pax.length===1?'':'es'} (${pax(g)}) · <span class="c-orange">${_grpHace(d)}</span>${g.aviso?` <span style="color:var(--muted);font-size:12px">· aviso enviado ${formatFecha(g.aviso)}</span>`:''}</div>`;}).join('')}</div>`;
+  // Movimientos: reservas nuevas (las cargadas de la planilla no traen fecha de reserva y no cuentan) y ventas confirmadas.
+  const hace7=Date.now()-7*86400000;
+  const res=_grpAgrupar(_grpMov.filter(l=>l.estado==='reservado'&&l.fecha_reserva&&l.reservado_en&&new Date(l.reservado_en).getTime()>=hace7),'reservado_en').map(g=>({...g,que:'reservó'}));
+  const ven=_grpAgrupar(_grpMov.filter(l=>l.estado==='vendido'&&l.vendido_en&&new Date(l.vendido_en).getTime()>=hace7),'vendido_en').map(g=>({...g,que:'vendió'}));
+  const mov=[...res,...ven].sort((a,b)=>new Date(b.fecha)-new Date(a.fecha));
+  if(mov.length) h+=`<details style="margin-bottom:14px"${mov.length<=6?' open':''}><summary style="cursor:pointer;font-weight:600;font-size:14px">Movimientos de la semana <span style="font-weight:400;color:var(--muted);font-size:12px">· ${mov.length}</span></summary>
+    <div style="margin-top:6px">${mov.map(g=>`<div style="font-size:13px;padding:3px 0;cursor:pointer" onclick="abrirSalidaGrupal('${g.salida_id}')"><span style="color:var(--muted);font-family:'DM Mono',monospace;font-size:12px">${formatFechaHora(g.fecha)}</span> · <b>${esc(g.vendedor)}</b> <span class="${g.que==='vendió'?'c-green':'c-orange'}">${g.que}</span> ${g.pax.length} en ${esc(nom(g.salida_id))} (${pax(g)})</div>`).join('')}</div></details>`;
+  return h;
 }
 
 function renderSalidasGrupales(){
@@ -3274,12 +3326,13 @@ function renderSalidasGrupales(){
     const r=_grpResumen[s.id]||{lugares:[],bloques:[]}; const c=_grpConteo(r.lugares);
     tot.vend+=c.vend;tot.res+=c.res;tot.lib+=c.lib;tot.dac+=c.dac;
     const pnrs=r.bloques.filter(b=>b.pnr).map(b=>`<span title="${esc(b.aerolinea||'')}">${esc(b.pnr)}</span>`).join(' · ');
+    const seg=r.lugares.filter(_grpParaSeguir).length;
     return `<tr style="cursor:pointer" onclick="abrirSalidaGrupal('${s.id}')">
       <td style="color:var(--accent2);font-weight:500">${esc(s.nombre)}</td>
       <td>${esc(GRP_LINEAS[s.linea]||s.linea)}</td>
       <td data-sort="${esc(s.fecha_salida||'9999')}">${s.fecha_salida?formatFecha(s.fecha_salida):'—'}</td>
       <td class="c-red" data-sort="${c.vend}">${c.vend}</td>
-      <td class="c-orange" data-sort="${c.res}">${c.res}</td>
+      <td class="c-orange" data-sort="${c.res}">${c.res}${seg?` <span title="${seg} con más de ${GRP_DIAS_SEGUIMIENTO} días sin confirmar">⏰${seg}</span>`:''}</td>
       <td class="c-green" data-sort="${c.lib}">${c.lib}</td>
       <td data-sort="${c.total}">${c.total}</td>
       <td data-sort="${s.minimo?c.vend-s.minimo:-999}">${_grpMinimo(s,c)}</td>
@@ -3290,9 +3343,10 @@ function renderSalidasGrupales(){
   }).join('');
   cont.innerHTML=`<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:14px">
       <div><div style="font-size:18px;font-weight:600">Salidas grupales</div>
-        <div style="font-size:12px;color:var(--muted);margin-top:4px">Solo admin y Operaciones: los vendedores no ven esta sección. Vendidos = con factura; el lugar del coordinador no cuenta.</div></div>
+        <div style="font-size:12px;color:var(--muted);margin-top:4px">Los vendedores ven las salidas a la venta <b>sin cantidades</b> (solo “últimos lugares” cuando quedan ${GRP_UMBRAL_ULTIMOS} o menos) y reservan a su nombre; las reservas no vencen. Vendidos = con factura; el lugar del coordinador no cuenta.</div></div>
       <button class="btn btn-primary" onclick="abrirFormSalidaGrupal()">+ Nueva salida</button>
     </div>
+    ${_grpPanelesTablero()}
     <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:14px">
       <select class="form-select" style="width:100px" onchange="_grpAnio=Number(this.value);cargarSalidasGrupales()">${(anios.length?anios:[_grpAnio]).map(a=>opt(a,a,_grpAnio)).join('')}</select>
       <select class="form-select" style="width:180px" onchange="_grpSem=this.value;renderSalidasGrupales()">${opt('todos','Todo el año',_grpSem)}${opt('1','Primer semestre',_grpSem)}${opt('2','Segundo semestre',_grpSem)}</select>
@@ -3374,7 +3428,7 @@ function renderSalidaGrupal(aviso){
     <div class="table-wrap"><table><thead><tr><th>#</th><th>Estado</th><th>Apellidos</th><th>Nombres</th><th>Vendedor</th><th>Ficha</th><th>Prev.</th><th>B. Oro</th><th>Hab.</th><th>Factura</th><th>Documento</th><th>Notas</th></tr></thead><tbody>
     ${lugares.map(l=>`<tr style="cursor:pointer${l.es_coordinador?';background:rgba(124,111,253,0.08)':''}" onclick="abrirFormLugarGrupal('${l.id}')">
       <td style="font-family:'DM Mono',monospace">${l.lugar}</td>
-      <td>${l.es_coordinador?'<span class="badge badge-blue">Coordinador</span> ':''}${l.estado!=='libre'||!l.es_coordinador?_grpBadge(GRP_LUGAR,l.estado):''}</td>
+      <td style="white-space:nowrap">${l.es_coordinador?'<span class="badge badge-blue">Coordinador</span> ':''}${l.estado!=='libre'||!l.es_coordinador?_grpBadge(GRP_LUGAR,l.estado):''}${!l.es_coordinador&&l.estado==='reservado'&&l.reservado_en?` <span style="font-size:11px" class="${_grpParaSeguir(l)?'c-orange':''}" title="Reservado el ${esc(formatFechaHora(l.reservado_en))}${l.aviso_seguimiento_en?' · aviso de seguimiento enviado el '+esc(formatFechaHora(l.aviso_seguimiento_en)):''}">${_grpParaSeguir(l)?'⏰ ':''}${_grpHace(_grpDiasReserva(l))}</span>`:''}</td>
       <td>${esc(l.apellidos||'')}</td><td>${esc(l.nombres||'')}</td>
       <td>${esc(l.vendedor_nombre||l.vendedor_codigo||'')}</td>
       <td style="font-family:'DM Mono',monospace;font-size:12px">${esc(l.ficha||'')}</td>
@@ -3551,6 +3605,8 @@ function abrirFormLugarGrupal(id){
       ${inp('documento','Documento','Ej: PSP ARGENTINO / CÉDULA')}${inp('pedidos','Pedidos especiales / viajero frecuente','Ej: asiento pasillo · IB 95763165')}
       <div class="form-group full"><label class="form-label">Notas</label><input class="form-input" id="grp-l-notas" value="${esc(l.notas||'')}" placeholder="Ej: quieren cambiar la vuelta"/></div>
     </div>
+    ${l.estado==='reservado'&&l.reservado_en?`<div style="font-size:12px;margin-bottom:4px" class="${_grpParaSeguir(l)?'c-orange':''}">${_grpParaSeguir(l)?'⏰ ':''}Reservado el ${esc(formatFechaHora(l.reservado_en))} (${_grpHace(_grpDiasReserva(l))})${l.aviso_seguimiento_en?` · aviso de seguimiento enviado el ${esc(formatFechaHora(l.aviso_seguimiento_en))}`:''}. La reserva no vence: si el cliente no sigue, se libera.</div>`:''}
+    ${l.estado==='vendido'&&l.vendido_en?`<div style="font-size:12px;color:var(--muted);margin-bottom:4px">Venta confirmada el ${esc(formatFechaHora(l.vendido_en))}.</div>`:''}
     ${l.actualizado_por?`<div style="font-size:11px;color:var(--muted)">Último cambio: ${esc(l.actualizado_por)} · ${formatFechaHora(l.actualizado_en)}</div>`:''}
     <div class="modal-actions">
       ${l.estado!=='libre'?`<button class="btn btn-outline" style="margin-right:auto;color:var(--red)" onclick="guardarLugarGrupal('${id}',true)">Liberar lugar</button>`:''}
@@ -3592,6 +3648,211 @@ function exportarSalidaGrupal(){
   const ws=XLSX.utils.aoa_to_sheet(rows),wb=XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb,ws,String(s.nombre).replace(/[\\\/\?\*\[\]:]/g,'-').slice(0,31));
   XLSX.writeFile(wb,`${String(s.nombre).replace(/[\\\/\?\*\[\]:]/g,'-')} - Salida grupal.xlsx`);
+}
+
+// ── b133: VISTA DEL VENDEDOR ──────────────────────
+// Las salidas a la venta SIN cantidades (solo "últimos lugares" / "completa"), sus reservas y ventas, y los
+// formularios para reservar, confirmar (ficha + factura → vendido), editar y liberar. Nunca ve el número de lugar.
+var _gvSalidas=[],_gvMias=[],_gvSem='todos',_gvLinea='todas',_gvReservarId=null,_gvConfirmar=[],_grpPaxForm=[];
+const _gvHab=p=>p.dac?'Doble a compartir':({'DBL MAT':'Doble matrimonial','DBL TWIN':'Doble twin','SGL':'Single','TPL':'Triple'}[p.habitacion]||'A definir');
+const _gvNombre=p=>[p.apellidos,p.nombres].filter(Boolean).join(' ')||'(sin nombre)';
+function _gvFechas(s){
+  const d=(s.fecha_salida&&s.fecha_regreso)?Math.round((new Date(s.fecha_regreso)-new Date(s.fecha_salida))/86400000)+1:null;
+  return s.fecha_salida?`📅 ${formatFecha(s.fecha_salida)}${s.fecha_regreso?' → '+formatFecha(s.fecha_regreso):''}${d?` · ${d} días`:''}`:'📅 Fecha a confirmar';
+}
+async function cargarGrupalesVendedor(aviso){
+  const cont=document.getElementById('grp-content'); if(!cont) return;
+  if(!_gvSalidas.length&&!_gvMias.length) cont.innerHTML='<div class="loading"><div class="spinner"></div>Cargando...</div>';
+  const [a,m]=await Promise.all([sb.rpc('grupal_salidas_a_la_venta'),sb.rpc('grupal_mis_reservas')]);
+  if(a.error||m.error){console.error('[Salidas grupales · vendedor]',a.error||m.error);cont.innerHTML=`<div class="loading" style="color:var(--red)">No se pudieron cargar las salidas grupales: ${esc((a.error||m.error).message)}</div>`;return;}
+  _gvSalidas=Array.isArray(a.data)?a.data:[]; _gvMias=Array.isArray(m.data)?m.data:[];
+  renderGrupalesVendedor(aviso);
+}
+function renderGrupalesVendedor(aviso){
+  const cont=document.getElementById('grp-content'); if(!cont) return;
+  const opt=(v,t,cur)=>`<option value="${esc(v)}"${String(cur)===String(v)?' selected':''}>${esc(t)}</option>`;
+  let h=`<div style="margin-bottom:14px"><div style="font-size:18px;font-weight:600">Salidas grupales</div>
+    <div style="font-size:13px;color:var(--muted);margin-top:4px;max-width:900px">Reservá lugares para tus clientes. La reserva queda a tu nombre y <b>no vence</b>: cuando el cliente pague, confirmala con la ficha y la factura. Si una reserva pasa más de ${GRP_DIAS_SEGUIMIENTO} días sin confirmar, Salidas Grupales te va a consultar cómo viene.</div></div>
+    ${aviso?`<div class="alert alert-success" style="margin-bottom:12px">${esc(aviso)}</div>`:''}`;
+  // Mis reservas y ventas, agrupadas por salida
+  const g={}; _gvMias.forEach(p=>{(g[p.salida_id]=g[p.salida_id]||{id:p.salida_id,nombre:p.salida_nombre,fecha_salida:p.fecha_salida,fecha_regreso:p.fecha_regreso,pax:[]}).pax.push(p);});
+  const grupos=Object.values(g).sort((a,b)=>String(a.fecha_salida||'9999').localeCompare(String(b.fecha_salida||'9999')));
+  if(grupos.length){
+    h+=`<div class="section-title" style="margin:4px 0 8px">Mis reservas y ventas</div>`;
+    h+=grupos.map(x=>{const res=x.pax.filter(p=>p.estado==='reservado');
+      return `<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:12px 14px;margin-bottom:12px">
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px">
+          <div style="flex:1;min-width:220px"><div style="font-weight:600">${esc(x.nombre)}</div><div style="font-size:12px;color:var(--muted)">${_gvFechas(x)}</div></div>
+          ${res.length?`<button class="btn btn-primary" style="padding:6px 12px;font-size:13px" onclick="abrirFormConfirmarGrupal('${x.id}')">✓ Confirmar venta${res.length>1?` (${res.length})`:''}</button>`:''}
+        </div>
+        <div class="table-wrap"><table><thead><tr><th>Pasajero</th><th>Habitación</th><th>B. Oro</th><th>Estado</th><th>Ficha</th><th>Factura</th><th></th></tr></thead><tbody>
+        ${x.pax.map(p=>{const d=_grpDiasReserva(p),seg=_grpParaSeguir(p);
+          return `<tr${p.estado==='reservado'?` style="cursor:pointer" onclick="abrirFormMiPasajeroGrupal('${p.id}')"`:''}>
+            <td>${esc(_gvNombre(p))}</td><td>${esc(_gvHab(p))}</td><td>${p.beneficio_oro==='si'?'Sí':''}</td>
+            <td style="white-space:nowrap">${p.estado==='vendido'?'<span class="badge badge-v">Vendido</span>':`<span class="badge badge-r">Reservado</span> <span style="font-size:11px" class="${seg?'c-orange':''}">${seg?'⏰ ':''}${_grpHace(d)}</span>`}</td>
+            <td style="font-family:'DM Mono',monospace;font-size:12px">${esc(p.ficha||'')}</td><td style="font-family:'DM Mono',monospace;font-size:12px">${esc(p.factura||'')}</td>
+            <td style="font-size:12px">${p.estado==='reservado'?'<span style="color:var(--accent2)">✏ Editar</span>':''}</td></tr>`;}).join('')}
+        </tbody></table></div></div>`;}).join('');
+  }
+  // Salidas a la venta
+  const lista=_gvSalidas.filter(s=>(_gvSem==='todos'||String(s.semestre)===_gvSem)&&(_gvLinea==='todas'||s.linea===_gvLinea));
+  const lineas=[...new Set(_gvSalidas.map(s=>s.linea))];
+  h+=`<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:${grupos.length?'18px':'4px'} 0 10px">
+      <div class="section-title" style="margin:0">Salidas a la venta</div>
+      <select class="form-select" style="width:180px" onchange="_gvSem=this.value;renderGrupalesVendedor()">${opt('todos','Todo el año',_gvSem)}${opt('1','Primer semestre',_gvSem)}${opt('2','Segundo semestre',_gvSem)}</select>
+      ${lineas.length>1?`<select class="form-select" style="width:150px" onchange="_gvLinea=this.value;renderGrupalesVendedor()">${opt('todas','Todas las líneas',_gvLinea)}${lineas.map(l=>opt(l,GRP_LINEAS[l]||l,_gvLinea)).join('')}</select>`:''}
+      <span style="font-size:13px;color:var(--muted)">${lista.length} salida${lista.length===1?'':'s'}</span>
+    </div>`;
+  h+=lista.length?`<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:12px">${lista.map(s=>{
+      const completa=s.disponibilidad==='completa';
+      const tar=[['Doble',s.precio_doble],['Single',s.precio_single],['Seguro DAC',s.precio_dac],['Oro doble',s.precio_oro_doble],['Oro single',s.precio_oro_single]].filter(t=>t[1]!=null&&t[1]!=='');
+      const tr=Array.isArray(s.tramos)?s.tramos:[];
+      return `<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px 16px;display:flex;flex-direction:column;gap:8px">
+        <div style="display:flex;gap:6px;flex-wrap:wrap"><span class="badge badge-l">${esc(GRP_LINEAS[s.linea]||s.linea)}</span>${s.estado==='confirmada'?'<span class="badge badge-green" title="Llegó al mínimo: la salida está garantizada">Salida confirmada</span>':''}${s.disponibilidad==='ultimos'?'<span class="badge badge-orange">Últimos lugares</span>':''}${completa?'<span class="badge badge-red">Completa</span>':''}</div>
+        <div style="font-weight:600;font-size:15px;line-height:1.3">${esc(s.nombre)}</div>
+        <div style="font-size:13px;color:var(--muted)">${_gvFechas(s)}</div>
+        ${tar.length?`<div style="font-size:12.5px;line-height:1.6">${tar.map(t=>`<span style="white-space:nowrap">${esc(t[0])} <b>${esc(_grpUsd(t[1]))}</b></span>`).join(' · ')}<div style="font-size:11px;color:var(--muted)">por persona · Oro = Beneficio Oro (65 años o más)</div></div>`:''}
+        ${s.mis_pasajeros?`<div style="font-size:12px;color:var(--accent2)">Tenés ${s.mis_pasajeros} pasajero${s.mis_pasajeros==1?'':'s'} en esta salida</div>`:''}
+        ${tr.length?`<details><summary style="cursor:pointer;font-size:12px;color:var(--accent2)">✈ Itinerario aéreo (${tr.length} tramo${tr.length===1?'':'s'})</summary><table class="itinerario-table" style="margin-top:6px;font-size:12px"><tbody>${tr.map(t=>`<tr><td>${/^\d{4}-\d{2}-\d{2}$/.test(t.fecha||'')?formatFecha(t.fecha):esc(t.fecha||'')}</td><td>${esc([t.aerolinea,t.vuelo].filter(Boolean).join(' '))}</td><td>${esc(t.origen||'')} → ${esc(t.destino||'')}</td><td>${esc(t.salida||'')}${t.llegada?'–'+esc(t.llegada):''}</td></tr>`).join('')}</tbody></table></details>`:''}
+        <div style="margin-top:auto;padding-top:4px">${completa?'<div style="font-size:12px;color:var(--muted)">Sin lugares: consultá con Salidas Grupales por lista de espera.</div>':`<button class="btn btn-primary" style="width:100%" onclick="abrirFormReservaGrupal('${s.id}')">Reservar lugares</button>`}</div>
+      </div>`;}).join('')}</div>`
+    :`<div style="padding:16px;color:var(--muted);font-size:14px">${_gvSalidas.length?'No hay salidas con este filtro.':'No hay salidas grupales a la venta en este momento.'}</div>`;
+  cont.innerHTML=h;
+}
+
+// Reservar: uno o varios pasajeros, a nombre del vendedor que reserva.
+function abrirFormReservaGrupal(id){
+  const s=_gvSalidas.find(x=>x.id===id); if(!s) return;
+  _gvReservarId=id; _grpPaxForm=[{}];
+  _grpModal(`<div class="modal-title">Reservar — ${esc(s.nombre)}</div>
+    <div style="font-size:13px;color:var(--muted);margin-bottom:12px">${_gvFechas(s)}<br>La reserva queda a tu nombre y <b>no vence</b>. Cuando el cliente pague, la confirmás con la ficha y la factura.</div>
+    <div id="grp-pax-lista"></div>
+    <button type="button" class="btn btn-outline" style="padding:5px 10px;font-size:12px" onclick="_grpPaxAgregar()">+ Otro pasajero</button>
+    <div class="form-grid" style="margin-top:12px"><div class="form-group"><label class="form-label">Ficha de Atlas <span style="color:var(--muted)">(si ya la abriste)</span></label><input class="form-input" id="grp-r-ficha" placeholder="Ej: 105496"/></div></div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" onclick="cerrarModal('modal-grp')">Cancelar</button>
+      <button class="btn btn-primary" id="btn-grp-guardar" onclick="guardarReservaGrupal()">Reservar</button>
+    </div>`);
+  _grpPaxRender();
+}
+function _grpPaxLeer(){
+  _grpPaxForm=_grpPaxForm.map((p,i)=>({apellidos:_grpV(`grp-px-${i}-apellidos`),nombres:_grpV(`grp-px-${i}-nombres`),hab:_grpV(`grp-px-${i}-hab`),
+    bo:_grpV(`grp-px-${i}-bo`),documento:_grpV(`grp-px-${i}-documento`),pedidos:_grpV(`grp-px-${i}-pedidos`)}));
+}
+function _grpPaxRender(){
+  const box=document.getElementById('grp-pax-lista'); if(!box) return;
+  const opt=(v,t,cur)=>`<option value="${esc(v)}"${String(cur??'')===String(v)?' selected':''}>${esc(t)}</option>`;
+  const inp=(i,k,lab,ph,v)=>`<div class="form-group"><label class="form-label">${lab}</label><input class="form-input" id="grp-px-${i}-${k}" value="${esc(v||'')}" placeholder="${esc(ph||'')}"/></div>`;
+  box.innerHTML=_grpPaxForm.map((p,i)=>`<div style="border:1px solid var(--border);border-radius:10px;padding:10px 12px;margin-bottom:10px;background:var(--surface2)">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><b style="font-size:13px">Pasajero ${i+1}</b>${_grpPaxForm.length>1?`<button type="button" onclick="_grpPaxQuitar(${i})" style="background:transparent;border:none;color:var(--red);cursor:pointer;font-size:12px">Quitar</button>`:''}</div>
+    <div class="form-grid">
+      ${inp(i,'apellidos','Apellidos <span style="color:var(--red)">*</span>','Como en el pasaporte',p.apellidos)}${inp(i,'nombres','Nombres','Como en el pasaporte',p.nombres)}
+      <div class="form-group"><label class="form-label">Habitación</label><select class="form-select" id="grp-px-${i}-hab">${GRP_HAB_VEND.map(([v,t])=>opt(v,t,p.hab||'')).join('')}</select></div>
+      <div class="form-group"><label class="form-label">Beneficio Oro (65 años o más)</label><select class="form-select" id="grp-px-${i}-bo">${opt('','—',p.bo||'')}${opt('si','Sí',p.bo)}${opt('no','No',p.bo)}</select></div>
+      ${inp(i,'documento','Documento','Ej: PASAPORTE URUGUAYO',p.documento)}${inp(i,'pedidos','Pedidos / notas','Ej: comparte habitación con el pasajero 1',p.pedidos)}
+    </div></div>`).join('');
+}
+// El pasajero nuevo arranca con la habitación del anterior (una pareja comparte la doble).
+function _grpPaxAgregar(){_grpPaxLeer();_grpPaxForm.push({hab:(_grpPaxForm[_grpPaxForm.length-1]||{}).hab||''});_grpPaxRender();}
+function _grpPaxQuitar(i){_grpPaxLeer();_grpPaxForm.splice(i,1);_grpPaxRender();}
+async function guardarReservaGrupal(){
+  _grpPaxLeer();
+  const s=_gvSalidas.find(x=>x.id===_gvReservarId);
+  if(_grpPaxForm.some(p=>!p.apellidos)){mostrarAlerta('modal-grp-alert','Poné el apellido de cada pasajero.','error');return;}
+  const pax=_grpPaxForm.map(p=>({apellidos:p.apellidos,nombres:p.nombres,habitacion:p.hab==='DAC'?'DBL TWIN':p.hab,dac:p.hab==='DAC',
+    beneficio_oro:p.bo,documento:p.documento,pedidos:p.pedidos}));
+  const btn=document.getElementById('btn-grp-guardar');btn.disabled=true;
+  try{
+    await asegurarTokenFresco();
+    const {data,error}=await sb.rpc('grupal_reservar',{p_salida:_gvReservarId,p_pax:pax,p_ficha:_grpV('grp-r-ficha')||null});
+    if(error){mostrarAlerta('modal-grp-alert','No se pudo reservar: '+error.message,'error');return;}
+    cerrarModal('modal-grp');
+    const n=(data&&data.reservados)||pax.length;
+    await cargarGrupalesVendedor(`Listo: reservaste ${n} lugar${n===1?'':'es'} en ${s?s.nombre:'la salida'}. Cuando el cliente pague, confirmala con la ficha y la factura.`);
+  }finally{btn.disabled=false;}
+}
+
+// Confirmar la venta: ficha + factura de cada pasajero reservado de esa salida → vendido.
+function abrirFormConfirmarGrupal(salidaId){
+  const pax=_gvMias.filter(p=>p.salida_id===salidaId&&p.estado==='reservado'); if(!pax.length) return;
+  _gvConfirmar=pax;
+  _grpModal(`<div class="modal-title">Confirmar venta — ${esc(pax[0].salida_nombre)}</div>
+    <div style="font-size:13px;color:var(--muted);margin-bottom:12px">Cuando el cliente pagó: la ficha de Atlas y la factura de cada pasajero. Los marcados pasan a <b>vendidos</b>. La factura es el número de comprobante (de ${FACTURA_MIN.toLocaleString('es-UY')} a ${(FACTURA_MAX-1).toLocaleString('es-UY')}).</div>
+    <div class="table-wrap"><table><thead><tr><th></th><th>Pasajero</th><th>Ficha</th><th>Factura</th></tr></thead><tbody>
+    ${pax.map((p,i)=>`<tr><td><input type="checkbox" id="grp-c-${i}-ok" checked/></td><td>${esc(_gvNombre(p))}</td>
+      <td><input class="form-input" style="width:120px" id="grp-c-${i}-ficha" value="${esc(p.ficha||'')}" placeholder="Ficha"/></td>
+      <td><input class="form-input" style="width:140px" id="grp-c-${i}-factura" placeholder="Ej: 101234"/></td></tr>`).join('')}
+    </tbody></table></div>
+    ${pax.length>1?`<div style="font-size:12px;margin-top:6px"><a href="#" style="color:var(--accent2)" onclick="event.preventDefault();_grpCopiarPrimera(${pax.length})">Copiar la ficha y la factura del primero a los demás</a> <span style="color:var(--muted)">(si van en la misma)</span></div>`:''}
+    <div class="modal-actions">
+      <button class="btn btn-outline" onclick="cerrarModal('modal-grp')">Cancelar</button>
+      <button class="btn btn-primary" id="btn-grp-guardar" onclick="guardarConfirmacionGrupal()">Confirmar venta</button>
+    </div>`);
+}
+function _grpCopiarPrimera(n){
+  const f=_grpV('grp-c-0-ficha'),x=_grpV('grp-c-0-factura');
+  for(let i=1;i<n;i++){const a=document.getElementById(`grp-c-${i}-ficha`),b=document.getElementById(`grp-c-${i}-factura`);if(a&&f&&!a.value.trim())a.value=f;if(b&&x&&!b.value.trim())b.value=x;}
+}
+async function guardarConfirmacionGrupal(){
+  const items=[],errs=[];
+  _gvConfirmar.forEach((p,i)=>{if(!_grpChk(`grp-c-${i}-ok`))return;
+    const ficha=_grpV(`grp-c-${i}-ficha`),factura=_grpV(`grp-c-${i}-factura`),n=p.apellidos||'un pasajero';
+    if(!ficha)errs.push(`Falta la ficha de ${n}.`);else if(!facturaValida(factura))errs.push(`La factura de ${n} no es válida.`);
+    items.push({id:p.id,ficha,factura});});
+  if(!items.length){mostrarAlerta('modal-grp-alert','Marcá al menos un pasajero.','error');return;}
+  if(errs.length){mostrarAlerta('modal-grp-alert',errs.join(' '),'error');return;}
+  const btn=document.getElementById('btn-grp-guardar');btn.disabled=true;
+  try{
+    await asegurarTokenFresco();
+    const {data,error}=await sb.rpc('grupal_confirmar_venta',{p:items});
+    if(error){mostrarAlerta('modal-grp-alert','No se pudo confirmar: '+error.message,'error');return;}
+    cerrarModal('modal-grp');
+    const n=data||items.length;
+    await cargarGrupalesVendedor(`Venta confirmada: ${n} pasajero${n===1?'':'s'} ${n===1?'pasó':'pasaron'} a vendido.`);
+  }finally{btn.disabled=false;}
+}
+
+// Editar un pasajero propio mientras está reservado, o liberar la reserva (el cliente no siguió).
+function abrirFormMiPasajeroGrupal(id){
+  const p=_gvMias.find(x=>x.id===id); if(!p||p.estado!=='reservado') return;
+  const opt=(v,t,cur)=>`<option value="${esc(v)}"${String(cur??'')===String(v)?' selected':''}>${esc(t)}</option>`;
+  const inp=(k,lab,ph)=>`<div class="form-group"><label class="form-label">${lab}</label><input class="form-input" id="grp-e-${k}" value="${esc(p[k]||'')}" placeholder="${esc(ph||'')}"/></div>`;
+  const d=_grpDiasReserva(p);
+  _grpModal(`<div class="modal-title">${esc(_gvNombre(p))} — ${esc(p.salida_nombre)}</div>
+    <div style="font-size:12px;margin-bottom:10px" class="${_grpParaSeguir(p)?'c-orange':''}">Reservado ${_grpHace(d)}${p.reservado_en?` (${esc(formatFechaHora(p.reservado_en))})`:''}. La reserva no vence; si el cliente no sigue, liberala para que otro pueda usar el lugar.</div>
+    <div class="form-grid">
+      ${inp('apellidos','Apellidos <span style="color:var(--red)">*</span>','Como en el pasaporte')}${inp('nombres','Nombres','Como en el pasaporte')}
+      <div class="form-group"><label class="form-label">Habitación</label><select class="form-select" id="grp-e-hab">${GRP_HAB_VEND.map(([v,t])=>opt(v,t,p.dac?'DAC':(p.habitacion||''))).join('')}</select></div>
+      <div class="form-group"><label class="form-label">Beneficio Oro (65 años o más)</label><select class="form-select" id="grp-e-bo">${opt('','—',p.beneficio_oro||'')}${opt('si','Sí',p.beneficio_oro)}${opt('no','No',p.beneficio_oro)}${p.beneficio_oro==='no_aplica'?opt('no_aplica','No aplica',p.beneficio_oro):''}</select></div>
+      ${inp('documento','Documento','Ej: PASAPORTE URUGUAYO')}${inp('ficha','Ficha de Atlas','Ej: 105496')}
+      ${inp('pedidos','Pedidos / notas','Ej: comparte habitación con…')}
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" style="margin-right:auto;color:var(--red)" onclick="liberarMiReservaGrupal('${id}')">Liberar reserva</button>
+      <button class="btn btn-outline" onclick="cerrarModal('modal-grp')">Cancelar</button>
+      <button class="btn btn-primary" id="btn-grp-guardar" onclick="guardarMiPasajeroGrupal('${id}')">Guardar</button>
+    </div>`);
+}
+async function guardarMiPasajeroGrupal(id){
+  const hab=_grpV('grp-e-hab');
+  const p={id,apellidos:_grpV('grp-e-apellidos'),nombres:_grpV('grp-e-nombres'),habitacion:hab==='DAC'?'DBL TWIN':hab,dac:hab==='DAC',
+    beneficio_oro:_grpV('grp-e-bo'),documento:_grpV('grp-e-documento'),ficha:_grpV('grp-e-ficha'),pedidos:_grpV('grp-e-pedidos')};
+  if(!p.apellidos){mostrarAlerta('modal-grp-alert','Poné el apellido del pasajero.','error');return;}
+  const btn=document.getElementById('btn-grp-guardar');btn.disabled=true;
+  try{
+    await asegurarTokenFresco();
+    const {error}=await sb.rpc('grupal_editar_mi_pasajero',{p});
+    if(error){mostrarAlerta('modal-grp-alert','No se pudo guardar: '+error.message,'error');return;}
+    cerrarModal('modal-grp'); await cargarGrupalesVendedor('Pasajero guardado.');
+  }finally{btn.disabled=false;}
+}
+async function liberarMiReservaGrupal(id){
+  const p=_gvMias.find(x=>x.id===id);
+  if(!confirm(`¿Liberar la reserva de ${p?_gvNombre(p):'este pasajero'}? El lugar vuelve a quedar disponible para cualquier vendedor.`))return;
+  await asegurarTokenFresco();
+  const {error}=await sb.rpc('grupal_liberar_mi_reserva',{p_ids:[id]});
+  if(error){mostrarAlerta('modal-grp-alert','No se pudo liberar: '+error.message,'error');return;}
+  cerrarModal('modal-grp'); await cargarGrupalesVendedor('Reserva liberada.');
 }
 
 // ── DETALLE ──────────────────────────────────────
