@@ -385,6 +385,7 @@
     <div style="display:flex;gap:12px;flex-wrap:wrap">
       <div style="display:flex;flex-direction:column;gap:3px"><label class="form-label" style="font-size:10px;margin:0">Filtrar cupos</label><input class="search-input" type="text" placeholder="Por nombre, ciudad, región o PNR" oninput="filtrarVuelos(this.value)"/></div>
       <div id="tp-buscar-pax" style="display:flex;flex-direction:column;gap:3px"><label class="form-label" style="font-size:10px;margin:0">Buscar pasajero</label><input class="search-input" type="text" placeholder="🔎 En todos los cupos" oninput="buscarPasajeros(this.value)"/></div>
+      <div id="btn-margen-temp-wrap" style="display:none;align-items:flex-end"><button class="btn btn-outline" onclick="abrirMargenTemporada()" title="Poner el margen de toda la temporada sobre los netos (solo admin)">💲 Margen de la temporada</button></div>
       <div id="btn-export-temp-wrap" style="display:none;align-items:flex-end"><button class="btn btn-excel" onclick="exportarTemporada()" title="Una fila por lugar de todos los cupos de la temporada, para conciliar con la planilla">⬇ Exportar temporada</button></div>
     </div>
   </div>
@@ -952,7 +953,7 @@
     <div class="modal-title" id="modal-vuelo-title">Nuevo cupo</div>
     <div id="modal-v-alert"></div>
     <div class="form-grid">
-      <div class="form-group full"><label class="form-label">Temporada</label><select class="form-select" id="v-temporada"></select></div>
+      <div class="form-group full"><label class="form-label">Temporada</label><select class="form-select" id="v-temporada" onchange="_margenFormCargar()"></select></div>
       <!-- b101: tandas. Visible al crear una tanda y al editar un cupo; oculto en el alta normal y en Duplicar. -->
       <div class="form-group full" id="v-tanda-wrap" style="display:none">
         <label class="form-label">🔗 Tanda de <span style="color:var(--muted);font-size:10px">misma salida, otro PNR / neto / precio · el vendedor ve una sola tanda por vez</span></label>
@@ -983,8 +984,8 @@
       <div class="form-group"><label class="form-label">Localizador</label><input class="form-input" id="v-localizador" placeholder="Ej: ABC123" onblur="chequearLocalizadorDuplicado()"/><div id="v-localizador-aviso" style="display:none;font-size:11px;color:var(--yellow);margin-top:4px"></div></div>
       <!-- b75: la fecha de salida/regreso del cupo ya no se carga acá — se deriva del itinerario (primer tramo Ida / último Vuelta). Ver el resumen abajo. -->
       <div class="form-group"><label class="form-label">Total lugares</label><input class="form-input" id="v-lugares" type="number" min="1" placeholder="Ej: 16"/><div id="v-lugares-hint" style="display:none;font-size:11px;color:var(--yellow);margin-top:4px"></div></div>
-      <div class="form-group"><label class="form-label">Precio de Venta (USD)</label><input class="form-input" id="v-precio" type="number" min="0" step="0.01" placeholder="Ej: 990"/></div>
-      <div class="form-group"><label class="form-label">Valor Neto (USD) <span style="color:var(--accent2);font-size:10px">solo admins</span></label><input class="form-input" id="v-precio-neto" type="number" min="0" step="0.01" placeholder="Ej: 750"/></div>
+      <div class="form-group"><label class="form-label">Precio de Venta (USD)</label><input class="form-input" id="v-precio" type="number" min="0" step="0.01" placeholder="Ej: 990" oninput="_margenFormCambio('precio')"/><div id="v-margen-hint" style="display:none;font-size:11px;margin-top:4px"></div></div>
+      <div class="form-group"><label class="form-label">Valor Neto (USD) <span style="color:var(--accent2);font-size:10px">solo admins</span></label><input class="form-input" id="v-precio-neto" type="number" min="0" step="0.01" placeholder="Ej: 750" oninput="_margenFormCambio('neto')"/></div>
       <div class="form-group">
         <label class="form-label">Visibilidad <span style="color:var(--muted);font-size:10px">vendedores</span></label>
         <select class="form-select" id="v-visible"><option value="true">Visible</option><option value="false">Oculto (solo admins)</option></select>
@@ -1049,12 +1050,26 @@
 </div>
 
 <!-- MODAL CREAR MASIVO (pegar PNRs) -->
+<!-- b135: margen de la temporada (solo admin) — el contenido lo arma abrirMargenTemporada() -->
+<div id="modal-margen" class="modal-overlay" style="display:none">
+  <div class="modal" style="max-width:1000px">
+    <div class="modal-title" id="mg-titulo">💲 Margen de la temporada</div>
+    <div id="modal-mg-alert"></div>
+    <div id="mg-contenido"></div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" style="margin-right:auto" id="btn-mg-guardar" onclick="guardarSoloMargen()" title="Guarda el % como margen de la temporada sin cambiar ningún precio (lo proponen los cupos nuevos)">Guardar solo el margen</button>
+      <button class="btn btn-outline" onclick="cerrarModal('modal-margen')">Cerrar</button>
+      <button class="btn btn-primary" id="btn-mg-aplicar" onclick="aplicarMargenTemporada()">Aplicar</button>
+    </div>
+  </div>
+</div>
+
 <div id="modal-masivo" class="modal-overlay" style="display:none">
   <div class="modal" style="max-width:1000px">
     <div class="modal-title">Crear cupos masivos — pegar PNRs</div>
     <div id="modal-m-alert"></div>
     <div class="form-grid">
-      <div class="form-group"><label class="form-label">Temporada (para todos)</label><select class="form-select" id="m-temporada"></select></div>
+      <div class="form-group"><label class="form-label">Temporada (para todos)</label><select class="form-select" id="m-temporada" onchange="_margenMasivoCargar()"></select></div>
     </div>
     <div class="form-group full">
       <label class="form-label">Pegá uno o varios PNRs (separados por una línea en blanco)</label>
@@ -1197,7 +1212,7 @@ const sb=supabase.createClient(CONFIG.SUPABASE_URL,CONFIG.SUPABASE_ANON_KEY,{
 // ⚠️ Una sola versión por cadena y CORTA: el detalle va al CHANGELOG.md, no acá. Nacho ve este texto
 // completo en el encabezado (el resto ve solo el "bNN") y si es largo se desborda; además `APP_VERSION_CORTA`
 // saca el número con un match, así que dos "bNN" en la misma cadena confunden cuál es la versión.
-const APP_VERSION='Fase 2 · 2026-11-13 (b134-TEST · Columna «Pago» en el listado de cupos, solo admin · sobre b133 (salidas grupales etapa 2), b132 (menú lateral), b131 (salidas grupales), b130 (PNR para TP), b129 (equipaje), b128 (reportes), b127 (grupos), b126 (pedidos de Aéreos) y b125 (Reservas). Paquetes con IA prendido, solo TEST.)';
+const APP_VERSION='Fase 2 · 2026-11-13 (b135-TEST · Margen por temporada (solo admin) · sobre b134 (columna Pago), b133 (salidas grupales etapa 2), b132 (menú lateral), b131 (salidas grupales), b130 (PNR para TP), b129, b128, b127, b126 y b125. Paquetes con IA prendido, solo TEST.)';
 // Columnas de 'vuelos' legibles por cualquier usuario. EXCLUYE precio_neto: el admin lo lee por RPC admin_get_precio_neto (gateada por es_admin). No usar select('*') sobre vuelos: la columna precio_neto quedó revocada a authenticated.
 // ⚠️ Toda columna que se agregue acá necesita `grant select (col) to authenticated` en la base, si no
 // PostgREST tira 400 y se cae la pantalla entera (gotcha #6). `emitido` viene de la migración 2026-08-06.
@@ -2908,6 +2923,8 @@ async function cargarVuelos(){
   document.getElementById('temp-selector-wrap').innerHTML=tempsVisibles.map(t=>`<button class="temp-btn ${t.id===temporadaActiva?'active':''}" onclick="seleccionarTemporada('${t.id}')">${esc(t.nombre)}${(rolEfectivo==='admin'&&!t.activa)?' <span class="badge badge-l" style="font-size:9px">inactiva</span>':''}</button>`).join('');
   const wExp=document.getElementById('btn-export-temp-wrap');
   if(wExp)wExp.style.display=(temporadaActiva&&(rolEfectivo==='admin'||rolEfectivo==='operaciones'))?'flex':'none';
+  const wMg=document.getElementById('btn-margen-temp-wrap');   // b135: solo admin
+  if(wMg)wMg.style.display=(temporadaActiva&&rolEfectivo==='admin')?'flex':'none';
   if(!temporadaActiva){cont.innerHTML=`<div class="loading">No hay temporadas ${rolEfectivo==='admin'?'creadas':'activas'}</div>`;return;}
   let vuelos;
   if(rolEfectivo==='travel_partner'){
@@ -3060,6 +3077,144 @@ async function marcarCupoPago(id){
   pagoPorCupo[id]={vuelo_id:id,pagado:nuevo,actualizado_por:quien,actualizado_en:new Date().toISOString()};
   // Se actualiza la celda en el lugar (sin recargar el listado ni perder el filtro o el scroll).
   document.querySelectorAll(`[data-pago="${id}"]`).forEach(b=>{const td=b.closest('td');if(td)td.outerHTML=celdaPago({id});});
+}
+
+// ── b135: MARGEN POR TEMPORADA (idea de Diego Busch; definición de Nacho, 13-nov) ─────────────
+// Margen = % sobre el neto; precio de venta = neto × (1 + margen), REDONDEADO AL DÓLAR (lo que hacen hoy: en VERANO
+// 2027, 73 de 75 cupos dan exacto así con 25%). La misma cuenta está en la base (_precio_con_margen). El margen de la
+// temporada es solo de admin (con el margen y el precio se sacaría el neto): tabla temporada_margen, por RPC.
+const precioConMargen=(neto,m)=>Math.round(Number(neto)*(1+Number(m)/100));
+const margenDe=(neto,precio)=>(Number(neto)>0&&Number(precio)>0)?(Number(precio)/Number(neto)-1)*100:null;
+const fmtPct=x=>x==null?'—':`${(Math.round(x*10)/10).toLocaleString('es-UY',{maximumFractionDigits:1})}%`;
+
+// Formulario de cupo: muestra el margen que queda y, si la temporada tiene uno, propone el precio al cargar el neto
+// (mientras nadie haya tocado el precio a mano). El precio siempre se puede escribir a mano.
+let _mgForm={temporada:null,margen:null},_precioManual=false;
+async function _margenFormCargar(){
+  const sel=document.getElementById('v-temporada'), t=sel?sel.value:null;
+  _precioManual=!!(document.getElementById('v-precio')?.value);   // si ya viene con precio (editar/duplicar), es manual
+  _mgForm={temporada:t,margen:null};
+  if(rolEfectivo==='admin'&&t){
+    try{const {data}=await sb.rpc('admin_margen_de_temporada',{p_temporada_id:t});if(_mgForm.temporada===t)_mgForm.margen=data==null?null:Number(data);}catch(e){}
+  }
+  _margenFormPintar();
+}
+function _margenFormCambio(que){
+  if(que==='precio'){_precioManual=!!document.getElementById('v-precio').value;}
+  else if(que==='neto'&&!_precioManual&&_mgForm.margen!=null){
+    const n=parseFloat(document.getElementById('v-precio-neto').value);
+    document.getElementById('v-precio').value=n>0?precioConMargen(n,_mgForm.margen):'';
+  }
+  _margenFormPintar();
+}
+function _margenFormUsar(){
+  const n=parseFloat(document.getElementById('v-precio-neto').value);
+  if(!(n>0)||_mgForm.margen==null)return;
+  document.getElementById('v-precio').value=precioConMargen(n,_mgForm.margen);_precioManual=false;_margenFormPintar();
+}
+function _margenFormPintar(){
+  const box=document.getElementById('v-margen-hint'); if(!box) return;
+  if(rolEfectivo!=='admin'){box.style.display='none';return;}
+  const n=parseFloat(document.getElementById('v-precio-neto')?.value), p=parseFloat(document.getElementById('v-precio')?.value);
+  const m=margenDe(n,p), mt=_mgForm.margen, partes=[];
+  if(m!=null) partes.push(`Margen: <b>${fmtPct(m)}</b>`);
+  if(mt!=null){
+    const sug=n>0?precioConMargen(n,mt):null, distinto=sug!=null&&p>0&&sug!==p;
+    partes.push(`<span style="color:${distinto?'var(--yellow)':'var(--muted)'}">Temporada: ${fmtPct(mt)}${sug!=null?` → USD ${sug.toLocaleString('es-UY')}`:''}${distinto?' (este cupo queda con otro margen)':''}</span>${sug!=null&&sug!==p?` <a href="#" style="color:var(--accent2)" onclick="event.preventDefault();_margenFormUsar()">usar</a>`:''}`);
+  }else if(n>0&&!(p>0)) partes.push('<span style="color:var(--muted)">Sin precio: podés escribirlo, o ponerle el margen a toda la temporada desde el listado.</span>');
+  box.innerHTML=partes.join(' · '); box.style.display=partes.length?'block':'none';
+}
+
+// Pantalla "Margen de la temporada" (listado de Cupos, solo admin): se elige el %, se ve cupo por cupo cómo queda y
+// se aplica a los marcados. Los de margen distinto al general vienen SIN marcar y avisados (los editaron a mano a
+// propósito: que Aéreos decida si los pisa). Emitidos, sin neto y los que ya viajaron no se tocan.
+let _mg=null;
+function _mgHoyISO(){const h=ahoraUY();return `${h.getFullYear()}-${String(h.getMonth()+1).padStart(2,'0')}-${String(h.getDate()).padStart(2,'0')}`;}
+async function abrirMargenTemporada(){
+  if(rolEfectivo!=='admin'||!temporadaActiva) return;
+  const t=temporadaActiva, nomT=(document.querySelector('.temp-btn.active')?.textContent||'').replace(/inactiva/,'').trim();
+  document.getElementById('modal-mg-alert').innerHTML='';
+  document.getElementById('mg-contenido').innerHTML='<div class="loading"><div class="spinner"></div>Cargando...</div>';
+  document.getElementById('modal-margen').style.display='flex';
+  const {data,error}=await sb.rpc('admin_margenes_temporada',{p_temporada_id:t});
+  if(error){document.getElementById('mg-contenido').innerHTML=`<div class="loading" style="color:var(--red)">${esc(error.message)}</div>`;return;}
+  const hoy=_mgHoyISO(), cupos=(data.cupos||[]).map(c=>({...c,neto:c.neto==null?null:Number(c.neto),precio:c.precio==null?null:Number(c.precio)}));
+  // Margen de referencia: el guardado de la temporada; si no hay, el más repetido (redondeado a entero) entre los cupos vigentes con precio.
+  let ref=data.margen==null?null:Number(data.margen);
+  if(ref==null){const cuenta={};cupos.forEach(c=>{if(c.neto>0&&c.precio>0&&!(c.fecha&&String(c.fecha)<hoy)){const k=Math.round(margenDe(c.neto,c.precio));cuenta[k]=(cuenta[k]||0)+1;}});
+    const top=Object.entries(cuenta).sort((a,b)=>b[1]-a[1])[0];ref=top?Number(top[0]):null;}
+  cupos.forEach(c=>{
+    c.margen=margenDe(c.neto,c.precio);
+    if(c.fecha&&String(c.fecha).slice(0,10)<hoy){c.tipo='viajo';c.nota='Ya viajó: no se toca';}
+    else if(c.emitido){c.tipo='emitido';c.nota='Emitido: no se toca';}
+    else if(!(c.neto>0)){c.tipo='sinneto';c.nota='Sin neto: no se puede calcular';}
+    else if(!(c.precio>0)){c.tipo='sinprecio';c.nota='Sin precio: se le pone';}
+    else if(ref==null||precioConMargen(c.neto,ref)===c.precio){c.tipo='general';c.nota='';}
+    else{c.tipo='propio';c.nota=`Margen propio: ${fmtPct(c.margen)} (${c.margen>ref?'más alto':'más bajo'} que el general)`;}
+    c.marcado=['general','sinprecio'].includes(c.tipo);
+  });
+  _mg={temporada:t,nombre:nomT,guardado:data.margen==null?null:Number(data.margen),ref,cupos};
+  document.getElementById('mg-titulo').textContent=`💲 Margen de la temporada — ${nomT}`;
+  // El campo del % se dibuja una sola vez (así no pierde el foco al escribir); lo de abajo se redibuja.
+  const ini=_mg.guardado??_mg.ref;
+  document.getElementById('mg-contenido').innerHTML=`<div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;margin-bottom:12px">
+      <div class="form-group" style="margin:0"><label class="form-label">Margen sobre el neto (%)</label><input class="form-input" id="mg-pct" type="number" step="0.5" style="width:120px" value="${ini??''}" oninput="renderMargenTemporada()" placeholder="Ej: 25"/></div>
+      <div style="font-size:12px;color:var(--muted);max-width:520px">Precio de venta = neto + margen, redondeado al dólar. ${_mg.guardado!=null?`Margen guardado de la temporada: <b style="color:var(--text)">${fmtPct(_mg.guardado)}</b>.`:_mg.ref!=null?`La temporada no tenía margen guardado; el más usado hoy es <b style="color:var(--text)">${fmtPct(_mg.ref)}</b>.`:'La temporada todavía no tiene margen.'}</div>
+    </div><div id="mg-cuerpo"></div>`;
+  renderMargenTemporada();
+}
+function _mgPctInput(){const x=parseFloat(String(document.getElementById('mg-pct')?.value||'').replace(',','.'));return Number.isFinite(x)?x:null;}
+function renderMargenTemporada(){
+  if(!_mg) return;
+  const cont=document.getElementById('mg-cuerpo'); if(!cont) return;
+  const pct=_mgPctInput();
+  const editables=_mg.cupos.filter(c=>!['viajo','emitido','sinneto'].includes(c.tipo));
+  const propios=_mg.cupos.filter(c=>c.tipo==='propio'), marc=_mg.cupos.filter(c=>c.marcado);
+  const noTocan={emitido:_mg.cupos.filter(c=>c.tipo==='emitido').length,sinneto:_mg.cupos.filter(c=>c.tipo==='sinneto').length,viajo:_mg.cupos.filter(c=>c.tipo==='viajo').length};
+  const fila=(c,i)=>{
+    const dis=['viajo','emitido','sinneto'].includes(c.tipo), nuevo=(pct!=null&&c.neto>0)?precioConMargen(c.neto,pct):null;
+    const dif=(nuevo!=null&&c.precio>0)?nuevo-c.precio:null;
+    const fondo=c.tipo==='propio'?'background:rgba(251,191,36,0.07)':dis?'opacity:.5':'';
+    return `<tr style="${fondo}">
+      <td><input type="checkbox" ${c.marcado?'checked':''} ${dis?'disabled':''} onchange="_mg.cupos[${i}].marcado=this.checked;renderMargenTemporada()" style="width:15px;height:15px"/></td>
+      <td>${esc(c.nombre)}${c.continua_de?' <span class="badge badge-l">tanda</span>':''}${c.visible===false?' <span class="badge badge-l">oculto</span>':''}</td>
+      <td style="white-space:nowrap">${c.fecha?formatFecha(c.fecha):'—'}</td>
+      <td>${c.neto>0?c.neto.toLocaleString('es-UY'):'—'}</td>
+      <td>${c.precio>0?c.precio.toLocaleString('es-UY'):'—'}</td>
+      <td class="${c.tipo==='propio'?'c-orange':''}">${fmtPct(c.margen)}</td>
+      <td style="font-weight:600;${c.marcado?'':'color:var(--muted);font-weight:400'}">${dis||nuevo==null?'—':nuevo.toLocaleString('es-UY')}${c.marcado&&dif?` <span style="font-size:11px;font-weight:400;color:${dif>0?'var(--green)':'var(--red)'}">${dif>0?'+':''}${dif}</span>`:''}</td>
+      <td style="font-size:12px;color:${c.tipo==='propio'?'var(--yellow)':'var(--muted)'}">${esc(c.nota)}</td></tr>`;
+  };
+  cont.innerHTML=`${propios.length?`<div style="background:rgba(251,191,36,0.08);border:1px solid rgba(251,191,36,0.35);border-radius:8px;padding:8px 12px;font-size:13px;margin-bottom:10px">⚠ <b>${propios.length} cupo${propios.length===1?' tiene':'s tienen'} un margen distinto al general (${fmtPct(_mg.ref)})</b>: ${propios.filter(c=>c.margen>_mg.ref).length} más alto, ${propios.filter(c=>c.margen<_mg.ref).length} más bajo. Vienen <b>sin marcar</b> (seguramente se editaron a mano a propósito): marcá los que quieras llevar al margen nuevo. <a href="#" style="color:var(--accent2)" onclick="event.preventDefault();_mg.cupos.forEach(c=>{if(c.tipo==='propio')c.marcado=true;});renderMargenTemporada()">Marcar todos</a></div>`:''}
+    ${noTocan.emitido+noTocan.sinneto+noTocan.viajo?`<div style="font-size:12px;color:var(--muted);margin-bottom:8px">No se tocan: ${[noTocan.emitido?`${noTocan.emitido} emitido${noTocan.emitido===1?'':'s'}`:'',noTocan.sinneto?`${noTocan.sinneto} sin neto`:'',noTocan.viajo?`${noTocan.viajo} que ya viajaron`:''].filter(Boolean).join(' · ')}.</div>`:''}
+    <div class="table-wrap" style="max-height:52vh;overflow:auto"><table><thead><tr><th></th><th>Cupo</th><th>Fecha</th><th>Neto</th><th>Precio actual</th><th>Margen actual</th><th>Precio nuevo</th><th></th></tr></thead><tbody>${_mg.cupos.map(fila).join('')}</tbody></table></div>
+    <div style="font-size:13px;margin-top:10px">${pct==null?'<span style="color:var(--muted)">Poné el margen para ver los precios nuevos.</span>':`Se van a poner al <b>${fmtPct(pct)}</b> <b>${marc.length}</b> de ${editables.length} cupos que se pueden tocar. Los vendedores ven el precio nuevo enseguida (no sale aviso por mail).`}</div>`;
+  const b=document.getElementById('btn-mg-aplicar'); if(b){b.disabled=pct==null||!marc.length;b.textContent=marc.length?`Aplicar a ${marc.length} cupo${marc.length===1?'':'s'}`:'Aplicar';}
+  const g=document.getElementById('btn-mg-guardar'); if(g) g.disabled=pct==null;
+}
+async function aplicarMargenTemporada(){
+  if(!_mg) return; const pct=_mgPctInput(); const ids=_mg.cupos.filter(c=>c.marcado).map(c=>c.id);
+  if(pct==null||!ids.length) return;
+  if(pct<0&&!confirm(`El margen es negativo (${fmtPct(pct)}): los precios quedarían por debajo del neto. ¿Seguís?`)) return;
+  if(!confirm(`Se van a cambiar los precios de venta de ${ids.length} cupo${ids.length===1?'':'s'} de ${_mg.nombre} al ${fmtPct(pct)} sobre el neto.\n\nLos vendedores ven el precio nuevo enseguida. ¿Seguís?`)) return;
+  const b=document.getElementById('btn-mg-aplicar'); b.disabled=true;
+  try{
+    await asegurarTokenFresco();
+    const {data,error}=await sb.rpc('admin_aplicar_margen_temporada',{p_temporada_id:_mg.temporada,p_margen:pct,p_vuelo_ids:ids});
+    if(error){mostrarAlerta('modal-mg-alert','No se pudo aplicar: '+error.message,'error');b.disabled=false;return;}
+    const salt=(data.saltados||[]);
+    await abrirMargenTemporada();   // se recarga con los precios nuevos (y limpia los avisos: el de "Listo" va después)
+    mostrarAlerta('modal-mg-alert',`Listo: ${data.aplicados} cupo${data.aplicados===1?'':'s'} al ${fmtPct(pct)} (${data.cambiaron} cambiaron de precio).${salt.length?' No se tocaron: '+salt.map(s=>`${s.cupo} (${s.motivo})`).join(', ')+'.':''}`,'success');
+    if(typeof cargarVuelos==='function'){vuelosCargado=false;cargarVuelos();}
+  }finally{b.disabled=false;}
+}
+async function guardarSoloMargen(){
+  if(!_mg) return; const pct=_mgPctInput(); if(pct==null) return;
+  await asegurarTokenFresco();
+  const {error}=await sb.rpc('admin_guardar_margen_temporada',{p_temporada_id:_mg.temporada,p_margen:pct});
+  if(error){mostrarAlerta('modal-mg-alert','No se pudo guardar: '+error.message,'error');return;}
+  _mg.guardado=pct; mostrarAlerta('modal-mg-alert',`Margen de la temporada guardado: ${fmtPct(pct)}. No se cambió ningún precio; los cupos nuevos que se carguen con neto lo van a proponer.`,'success');
+  renderMargenTemporada();
 }
 
 function renderVuelos(lista){
@@ -6509,6 +6664,7 @@ async function abrirEditarVuelo(vueloId,opts){
       document.getElementById('v-precio').value=tanda?'':(v.precio||'');
       const {data:pnEdit}=tanda?{data:null}:await sb.rpc('admin_get_precio_neto',{p_vuelo_id:vueloId});
       document.getElementById('v-precio-neto').value=pnEdit||'';
+      _margenFormCargar();   // b135: margen de la temporada (si el precio ya viene cargado, se respeta: es manual)
       document.getElementById('v-cal-pago').value=v.cal_dias_pago_final??'';
       document.getElementById('v-cal-cancel-sin').value=v.cal_dias_cancel_sin_gastos??'';
       document.getElementById('v-cal-cancel-con').value=v.cal_dias_cancel_con_gastos??'';
@@ -6596,6 +6752,7 @@ async function abrirModalVuelo(){
   aplicarDefectoSalida();  // b98: "sale en 2 semanas" queda apagado hasta que se elija una aerolínea con voucher
   document.getElementById('v-visible').value='true';
   nombreCupoManual=false;_regresoPrevio=null;_itiAlAbrir=null;
+  _margenFormCargar();   // b135: con el margen de la temporada, el precio se propone solo al cargar el neto
   _modoTanda=false;prepararCampoTanda(null,null);   // b101: el alta normal no es tanda
   document.getElementById('tramos-wrap').innerHTML='';
   tramosCount=0;
@@ -7483,6 +7640,28 @@ async function abrirModalMasivo(){
   document.getElementById('modal-m-alert').innerHTML='';
   document.getElementById('btn-crear-masivo').style.display='none';
   document.getElementById('modal-masivo').style.display='flex';
+  _margenMasivoCargar();   // b135
+}
+// b135: en la carga masiva, el margen de la temporada calcula los precios desde los netos (después se pueden
+// cambiar a mano, fila por fila). Al crear, el % queda guardado como margen de la temporada.
+let _mgMasivo=null;
+async function _margenMasivoCargar(){
+  const t=document.getElementById('m-temporada')?.value; _mgMasivo=null;
+  if(t&&rolEfectivo==='admin'){try{const {data}=await sb.rpc('admin_margen_de_temporada',{p_temporada_id:t});_mgMasivo=data==null?null:Number(data);}catch(e){}}
+  const inp=document.getElementById('m-margen'); if(inp&&!inp.dataset.tocado) inp.value=_mgMasivo??'';
+}
+function calcularPreciosMasivo(){
+  const m=parseFloat(String(document.getElementById('m-margen')?.value||'').replace(',','.'));
+  if(!Number.isFinite(m)){mostrarAlerta('modal-m-alert','Poné el margen (%) para calcular los precios.','error');return;}
+  const filas=cuposMasivosDraft.map((d,i)=>({i,neto:parseFloat(document.getElementById(`m-net-${i}`)?.value),pre:document.getElementById(`m-pre-${i}`)}));
+  const conNeto=filas.filter(f=>f.neto>0&&f.pre);
+  if(!conNeto.length){mostrarAlerta('modal-m-alert','Ninguna fila tiene neto: cargá los netos primero.','error');return;}
+  const pisa=conNeto.filter(f=>f.pre.value!==''&&Number(f.pre.value)!==precioConMargen(f.neto,m));
+  if(pisa.length&&!confirm(`${pisa.length} fila${pisa.length===1?' ya tiene':'s ya tienen'} un precio distinto al que da el ${fmtPct(m)}. ¿Las piso también?\n\n(Cancelar = solo completar las que están vacías)`)){
+    conNeto.filter(f=>f.pre.value==='').forEach(f=>{f.pre.value=precioConMargen(f.neto,m);});
+  }else conNeto.forEach(f=>{f.pre.value=precioConMargen(f.neto,m);});
+  const sinNeto=filas.length-conNeto.length;
+  mostrarAlerta('modal-m-alert',`Precios calculados con ${fmtPct(m)} sobre el neto${sinNeto?` · ${sinNeto} fila${sinNeto===1?'':'s'} sin neto quedaron como estaban`:''}. Podés cambiar cualquiera a mano antes de crear.`,'success');
 }
 
 // Fecha ISO con año inferido (si ya pasó este año, usa el próximo)
@@ -7578,6 +7757,12 @@ function renderPreviewMasivo(){
     </tr>`;
   });
   html+='</tbody></table></div><div style="font-size:11px;color:var(--muted);margin-bottom:8px">Revisá especialmente Ciudad/Región (cuando el destino es un paquete). <b style="color:var(--orange)">Si el PNR no trajo los lugares, el campo queda vacío y en rojo: completalo a mano (consultá) — no se asume ningún número.</b> Destildá los que no quieras crear.</div>';
+  // b135: margen de la temporada → precios desde los netos (solo admin; la carga masiva ya es de admin)
+  if(rolEfectivo==='admin') html=`<div style="display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:8px 12px;margin-bottom:10px">
+      <div class="form-group" style="margin:0"><label class="form-label">Margen de la temporada (%)</label><input class="form-input" id="m-margen" type="number" step="0.5" style="width:110px;padding:5px 8px" value="${_mgMasivo??''}" placeholder="Ej: 25" oninput="this.dataset.tocado='1'"/></div>
+      <button type="button" class="btn btn-outline" style="padding:6px 12px;font-size:12px" onclick="calcularPreciosMasivo()">Calcular precios desde el neto</button>
+      <span style="font-size:11px;color:var(--muted);max-width:430px">Precio = neto + margen, redondeado al dólar. Después podés cambiar cualquiera a mano. Si no ponés precio, el cupo se crea solo con el neto.</span>
+    </div>`+html;
   if(avisosAnio>0)html=`<div style="background:rgba(255,128,0,0.08);border:1px solid rgba(255,128,0,0.25);border-radius:8px;padding:8px 12px;font-size:12px;color:var(--orange);margin-bottom:10px">⚠ ${avisosAnio} cupo(s) con <b>año inferido distinto al de la temporada</b> (el PNR no trae año). Confirmá esas fechas antes de crear.</div>`+html;
   document.getElementById('m-preview').innerHTML=html;
 }
@@ -7605,6 +7790,10 @@ async function crearCuposMasivos(){
   if(!filas.length){mostrarAlerta('modal-m-alert','Marcá al menos un cupo para crear','error');return;}
   const malos=filas.filter(f=>!f.nombre||!f.total_lugares||f.total_lugares<1);
   if(malos.length){mostrarAlerta('modal-m-alert',`${malos.length} cupo(s) sin completar (nombre o total de lugares). Si el PNR no trajo los lugares, completá el número a mano — no se asume ninguno.`,'error');return;}
+  // b135: se puede crear solo con el neto, pero se avisa: el vendedor lo vería sin precio hasta que se lo pongan.
+  const sinPrecio=filas.filter(f=>f.precio==null).length;
+  if(sinPrecio&&!confirm(`${sinPrecio} cupo${sinPrecio===1?'':'s'} se ${sinPrecio===1?'crea':'crean'} SIN precio de venta: los vendedores ${sinPrecio===1?'lo':'los'} van a ver sin precio hasta que se lo pongas (a mano o con "💲 Margen de la temporada" en el listado).\n\n¿Crear igual?`)) return;
+  const margenMasivo=parseFloat(String(document.getElementById('m-margen')?.value||'').replace(',','.'));
   setBtnLoading('btn-crear-masivo',true,'Crear cupos');
   await asegurarTokenFresco();
   let ok=0; const errores=[]; cuposMasivosCreados=[];
@@ -7626,6 +7815,8 @@ async function crearCuposMasivos(){
     }catch(e){errores.push(`${f.nombre}: ${e.message}`);}
   }
   setBtnLoading('btn-crear-masivo',false,'Crear cupos');
+  // b135: el % usado queda como margen de la temporada (lo proponen los cupos que se carguen después). Si falla, no frena nada.
+  if(ok>0&&Number.isFinite(margenMasivo)&&rolEfectivo==='admin'){try{await sb.rpc('admin_guardar_margen_temporada',{p_temporada_id:temporada_id,p_margen:margenMasivo});}catch(e){}}
   if(errores.length){
     mostrarAlerta('modal-m-alert',`Creados ${ok}/${filas.length}. Errores: ${errores.join(' | ')}`,ok>0?'success':'error');
   }else{
