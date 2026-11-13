@@ -7736,7 +7736,7 @@ function renderPreviewMasivo(){
   const _mAnio=_tempNombre.match(/20\d{2}/);
   const anioRef=_mAnio?parseInt(_mAnio[0]):ahoraUY().getFullYear();
   let avisosAnio=0;
-  let html='<div class="table-wrap" style="margin-bottom:14px"><table><thead><tr><th>✓</th><th>Nombre</th><th>Región</th><th>Ciudad</th><th>Aerolínea</th><th>Fecha</th><th>Localiz.</th><th>Lugares</th><th>Precio</th><th>Neto</th><th>Tramos</th></tr></thead><tbody>';
+  let html='<div class="table-wrap" style="margin-bottom:14px"><table><thead><tr><th>✓</th><th>Nombre</th><th>Región</th><th>Ciudad</th><th>Aerolínea</th><th>Fecha</th><th>Localiz.</th><th>Lugares</th><th>Neto</th><th>Precio</th><th>Tramos</th></tr></thead><tbody>';
   cuposMasivosDraft.forEach((d,i)=>{
     const lugDetectado=d.total_lugares>0;const lug=lugDetectado?d.total_lugares:'';
     const anioInf=d.fecha?parseInt(String(d.fecha).slice(0,4)):null;
@@ -7751,8 +7751,8 @@ function renderPreviewMasivo(){
       <td><input class="form-input" id="m-fec-${i}" type="date" value="${esc(d.fecha)}" title="${avisoAnio?`⚠ El PNR no trae año: se infirió ${anioInf}, pero la temporada apunta a ${anioRef}. Confirmá la fecha.`:''}" style="padding:5px 8px;font-size:12px${avisoAnio?';border-color:var(--orange);background:rgba(255,128,0,0.08)':''}"/>${avisoAnio?`<div style="font-size:10px;color:var(--orange);margin-top:2px">⚠ año inferido ${anioInf} ≠ ${anioRef}</div>`:''}</td>
       <td><input class="form-input" id="m-loc-${i}" value="${esc(d.localizador)}" style="width:78px;padding:5px 8px;font-size:12px"/></td>
       <td><input class="form-input" id="m-lug-${i}" type="number" min="1" value="${lug}" placeholder="?" title="${lugDetectado?'':'El PNR no trajo los lugares — completá el número (consultá), no se asume ninguno'}" style="width:62px;padding:5px 8px;font-size:12px${lugDetectado?'':';border-color:var(--red);background:rgba(255,59,59,0.08)'}"/></td>
-      <td><input class="form-input" id="m-pre-${i}" type="number" min="0" value="${d.precio}" placeholder="—" style="width:68px;padding:5px 8px;font-size:12px"/></td>
       <td><input class="form-input" id="m-net-${i}" type="number" min="0" value="${d.precio_neto}" placeholder="—" style="width:68px;padding:5px 8px;font-size:12px"/></td>
+      <td><input class="form-input" id="m-pre-${i}" type="number" min="0" value="${d.precio}" placeholder="—" style="width:68px;padding:5px 8px;font-size:12px"/></td>
       <td style="text-align:center;color:var(--muted)">${d.itinerario.length}</td>
     </tr>`;
   });
